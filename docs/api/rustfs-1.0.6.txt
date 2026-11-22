@@ -1,0 +1,40 @@
+# RustFS 1.0.6: route table read from the rustfs binary (strings, adjacent strings split at
+# path/action boundaries; one artefact 'exportsort' dropped; identical to 1.0.5, compared 2026-11-19). HTTP methods are not in the binary
+# (ANY). Every path also exists under /_iceberg/v1 (compatibility endpoint).
+ANY /iceberg/v1/buckets/{warehouse}
+ANY /iceberg/v1/config
+ANY /iceberg/v1/{warehouse}/catalog/backup
+ANY /iceberg/v1/{warehouse}/catalog/backup/export
+ANY /iceberg/v1/{warehouse}/catalog/backup/import
+ANY /iceberg/v1/{warehouse}/catalog/backup/prepare
+ANY /iceberg/v1/{warehouse}/catalog/directory
+ANY /iceberg/v1/{warehouse}/catalog/restore
+ANY /iceberg/v1/{warehouse}/catalog/warehouse-index/backfill
+ANY /iceberg/v1/{warehouse}/namespaces
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/properties
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/register
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/diagnostics
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/export
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/external
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/external/sync
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/import
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/recovery
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/catalog/rollback
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/credentials
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/config
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/jobs/{job}
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/jobs/{job}/heartbeat
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/jobs/{job}/quarantine
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/metadata
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/scheduler
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/scheduler/run
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/maintenance/worker/run
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/metadata-location
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/refs
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/refs/{ref}
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/views
+ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/views/{view}
+ANY /iceberg/v1/{warehouse}/tables/rename

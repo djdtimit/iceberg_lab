@@ -1,0 +1,11 @@
+__pycache__/
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+*.log
+.ruff_cache/
+reports/
+spark-warehouse/
+scripts/dashboard/data/
+scripts/dashboard/check_*.js
+node_modules/

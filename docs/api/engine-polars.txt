@@ -1,0 +1,4 @@
+DataFrame.write_iceberg
+LazyFrame.sink_iceberg
+pl.delete_iceberg
+pl.scan_iceberg

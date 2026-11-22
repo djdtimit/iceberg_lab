@@ -1,0 +1,517 @@
+name: iceberg-lab
+
+x-lakekeeper-env: &lakekeeper-env
+  LAKEKEEPER__PG_ENCRYPTION_KEY: "This-is-NOT-Secure!"
+  LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://postgres:postgres@db:5432/postgres
+  LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://postgres:postgres@db:5432/postgres
+  # URL that clients use for remote signing etc. Must be reachable from inside the compose network.
+  LAKEKEEPER__BASE_URI: http://lakekeeper:8181
+  RUST_LOG: info
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sleep infinity
+    init: true  # reaps the JVMs PySpark leaves behind (else hundreds of zombie processes)
+    volumes:
+      - ..:/workspaces/iceberg_lab:cached
+      - uv-cache:/home/vscode/.cache/uv
+      - ivy-cache:/home/vscode/.ivy2
+    environment:
+      LAKEKEEPER_URL: http://lakekeeper:8181
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY: rustfsadmin
+      S3_SECRET_KEY: rustfsadmin
+      S3_REGION: us-east-1
+      S3_BUCKET: warehouse
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
+  rustfs:
+    image: rustfs/rustfs:1.0.6
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      # Virtual-host requests (<bucket>.s3.<region>.amazonaws.com) that reach RustFS through
+      # the Unity profile's AWS-emulating gateway (unity/envoy.yaml). Requests to rustfs:9000
+      # stay path-style, so nothing else changes.
+      RUSTFS_SERVER_DOMAINS: s3.us-east-1.amazonaws.com,s3.amazonaws.com
+      # Keycloak identities (realm "iceberg") get temporary keys via STS AssumeRoleWithWebIdentity;
+      # their IAM policy is the token's "rustfs_policy" claim (authz/keycloak/realm.json). Only
+      # tokens issued for audience "rustfs" are accepted (tests/security/test_security.py).
+      RUSTFS_IDENTITY_OPENID_ENABLE: "on"
+      RUSTFS_IDENTITY_OPENID_CONFIG_URL: http://keycloak:8080/realms/iceberg/.well-known/openid-configuration
+      RUSTFS_IDENTITY_OPENID_CLIENT_ID: rustfs
+      RUSTFS_IDENTITY_OPENID_CLAIM_NAME: rustfs_policy
+      RUSTFS_OUTBOUND_ALLOW_ORIGINS: http://keycloak:8080   # private address: allowed explicitly
+      RUST_LOG: info,rustfs_iam=debug
+    networks:
+      default:
+        aliases:
+          # DuckDB derives the SigV4 service from an AWS host name and cannot attach the RustFS
+          # catalog as "rustfs:9000" (a documented gap). The second RustFS run "behind the gaps"
+          # (LAB_BEHIND_GAPS=1, docs/test-architecture.md) attaches it under this name to see
+          # what DuckDB does after that first error. Not under RUSTFS_SERVER_DOMAINS' hosts the
+          # Unity gateway emulates.
+          - rustfs-lab.s3.us-east-1.amazonaws.com
+    volumes:
+      - rustfs-data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:v0.15.1
+    environment: *lakekeeper-env
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:v0.15.1
+    environment: *lakekeeper-env
+    command: ["serve"]
+    ports:
+      - "8181:8181"   # REST catalog (/catalog) + management API (/management) + UI (/ui)
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 2s
+      timeout: 10s
+      retries: 15
+      start_period: 3s
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+
+  # ---- profile polaris: Apache Polaris as a second Iceberg REST catalog on the same RustFS.
+  # Start: docker compose --profile polaris up -d polaris   (setup: python -m iceberg_lab.polaris)
+  polaris:
+    image: apache/polaris:1.9.0
+    profiles: ["polaris"]
+    mem_limit: 1g
+    environment:
+      # Polaris itself uses these keys for STS AssumeRole (credential vending) on RustFS.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      # realm,client-id,client-secret of the root principal (lab only)
+      POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,root,s3cr3t
+      polaris.realm-context.realms: POLARIS
+      quarkus.otel.sdk.disabled: "true"
+      # Catalog federation (off by default): EXTERNAL catalogs that forward to another
+      # Iceberg REST catalog - here Lakekeeper (tests/catalog/test_catalog_features.py::test_federation).
+      'polaris.features."ENABLE_CATALOG_FEDERATION"': "true"
+      'polaris.features."SUPPORTED_CATALOG_CONNECTION_TYPES"': '["ICEBERG_REST"]'
+      'polaris.features."SUPPORTED_EXTERNAL_CATALOG_AUTHENTICATION_TYPES"': '["OAUTH","BEARER","SIGV4"]'
+      # Keycloak as external identity provider NEXT TO Polaris' own token broker ("mixed":
+      # internal tokens first, then OIDC). Only tokens for audience "polaris" (scope=polaris,
+      # src/iceberg_lab/keycloak.py); the principal is the token's client (azp), its roles are
+      # the ones granted to that principal in Polaris (scope "polaris" -> PRINCIPAL_ROLE:ALL).
+      polaris.authentication.type: mixed
+      quarkus.oidc.tenant-enabled: "true"
+      quarkus.oidc.auth-server-url: http://keycloak:8080/realms/iceberg
+      quarkus.oidc.client-id: polaris
+      quarkus.oidc.token.audience: polaris
+      quarkus.oidc.roles.role-claim-path: scope
+      polaris.oidc.principal-mapper.name-claim-path: azp
+      # Scope "polaris-role-<name>" (Keycloak client rbac-idp) -> PRINCIPAL_ROLE:<name>, a role
+      # the principal is NOT assigned in Polaris: tests/security/test_rbac.py::test_idp_role_is_a_catalog_role.
+      polaris.oidc.principal-roles-mapper.filter: "^polaris(-role-.+)?$"
+      'polaris.oidc.principal-roles-mapper.mappings[0].regex': "^polaris$"
+      'polaris.oidc.principal-roles-mapper.mappings[0].replacement': "PRINCIPAL_ROLE:ALL"
+      'polaris.oidc.principal-roles-mapper.mappings[1].regex': "^polaris-role-(.+)$"
+      'polaris.oidc.principal-roles-mapper.mappings[1].replacement': "PRINCIPAL_ROLE:$$1"  # $$ = literal $ in compose
+    ports:
+      - "8183:8181"   # Iceberg REST (/api/catalog) + management API (/api/management)
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8182/q/health"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      rustfs:
+        condition: service_started
+
+  # ---- profile authz: a SECOND Lakekeeper with authentication (Keycloak) and authorization
+  # (OpenFGA), for tests/security/test_authz.py. The main Lakekeeper above stays open (allow-all), so
+  # the other tests are unaffected. Start: docker compose --profile authz up -d lakekeeper-authz
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    profiles: ["authz", "unity"]  # unity: identities of unitycatalog-authz
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    # Realm "iceberg" with service accounts lab-admin, alice, bob (authz/keycloak/realm.json)
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    volumes:
+      - ../authz/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "30080:8080"
+    healthcheck:
+      # the image has no curl: plain HTTP over bash's /dev/tcp against the management port
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  openfga:
+    image: openfga/openfga:v1.22.1
+    profiles: ["authz"]
+    command: ["run"]
+    environment:
+      # Lab: in-memory store, no authentication. A restart loses the model -> rerun migrate.
+      OPENFGA_DATASTORE_ENGINE: memory
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+      OPENFGA_AUTHN_METHOD: none
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=openfga:8081"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  db-authz:
+    image: postgres:17
+    profiles: ["authz"]
+    environment:
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  lakekeeper-authz-migrate:
+    image: quay.io/lakekeeper/catalog:v0.15.1
+    profiles: ["authz"]
+    environment: &lakekeeper-authz-env
+      LAKEKEEPER__PG_ENCRYPTION_KEY: "This-is-NOT-Secure!"
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://postgres:postgres@db-authz:5432/postgres
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://postgres:postgres@db-authz:5432/postgres
+      LAKEKEEPER__BASE_URI: http://lakekeeper-authz:8181
+      LAKEKEEPER__AUTHZ_BACKEND: openfga
+      LAKEKEEPER__OPENFGA__ENDPOINT: http://openfga:8081
+      LAKEKEEPER__OPENID_PROVIDER_URI: http://keycloak:8080/realms/iceberg
+      LAKEKEEPER__OPENID_AUDIENCE: lakekeeper
+      # Roles from the token (claim lab_roles, Keycloak client rbac-idp) become Lakekeeper roles
+      # "oidc~<name>" - tests/security/test_rbac.py::test_idp_role_is_a_catalog_role.
+      LAKEKEEPER__OPENID_ROLES_CLAIM: lab_roles
+      # Instance admin (maintenance mode, managed-by - test_catalog_features.py): the Keycloak
+      # service account of client "lab-admin"; its user id is fixed in authz/keycloak/realm.json.
+      LAKEKEEPER__INSTANCE_ADMINS: '["oidc~0b5f1a3e-0000-4000-8000-00000000a001"]'
+      RUST_LOG: info
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      db-authz:
+        condition: service_healthy
+      openfga:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  lakekeeper-authz:
+    image: quay.io/lakekeeper/catalog:v0.15.1
+    profiles: ["authz"]
+    environment: *lakekeeper-authz-env
+    command: ["serve"]
+    ports:
+      - "8282:8181"
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 2s
+      timeout: 10s
+      retries: 15
+      start_period: 3s
+    depends_on:
+      lakekeeper-authz-migrate:
+        condition: service_completed_successfully
+
+  # Optional, needs ~1-2 GB RAM: docker compose --profile trino up -d trino
+  trino:
+    image: trinodb/trino:484
+    # Trino's JVM takes 80 % of the container's memory (MaxRAMPercentage=80); without a
+    # limit that is 80 % of the whole host and other JVMs get OOM-killed
+    mem_limit: 3g
+    profiles: ["trino"]
+    volumes:
+      - ../trino/catalog:/etc/trino/catalog:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+
+  # Optional: Apache Flink 2.3 + Iceberg (JobManager, TaskManager, SQL Gateway on :8083).
+  #   docker compose --profile flink up -d --build flink
+  flink:
+    image: iceberg-lab/flink:2.3.0-iceberg1.12.0-hadoop3.5.0
+    build:
+      context: ../flink
+    # JobManager 1 GB + TaskManager 2.5 GB (flink/Dockerfile)
+    mem_limit: 4g
+    profiles: ["flink"]
+    environment:
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"   # no AWS credential-chain lookups outside AWS
+    ports:
+      - "8081:8081"   # Flink web UI
+      - "8083:8083"   # SQL Gateway REST API
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8083/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+
+  # Optional: Postgres 19 + pg_lake 3.7, built from source (see ../pg_lake/Dockerfile;
+  # first build ~1.5-2 h, run it alone).
+  #   docker compose --profile pglake up -d --build pg-lake
+  # One container runs Postgres and pgduck_server (embedded DuckDB for the data files).
+  pg-lake:
+    image: iceberg-lab/pg-lake:3.7.0-pg19
+    build:
+      context: ../pg_lake
+    # Postgres + pgduck_server (DuckDB memory_limit 2GB)
+    mem_limit: 3g
+    profiles: ["pglake"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust   # lab only
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "psql", "-U", "postgres", "-tAc", "select 1 from pg_extension where extname = 'pg_lake'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      - rustfs
+
+  # ---- profile unity: Unity Catalog OSS 0.7.0 (Iceberg REST at /api/2.1/unity-catalog/iceberg).
+  # Unity only talks to the real AWS host names (no endpoint override), so a gateway answers
+  # them inside this network and forwards to RustFS / an STS shim (see unity/envoy.yaml).
+  unity-certs:  # one-shot: local CA, leaf certificate for the AWS names, JVM truststore
+    image: eclipse-temurin:17-jdk-noble
+    profiles: ["unity"]
+    entrypoint: ["bash", "/certs.sh"]
+    environment:
+      CERT_DIR: /certs
+      CERT_HOSTS: "unitylab.s3.amazonaws.com unitylab.s3.us-east-1.amazonaws.com s3.amazonaws.com s3.us-east-1.amazonaws.com sts.amazonaws.com sts.us-east-1.amazonaws.com"
+    volumes:
+      - ../unity/certs.sh:/certs.sh:ro
+      - unity-certs:/certs
+
+  unity-gateway:
+    image: envoyproxy/envoy:v1.40-latest
+    profiles: ["unity"]
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+    volumes:
+      - ../unity/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - unity-certs:/certs:ro
+    depends_on:
+      unity-certs:
+        condition: service_completed_successfully
+    networks:
+      default:
+        aliases:  # compose DNS has no wildcards: every emulated host is listed
+          - unitylab.s3.amazonaws.com
+          - unitylab.s3.us-east-1.amazonaws.com
+          - s3.amazonaws.com
+          - s3.us-east-1.amazonaws.com
+          - sts.amazonaws.com
+          - sts.us-east-1.amazonaws.com
+    mem_limit: 256m
+
+  unity-sts-shim:  # expands Unity's session-policy wildcards RustFS cannot parse, re-signs
+    image: python:3.13-alpine
+    profiles: ["unity"]
+    init: true
+    command: ["python", "/sts_shim.py"]
+    environment:
+      STS_UPSTREAM: http://rustfs:9000
+      STS_ACCESS_KEY: rustfsadmin
+      STS_SECRET_KEY: rustfsadmin
+      AWS_REGION: us-east-1
+    volumes:
+      - ../unity/sts_shim.py:/sts_shim.py:ro
+    mem_limit: 128m
+
+  unitycatalog:
+    image: unitycatalog/unitycatalog:v0.7.0
+    profiles: ["unity"]
+    init: true  # the server ignores SIGTERM as PID 1
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Djavax.net.ssl.trustStore=/certs/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+        -XX:MaxRAMPercentage=70
+    volumes:
+      - ../unity/server.properties:/home/unitycatalog/etc/conf/server.properties:ro
+      - unity-certs:/certs:ro
+    ports:
+      - "8380:8080"   # Unity REST API + Iceberg REST (/api/2.1/unity-catalog/iceberg)
+    depends_on:
+      unity-certs:
+        condition: service_completed_successfully
+      unity-gateway:
+        condition: service_started
+      unity-sts-shim:
+        condition: service_started
+      rustfs:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/api/2.1/unity-catalog/catalogs || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    mem_limit: 1g
+
+  # Permission tests on Unity (tests/security/test_authz.py): a SECOND instance with authorization on,
+  # so the main instance stays open for every other test (same pattern as lakekeeper-authz).
+  # Its config dir is a volume: Unity writes its admin token there, the token shim reads it.
+  unitycatalog-authz:
+    image: unitycatalog/unitycatalog:v0.7.0
+    profiles: ["unity"]
+    init: true
+    networks:
+      default:
+        aliases:
+          - server  # the Unity UI's dev proxy targets http://server:8080 (fixed in its package.json)
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Djavax.net.ssl.trustStore=/certs/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit
+        -XX:MaxRAMPercentage=70
+    volumes:
+      - unity-authz-conf:/home/unitycatalog/etc/conf
+      - ../unity/server-authz.properties:/home/unitycatalog/etc/conf/server.properties:ro
+      - unity-certs:/certs:ro
+    depends_on:
+      unity-certs:
+        condition: service_completed_successfully
+      unity-gateway:
+        condition: service_started
+      unity-sts-shim:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    healthcheck:
+      # Any HTTP answer counts (without a token the API says 401).
+      test: ["CMD-SHELL", "wget -S --spider http://127.0.0.1:8080/api/2.1/unity-catalog/catalogs 2>&1 | grep -q 'HTTP/'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    mem_limit: 1g
+
+  unity-token-shim:  # client credentials -> Keycloak token -> Unity token (unity/token_shim.py)
+    image: python:3.13-alpine
+    profiles: ["unity"]
+    init: true
+    command: ["python", "/token_shim.py"]
+    environment:
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/iceberg/protocol/openid-connect/token
+      UNITY_URL: http://unitycatalog-authz:8080
+      UNITY_CONF: /conf
+    volumes:
+      - ../unity/token_shim.py:/token_shim.py:ro
+      - unity-authz-conf:/conf:ro
+    mem_limit: 128m
+
+  # Official Unity Catalog UI (unitycatalog/unitycatalog-ui, a React dev server; the project ships
+  # no other build). It serves the UI on :3000 and proxies /api/... to http://server:8080 - here
+  # the instance with authorization on. Pinned by digest: the image is only tagged "main".
+  unity-ui:
+    image: unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1
+    profiles: ["unity"]
+    init: true
+    environment:
+      BROWSER: none
+      CI: "true"  # react-scripts start without a terminal
+    ports:
+      - "3000:3000"
+    depends_on:
+      unitycatalog-authz:
+        condition: service_healthy
+    mem_limit: 2g
+
+  # Polaris Console (apache/polaris-tools console/; no published image - built by
+  # scripts/build_polaris_console.sh at a pinned commit). A static web app: the BROWSER calls
+  # Polaris directly, so the API URL is the one reachable from the host.
+  polaris-console:
+    image: iceberg-lab/polaris-console:823dddd5fa81
+    profiles: ["polaris"]
+    environment:
+      VITE_POLARIS_API_URL: http://localhost:8183
+      VITE_OAUTH_TOKEN_URL: http://localhost:8183/api/catalog/v1/oauth/tokens
+      VITE_POLARIS_REALM: POLARIS
+      VITE_POLARIS_PRINCIPAL_SCOPE: PRINCIPAL_ROLE:ALL
+    ports:
+      - "8184:8080"
+    depends_on:
+      - polaris
+    mem_limit: 128m
+
+  # ---- profile reference: the Apache Iceberg REST fixture (CATALOG=reference). Iceberg Java's
+  # own CatalogHandlers behind a thin HTTP server, JDBC catalog on SQLite - no authentication,
+  # no credential vending, no management API. It is the baseline: a gap that also shows here
+  # comes from the engine or from Iceberg itself, not from a catalog. Only published as
+  # "latest" (built from Iceberg main), hence pinned by digest. The SQLite file lives in the
+  # container (/tmp): it survives restarts, not a re-create - the tests create what they need.
+  reference:
+    image: apache/iceberg-rest-fixture@sha256:009f9f6897cc1e8fd6e8133c401c7a3e7c333c71293a621d06a71570ae989c29
+    profiles: ["reference"]
+    environment:
+      CATALOG_WAREHOUSE: s3://reference/wh
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://rustfs:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_REGION: us-east-1
+    ports:
+      - "8185:8181"   # Iceberg REST (/v1)
+    depends_on:
+      - rustfs
+    mem_limit: 768m
+
+volumes:
+  rustfs-data:
+  pg-data:
+  uv-cache:
+  ivy-cache:
+  unity-certs:
+  unity-authz-conf:

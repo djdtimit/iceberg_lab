@@ -1,0 +1,307 @@
+"""Iceberg views across engines: who can create one, and who can query whose view?
+
+An Iceberg view stores SQL text per *dialect* (``representations``) plus a default
+catalog/namespace. The spec does not require an engine to run another dialect's SQL, so a
+view is only portable if readers accept foreign dialects - which is what this matrix shows.
+
+For a fair comparison every creator writes the same, portable SQL: ``SELECT id FROM
+<namespace>.<base table> WHERE id > 1`` - without a catalog name. A view also stores the
+creator's session catalog as ``default-catalog``, and readers resolve unqualified names in
+a catalog of THAT name. So all engines here use the same catalog name (:data:`VIEW_CATALOG`:
+``sts`` on Lakekeeper, ``psts`` on Polaris, ``rsts`` on RustFS, ``usts`` on Unity); what happens
+when the names differ is shown by ``test_view_needs_matching_catalog_names``.
+
+``test_create_view[creator]``    the view exists in the catalog with the creator's dialect
+``test_read_view[creator-reader]`` the reader queries it and gets ``{2, 3}``
+
+Engines without any view support (PyIceberg can only manage view metadata, not run the SQL;
+Polars, Daft, pg_lake) are "no API".
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import uuid
+
+import pyarrow as pa
+import pytest
+
+from iceberg_lab.config import PROFILE, WAREHOUSE_STS
+from iceberg_lab.engines import pyiceberg_catalog
+
+from conftest import ENGINES, engine_param, expect_gap
+
+WAREHOUSE = WAREHOUSE_STS
+#: Engines with SQL views, and the dialect name they store.
+VIEW_ENGINES = {"spark": "spark", "trino": "trino", "duckdb": "duckdb", "flink": "flink"}
+
+# Filled from observed failures only: (creator, reader, regex, reason); first match wins.
+# fmt: off
+KNOWN_GAPS: list[tuple[str, str, str, str]] = [
+    *([("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "Unity Catalog OSS 0.7 offers only GET for views (no create/replace/drop endpoints) - no engine can create an Iceberg view")]
+      if PROFILE.name == "unity" else []),
+    ("*", "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "Trino only runs views that have a 'trino' SQL representation"),
+    ("*", "duckdb", r"no SQL representation with dialect 'duckdb'", "DuckDB only runs views that have a 'duckdb' SQL representation"),
+    *([(e, "create", r"view schema field id must be positive", f"RustFS catalog rejects {e.capitalize()}'s view schema (field id 0) - Lakekeeper and Polaris accept it")
+       for e in ("spark", "flink")]
+      if PROFILE.name == "rustfs" else []),
+]
+# fmt: on
+
+
+def _gap(creator, reader):
+    """``expect_gap`` for the matching documented gap (none: a plain block).
+
+    Args:
+        creator: Engine that created the view.
+        reader: Engine that reads.
+
+    Returns:
+        The context manager.
+    """
+    if creator == reader:  # an engine reading its own view: dialect gaps do not apply
+        return expect_gap(None, None)
+    for c, r, regex, reason in KNOWN_GAPS:
+        if fnmatch.fnmatch(creator, c) and fnmatch.fnmatch(reader, r):
+            return expect_gap(reason, regex)
+    return expect_gap(None, None)
+
+
+#: Catalog name every view engine uses: ``sts`` under Lakekeeper (Trino:
+#: ``trino/catalog/sts.properties``), ``psts`` under Polaris, ``rsts`` under RustFS
+#: - Trino catalogs are fixed files, so each catalog profile needs its own name there.
+VIEW_CATALOG = PROFILE.views_catalog
+
+
+def view_adapter(engine, pool):
+    """Adapter whose Iceberg catalog is called :data:`VIEW_CATALOG`.
+
+    Args:
+        engine: Engine name (see ``conftest.ENGINES``).
+        pool: Engine adapter pool.
+
+    Returns:
+        The adapter.
+    """
+    if engine == "duckdb":
+        from iceberg_lab.engines import DuckDBEngine
+
+        class _ViewDuckDB(DuckDBEngine):
+            alias = VIEW_CATALOG
+
+        return _ViewDuckDB(WAREHOUSE)
+    if engine == "trino":
+        import trino
+        from iceberg_lab.config import SETTINGS
+        from iceberg_lab.engines import TrinoEngine
+
+        e = TrinoEngine(WAREHOUSE)
+        e.catalog = VIEW_CATALOG
+        e.conn = trino.dbapi.connect(
+            host=SETTINGS.trino_host, port=SETTINGS.trino_port, user="tests", catalog=VIEW_CATALOG
+        )
+        return e
+    if engine == "spark":
+        from iceberg_lab.engines import SparkEngine
+
+        base = pool("spark")
+        if base.catalog != VIEW_CATALOG:
+            # Spark loads catalogs lazily from the session conf: register the same catalog
+            # (all spark.sql.catalog.<name>.* settings) under the view catalog name.
+            conf = base.spark.sparkContext.getConf().getAll()
+            prefix = f"spark.sql.catalog.{base.catalog}"
+            for k, v in conf:
+                if k == prefix or k.startswith(prefix + "."):
+                    base.spark.conf.set(f"spark.sql.catalog.{VIEW_CATALOG}{k[len(prefix) :]}", v)
+        e = SparkEngine(base.spark, WAREHOUSE)
+        e.catalog = VIEW_CATALOG
+        return e
+    if engine == "flink":
+        from iceberg_lab.config import SETTINGS, catalog_auth_props
+        from iceberg_lab.engines import FlinkEngine
+
+        e = FlinkEngine(WAREHOUSE)
+        if e.catalog != VIEW_CATALOG:
+            auth = "".join(f", '{k}'='{v}'" for k, v in catalog_auth_props(SETTINGS).items())
+            e.execute(
+                f"CREATE CATALOG {VIEW_CATALOG} WITH ('type'='iceberg', 'catalog-type'='rest', "
+                f"'uri'='{SETTINGS.catalog_uri}', 'warehouse'='{WAREHOUSE}'{auth})"
+            )
+            e.catalog = VIEW_CATALOG
+        return e
+    return pool(engine)
+
+
+@pytest.fixture(scope="module")
+def adapters(engine_pool):
+    """engine -> adapter with catalog name :data:`VIEW_CATALOG` (created lazily, closed at module end).
+
+    Args:
+        engine_pool: Session pool of engine adapters (conftest fixture).
+
+    Yields:
+        ``get(engine) -> adapter``.
+    """
+    made = {}
+
+    def get(engine):
+        """The engine's view adapter (created on first use).
+
+        Args:
+            engine: Engine name (see ``conftest.ENGINES``).
+
+        Returns:
+            The adapter.
+        """
+        if engine not in made:
+            made[engine] = view_adapter(engine, engine_pool)
+        return made[engine]
+
+    yield get
+    for name, a in made.items():
+        if name in ("duckdb", "trino", "flink"):
+            a.close()
+
+
+def _use(engine, adapter, ns):
+    """``(switch to the Iceberg catalog, switch back)`` statements for ``engine``'s session.
+
+    Args:
+        engine: Engine name (see ``conftest.ENGINES``).
+        adapter: Engine adapter.
+        ns: Namespace.
+
+    Returns:
+        ``(use statement, switch-back statement)``.
+    """
+    if engine == "spark":
+        return f"USE {adapter.catalog}", "USE spark_catalog.default"
+    if engine == "duckdb":
+        return f'USE {adapter.alias}."{ns}"', "USE memory"
+    if engine == "flink":
+        return f"USE CATALOG {adapter.catalog}", "USE CATALOG default_catalog"
+    return None, None  # Trino: the connection's default catalog is already VIEW_CATALOG
+
+
+@pytest.fixture(scope="module")
+def base_table(namespace):
+    """``(namespace, table)`` with ids 1..3, created by PyIceberg.
+
+    Args:
+        namespace: Namespace of the table (the session namespace for fixtures).
+
+    Returns:
+        ``(namespace, table)``.
+    """
+    name = f"vbase_{uuid.uuid4().hex[:6]}"
+    t = pyiceberg_catalog(WAREHOUSE).create_table(
+        f"{namespace}.{name}", schema=pa.schema([("id", pa.int64())])
+    )
+    t.append(pa.table({"id": [1, 2, 3]}))
+    return namespace, name
+
+
+@pytest.fixture(scope="module")
+def views():
+    """creator -> view name, for successfully created views.
+
+    Returns:
+        An empty dict.
+    """
+    return {}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("creator", [engine_param(e) for e in ENGINES])
+def test_create_view(creator, base_table, adapters, views):
+    """The creator creates a view with portable SQL; the catalog stores it with its dialect.
+
+    Checks:
+        * the view exists and one of its representations has the creator's SQL dialect.
+        Engines without view DDL: not offered.
+
+    Args:
+        creator: Engine that creates the view.
+        base_table: ``(namespace, table)`` with ids 1..3.
+        adapters: ``engine -> adapter`` with the shared view catalog name.
+        views: ``creator -> view name`` of the created views.
+    """
+    if creator not in VIEW_ENGINES:
+        pytest.skip(f"{creator} has no API for creating views")
+    ns, base = base_table
+    view = f"v_{creator}_{uuid.uuid4().hex[:6]}"
+    with _gap(creator, "create"):
+        e = adapters(creator)
+        use, reset = _use(creator, e, ns)
+        if use:
+            e.execute(use)
+        try:
+            e.execute(f"CREATE VIEW {e.fq(ns, view)} AS SELECT id FROM {ns}.{base} WHERE id > 1")
+        finally:
+            if reset:
+                e.execute(reset)
+        v = pyiceberg_catalog(WAREHOUSE).load_view((ns, view))
+        dialects = [r.root.dialect for r in v.metadata.versions[-1].representations]
+        assert VIEW_ENGINES[creator] in [d.lower() for d in dialects], dialects
+    views[creator] = view
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("reader", [engine_param(e) for e in ENGINES])
+@pytest.mark.parametrize("creator", [engine_param(e) for e in ENGINES])
+def test_read_view(creator, reader, base_table, adapters, views):
+    """The reader queries the creator's view and gets the rows of the view definition.
+
+    Checks:
+        * the reader returns ids 2 and 3.
+        Engines that cannot query views: not offered; skipped (blocked) if no view was created.
+
+    Args:
+        creator: Engine that creates the view.
+        reader: Engine that reads it.
+        base_table: ``(namespace, table)`` with ids 1..3.
+        adapters: ``engine -> adapter`` with the shared view catalog name.
+        views: ``creator -> view name`` of the created views.
+    """
+    if reader not in VIEW_ENGINES:
+        pytest.skip(f"{reader} has no API for querying views")
+    if creator not in views:
+        pytest.skip(f"{creator} did not create a view (see test_create_view)")
+    ns, _ = base_table
+    with _gap(creator, reader):
+        e = adapters(reader)
+        got = sorted(r[0] for r in e.execute(f"SELECT id FROM {e.fq(ns, views[creator])}"))
+        assert got == [2, 3]
+
+
+@pytest.mark.slow
+def test_view_needs_matching_catalog_names(base_table, engine_pool):
+    """A Trino view in catalog ``lk_sts`` cannot be resolved by Spark (catalog ``sts``).
+
+    Checks:
+        * Trino stores its catalog name as the view's default catalog;
+        * Spark's query fails because it cannot resolve that catalog (documented limitation of
+          engine-specific catalog names).
+
+    Args:
+        base_table: ``(namespace, table)`` with ids 1..3.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+    """
+    from conftest import require_engine
+
+    trino_cat = f"{PROFILE.trino_prefix}_sts"  # lk_sts / pol_sts
+    require_engine("trino")
+    require_engine("spark")
+    ns, base = base_table
+    tr = engine_pool("trino")  # catalog lk_sts / pol_sts
+    view = f"v_lk_{uuid.uuid4().hex[:6]}"
+    with _gap("trino", "create"):
+        tr.execute(f"CREATE VIEW {tr.fq(ns, view)} AS SELECT id FROM {ns}.{base} WHERE id > 1")
+    v = pyiceberg_catalog(WAREHOUSE).load_view((ns, view))
+    assert v.metadata.versions[-1].default_catalog == trino_cat
+    with expect_gap(
+        "Iceberg views store the creator's catalog name (default-catalog); Spark cannot "
+        "resolve a view created in Trino catalog 'lk_sts'/'pol_sts'",
+        r"REQUIRES_SINGLE_PART_NAMESPACE|TABLE_OR_VIEW_NOT_FOUND",
+    ):
+        engine_pool("spark").execute(f"SELECT id FROM {engine_pool('spark').fq(ns, view)}")

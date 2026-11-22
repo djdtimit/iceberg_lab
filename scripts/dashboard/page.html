@@ -1,0 +1,706 @@
+<meta name="dash-one-writer">
+<style>
+  .ev { display: flex; flex-direction: column; gap: var(--cds-gap-xl); }
+  .ev h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .ev h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0 0 var(--cds-gap-sm); text-wrap: balance; }
+  .ev .lede { font-size: var(--cds-font-size-body); max-width: 70ch; margin: var(--cds-gap-sm) 0 0; line-height: 1.5; }
+  .ev .lede b { font-variant-numeric: tabular-nums; }
+  .ev .note { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); max-width: 75ch; line-height: 1.5; margin: var(--cds-gap-xs) 0 0; }
+  .ev .help-col { background: var(--color-bg-muted, rgba(127,127,127,.08)); color: var(--color-fg-muted); }
+  .ev .card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .ev .scroll { overflow-x: auto; }
+  .ev table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--cds-font-size-caption); width: 100%; }
+  .ev th, .ev td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .ev th:first-child, .ev td:first-child { text-align: left; }
+  .ev thead th { color: var(--color-fg-muted); font-weight: var(--cds-font-weight-medium); }
+  .ev .total td { font-weight: var(--cds-font-weight-medium); }
+  .ev .st { display: inline-block; min-width: 2.6em; padding: 2px 6px; border-radius: 999px; }
+  .ev .st-pass { color: var(--color-ok); }
+  .ev .st-gap { color: var(--color-bad); }
+  .ev .st-part { color: var(--color-warn); }
+  .ev .st-new { color: var(--color-bg); background: var(--color-warn); }
+  .ev .st-fixed { color: var(--color-ok); font-weight: var(--cds-font-weight-medium); }
+  .ev .st-na, .ev .st-blocked { color: var(--color-fg-muted); }
+  .ev .legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-sm); }
+  .ev .chartbox { position: relative; min-height: 240px; }
+  .ev .chartbox svg text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); }
+  .ev .tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: 8px 10px; font-size: var(--cds-font-size-caption); max-width: 320px; white-space: normal; z-index: 2; line-height: 1.4; }
+  .ev .controls { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; margin-bottom: var(--cds-gap-sm); }
+  .ev .matrixbox { position: relative; min-height: 120px; }
+  .ev .matrixbox td.cell { cursor: default; }
+  .ev .gaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--cds-gap-md); }
+  .ev .gaps h3 { font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); margin: 0 0 var(--cds-gap-xs); }
+  .ev .gaps ul, .ev .news { margin: 0; padding-left: 1.1em; font-size: var(--cds-font-size-caption); line-height: 1.5; }
+  .ev .gaps li { margin-bottom: 2px; }
+  .ev .count { color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+  .ev code { font-size: 0.92em; }
+  [data-dash-source-state=refreshing] { opacity: .5; }
+</style>
+
+<div class="ev">
+  <header id="header">
+    <h1>Iceberg: four catalogs × eight engines</h1>
+    <p class="lede">Of <b data-draw="t-offered" data-source="totals" data-field="offered" data-row="0">—</b> test cases the engines offer, <b data-draw="t-works" data-source="totals" data-field="works" data-row="0">—</b> work (<b data-draw="t-share" data-source="totals" data-field="reliability" data-row="0">—</b>). <b data-draw="t-gaps" data-source="totals" data-field="gaps" data-row="0">—</b> fail on documented gaps, <b data-draw="t-new" data-source="totals" data-field="news" data-row="0">—</b> are new failures, and for <b data-draw="t-na" data-source="totals" data-field="na" data-row="0">—</b> further cases an engine lacks the capability. <b data-draw="t-blocked" data-source="totals" data-field="blocked" data-row="0">—</b> cases were not testable because a step before failed (mostly: the writing engine); they count as not working for coverage.</p>
+    <p class="note">Eight engines on four Iceberg REST catalogs (Lakekeeper v0.15.1, Apache Polaris 1.9.0, the built-in catalog of RustFS 1.0.6 and Unity Catalog OSS 0.7.0) with the same object storage (RustFS). Every engine runs the same test cases in every area and writes the starting data itself; what a catalog does not offer counts as "not offered". The numbers above, the overview, the single results and the gaps apply to the chosen catalog. Special features of single catalogs or engines, demo notebooks and lab self-tests do not count; they are listed separately further down.</p>
+    <div class="controls" id="catalog">
+      <label for="catalog-pick" class="count">Catalog</label>
+      <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option></select>
+    </div>
+  </header>
+
+  <section id="overview" class="card">
+    <h2>Coverage per area: works / all cases</h2>
+    <div class="scroll">
+      <table data-source="summary">
+        <thead><tr><th>Area</th><th>PyIceberg</th><th>DuckDB</th><th>Polars</th><th>Daft</th><th>Spark</th><th>Trino</th><th>pg_lake</th><th>Flink</th></tr></thead>
+        <tbody data-draw="summary-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="engines" class="card">
+    <h2>All test cases per engine</h2>
+    <div class="chartbox" data-draw="engine-chart" data-source="by_engine"></div>
+    <div class="legend"><span><span class="st st-pass">■</span> works</span><span><span class="st st-gap">■</span> documented gap</span><span><span class="st st-part">■</span> new failure</span><span><span class="st st-na">■</span> not offered</span></div>
+  </section>
+
+  <section id="matrix" class="card">
+    <h2>Single results</h2>
+    <div class="controls">
+      <label for="area-pick" class="count">Area</label>
+      <select id="area-pick" class="dash-select" data-draw="area-pick" aria-label="Area" data-source="cells"></select>
+    </div>
+    <div class="scroll matrixbox" data-draw="matrix" data-source="cells"></div>
+    <div class="legend"><span><span class="st st-pass">✓</span> works</span><span><span class="st st-gap">✗</span> documented gap</span><span><span class="st st-part">◐</span> partly (over several writers)</span><span><span class="st st-new">!</span> new failure</span><span><span class="st st-fixed">🔧</span> gap fixed</span><span><span class="st st-na">—</span> no API / no type</span><span><span class="st st-blocked">·</span> not tested</span></div>
+  </section>
+
+  <section id="gaps" class="card">
+    <h2>Documented gaps per engine</h2>
+    <div class="gaps" data-draw="gaps" data-source="gaps"></div>
+  </section>
+
+  <section id="catalogs" class="card">
+    <h2>The four catalogs compared</h2>
+    <p class="note">Works / all cases per engine and catalog (not offered and not testable cases count). Below, every capability whose result differs between the catalogs. Some engines connect to a catalog only with a sensible lab workaround (RustFS: PyIceberg, Polars, Daft, DuckDB). A test that works with it counts as working. The grey column <b>without help</b> next to the catalog shows the same tests without the workaround; it does not count. Whether an engine connects without help at all is shown by the area "Connection without help".</p>
+    <div class="scroll">
+      <table data-source="catalog_compare">
+        <thead><tr><th>Engine</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="rustfs_nohelp" class="help-col" title="Same tests without lab help: PyIceberg, Polars, Daft and DuckDB without their workaround - not counted">without help</th><th data-field="unity">Unity</th></tr></thead>
+        <tbody data-draw="catalog-compare-body"></tbody>
+      </table>
+    </div>
+    <h2 style="margin-top: var(--cds-gap-lg)">Differences between the catalogs</h2>
+    <div class="scroll">
+      <table data-source="catalog_diff">
+        <thead><tr><th data-field="area">Area</th><th data-field="capability">Capability</th><th data-field="engine">Engine</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="rustfs_nohelp" class="help-col" title="Same tests without lab help - not counted">without help</th><th data-field="unity">Unity</th><th data-field="detail">Cause</th></tr></thead>
+        <tbody data-draw="catalog-diff-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="catalog-level" class="card">
+    <h2>Catalog level: functions without an engine</h2>
+    <p class="note">Base tests that talk to the catalog directly (REST functions, administration, authorization, security, storage faults, scan planning, object storage, reach of the credentials) – the same for all four catalogs.</p>
+    <div class="scroll">
+      <table data-source="catalog_level">
+        <thead><tr><th data-field="area">Area</th><th data-field="capability">Capability</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="detail">Cause</th></tr></thead>
+        <tbody data-draw="catalog-level-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="specials" class="card">
+    <h2>Special features (not in the comparison)</h2>
+    <p class="note">What only one catalog or only one engine has, tested separately. "—" means: this catalog does not offer it.</p>
+    <div class="scroll">
+      <table data-source="specials">
+        <thead><tr><th data-field="owner">Applies to</th><th data-field="capability">Capability</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="detail">Cause</th></tr></thead>
+        <tbody data-draw="specials-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="scope" class="card">
+    <h2>Scope of the catalogs (feature inventory)</h2>
+    <p class="note">Every endpoint from the API descriptions belongs to exactly one capability. ✓ described and implemented, ◐ described but not implemented by the server, – not offered. Whether it works in detail is shown by the tests above.</p>
+    <div class="scroll">
+      <table data-source="inventory_counts" data-row-key="measure">
+        <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th></tr></thead>
+        <tbody data-draw="inventory-counts-body"></tbody>
+      </table>
+    </div>
+    <div class="scroll" style="margin-top: var(--cds-gap-md)">
+      <table data-source="inventory" data-row-key="capability">
+        <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="note">Note</th></tr></thead>
+        <tbody data-draw="inventory-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="news" class="card">
+    <h2>New failures and fixed gaps</h2>
+    <ul class="news" data-draw="news" data-source="news"></ul>
+  </section>
+</div>
+
+<script>
+  window.EV = {
+    engines: ['pyiceberg', 'duckdb', 'polars', 'daft', 'spark', 'trino', 'pg_lake', 'flink'],
+    areas: ['Access modes', 'Interop (one writes, all read)', 'Write types', 'Read types', 'Read types (neutral source)', 'Read results (neutral source)', 'Type fidelity', 'Write file formats', 'Read file formats', 'Operations', 'Read others\' results', 'v3 features', 'Write partitions', 'Read partitions', 'Read partitions (neutral source)', 'Schema evolution', 'Partition evolution', 'Read evolution (neutral source)', 'Maintenance', 'Read others\' maintenance results', 'Read maintenance results (neutral source)', 'Concurrent commits', 'Re-create with an open session', 'Branch isolation', 'Transactions (several tables)', 'Write-Audit-Publish', 'Incremental & streaming', 'File layout', 'Files per specification', 'Views', 'Namespaces', 'Statistics', 'STS reach', 'STS expiry', 'Credentials: reach and signing', 'Connection without help', 'Catalog functions', 'Catalog administration', 'Security', 'Catalog consistency', 'Storage faults (catalog)', 'Scan planning (server)', 'Object storage (S3 behaviour)', 'Type check by the catalog', 'Robustness (catalog faults)', 'Authorization', 'Write large files', 'Read large files', 'Performance (correctness only)'],
+    catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity'],
+    // Comparison columns: each catalog (with the lab's helps - a test that works with a sensible
+    // workaround counts), followed by its run without help (catalog "<cat>_nohelp",
+    // LAB_NO_HELP=1) where the lab helps an engine over a connection gap. Those columns are
+    // shown, never counted. Engines per catalog as in iceberg_lab.config.HELPS.
+    cols: ['lakekeeper', 'polaris', 'rustfs', 'rustfs_nohelp', 'unity'],
+    helps: { rustfs_nohelp: ['pyiceberg', 'polars', 'daft', 'duckdb'] },
+    isHelp: (c) => String(c).endsWith('_nohelp'),
+    counted: (s) => s === 'pass' || s === 'gap' || s === 'new' || s === 'fixed',
+    // Reported, but not compared (tests/reporting.py NOT_COMPARED): special features, demos, self-tests.
+    notCompared: ['Catalog-specific', 'Engine-specific', 'Lab self-test', 'Demo notebooks'],
+    // Rows of the runs without help (catalog "<cat>_nohelp") only appear in their own columns of the
+    // catalog comparison (EV.inColumns), never in any count.
+    compared: (r) => !EV.isHelp(r.catalog) && !EV.notCompared.includes(r.area) && r.status !== 'self',
+    inColumns: (r) => !EV.notCompared.includes(r.area) && r.status !== 'self',
+    enc: (v) => encodeURIComponent(String(v)),
+    pct: d3.format('.0%'),
+    // Rows of the catalog picked above (rows without a catalog field are Lakekeeper's).
+    forCatalog: (rows) => {
+      const cat = dash.params().catalog || 'lakekeeper';
+      return rows.filter((r) => (r.catalog || 'lakekeeper') === cat);
+    },
+    stateOf: (rows) => {
+      const c = d3.rollup(rows, (v) => v.length, (r) => r.status);
+      const n = (s) => c.get(s) || 0;
+      const applicable = n('pass') + n('gap') + n('new') + n('fixed');
+      if (!applicable) return n('na') ? 'na' : 'blocked';
+      if (n('new')) return 'new';
+      if (n('gap') && (n('pass') || n('fixed'))) return 'part';
+      if (n('gap')) return 'gap';
+      if (n('fixed') && !n('pass')) return 'fixed';
+      return 'pass';
+    },
+  };
+
+  dash.calc('totals', {
+    title: 'Gesamtzahlen',
+    description: 'All compared test cases of all engines: works, documented gap, new failure, not offered.',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => {
+      const rows = results.filter((r) => r.engine && EV.compared(r));
+      const n = (s) => rows.filter((r) => r.status === s).length;
+      const works = n('pass') + n('fixed');
+      const offered = works + n('gap') + n('new');
+      return [{ works, offered, gaps: n('gap'), news: n('new'), na: n('na'), blocked: n('blocked'),
+        all: offered + n('na') + n('blocked'), reliability: offered ? works / offered : 0 }];
+    },
+  });
+
+  dash.calc('by_engine', {
+    title: 'Je Engine',
+    description: 'Per engine over all compared areas: works, gaps, new failures, not offered; coverage and reliability.',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => ['pyiceberg', 'duckdb', 'polars', 'daft', 'spark', 'trino', 'pg_lake', 'flink'].map((engine) => {
+      const rows = results.filter((r) => r.engine === engine && EV.compared(r));
+      const n = (s) => rows.filter((r) => r.status === s).length;
+      const works = n('pass') + n('fixed');
+      const offered = works + n('gap') + n('new');
+      const all = offered + n('na') + n('blocked');
+      return { engine, works, gaps: n('gap'), news: n('new'), na: n('na'), blocked: n('blocked'), offered, all,
+        coverage: all ? works / all : 0, reliability: offered ? works / offered : 0 };
+    }),
+  });
+
+  dash.calc('summary', {
+    title: 'Per engine and area',
+    description: 'Per engine and area: works of all cases (coverage) and of the offered cases (reliability).',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => {
+      const out = [];
+      const rows0 = results.filter((r) => r.engine && EV.compared(r));
+      for (const area of [...new Set(rows0.map((r) => r.area))]) {
+        for (const engine of ['pyiceberg', 'duckdb', 'polars', 'daft', 'spark', 'trino', 'pg_lake', 'flink']) {
+          const rows = rows0.filter((r) => r.area === area && r.engine === engine);
+          const n = (s) => rows.filter((r) => r.status === s).length;
+          const works = n('pass') + n('fixed');
+          const offered = works + n('gap') + n('new');
+          const all = offered + n('na') + n('blocked');
+          out.push({ area, engine, works, offered, all, na: n('na'), blocked: n('blocked'), news: n('new'),
+            label: all ? `${works}/${all}` : '·',
+            reliability: offered ? works / offered : null });
+        }
+      }
+      return out;
+    },
+  });
+
+  dash.calc('cells', {
+    title: 'Matrixzellen',
+    description: 'Result per area, capability and engine; several test cases (e.g. over all writing engines) combined.',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => {
+      const groups = d3.groups(results.filter((r) => r.engine && EV.compared(r)), (r) => r.area, (r) => r.capability, (r) => r.engine);
+      const out = [];
+      for (const [area, caps] of groups) {
+        for (const [capability, engs] of caps) {
+          for (const [engine, rows] of engs) {
+            const c = d3.rollup(rows, (v) => v.length, (r) => r.status);
+            const n = (s) => c.get(s) || 0;
+            const applicable = n('pass') + n('gap') + n('new') + n('fixed');
+            let state;
+            if (!applicable) state = n('na') ? 'na' : 'blocked';
+            else if (n('new')) state = 'new';
+            else if (n('gap') && (n('pass') || n('fixed'))) state = 'part';
+            else if (n('gap')) state = 'gap';
+            else if (n('fixed') && !n('pass')) state = 'fixed';
+            else state = 'pass';
+            const details = [...new Set(rows.filter((r) => r.detail).map((r) => (r.writer ? `${r.writer}: ` : '') + r.detail))].slice(0, 6).join('\n');
+            out.push({ area, capability, engine, state, works: n('pass') + n('fixed'), applicable, details });
+          }
+        }
+      }
+      return out;
+    },
+  });
+
+  dash.calc('gaps', {
+    title: 'Gaps per engine',
+    description: 'Documented gaps per engine with the number of test cases in which they occurred.',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => {
+      const out = [];
+      for (const [engine, rows] of d3.groups(results.filter((r) => r.status === 'gap' && r.engine && EV.compared(r)), (r) => r.engine)) {
+        for (const [reason, v] of d3.rollups(rows, (x) => x.length, (r) => r.detail)) out.push({ engine, reason, count: v });
+      }
+      return out.sort((a, b) => d3.ascending(a.engine, b.engine) || d3.descending(a.count, b.count));
+    },
+  });
+
+  dash.calc('catalog_compare', {
+    title: 'Engines per catalog',
+    description: 'Per engine and catalog: works / all compared cases (not offered and not testable count).',
+    inputs: ['results'],
+    fn: (results) => EV.engines.map((engine) => {
+      const out = { engine };
+      for (const cat of EV.cols) {
+        if (EV.isHelp(cat) && !EV.helps[cat].includes(engine)) { out[cat] = '–'; continue; }
+        const rows = results.filter((r) => (r.catalog || 'lakekeeper') === cat && r.engine === engine && EV.inColumns(r));
+        const n = (s) => rows.filter((r) => r.status === s).length;
+        const works = n('pass') + n('fixed');
+        const all = works + n('gap') + n('new') + n('na') + n('blocked');
+        out[cat] = all ? `${works}/${all} (${EV.pct(works / all)})` : '·';
+      }
+      return out;
+    }),
+  });
+
+  dash.calc('catalog_diff', {
+    title: 'Unterschiede zwischen den Katalogen',
+    description: 'Capabilities (area, capability, engine) whose combined result differs between the catalogs (not testable cases do not count as a difference).',
+    inputs: ['results'],
+    fn: (results) => {
+      const rows = results.filter((r) => r.engine && EV.inColumns(r));
+      const out = [];
+      for (const [key, v] of d3.groups(rows, (r) => `${r.area}\u0000${r.capability}\u0000${r.engine}`)) {
+        const st = {};
+        for (const cat of EV.cols) {
+          const c = v.filter((r) => (r.catalog || 'lakekeeper') === cat);
+          st[cat] = c.length ? EV.stateOf(c) : '';
+        }
+        // A difference between the four catalogs, or between a catalog with and without help
+        // (shown side by side; the columns without help are not compared with the catalogs).
+        const seen = new Set(EV.catalogs.map((c) => st[c]).filter((s) => s && s !== 'blocked'));
+        const helpDiffers = EV.catalogs.some((c) => st[`${c}_nohelp`] && st[`${c}_nohelp`] !== st[c]);
+        if (seen.size < 2 && !helpDiffers) continue;
+        const [area, capability, engine] = key.split('\u0000');
+        const detail = [...new Set(v.filter((r) => r.detail && (r.status === 'gap' || r.status === 'new' || r.status === 'na'))
+          .map((r) => `${r.catalog || 'lakekeeper'}: ${r.detail}`))].slice(0, 4).join(' | ');
+        out.push({ area, capability, engine, ...st, detail });
+      }
+      return out.sort((x, y) => d3.ascending(EV.areas.indexOf(x.area), EV.areas.indexOf(y.area))
+        || d3.ascending(x.capability, y.capability) || d3.ascending(x.engine, y.engine));
+    },
+  });
+
+  // Per catalog, for rows without an engine (catalog level) or of special features.
+  EV.byCatalog = (v) => {
+    const st = {};
+    for (const cat of EV.catalogs) {
+      const c = v.filter((r) => (r.catalog || 'lakekeeper') === cat);
+      st[cat] = c.length ? EV.stateOf(c) : '';
+    }
+    return st;
+  };
+  EV.causes = (v) => [...new Set(v.filter((r) => r.detail && (r.status === 'gap' || r.status === 'new'))
+    .map((r) => `${r.catalog || 'lakekeeper'}: ${r.detail}`))].slice(0, 4).join(' | ');
+
+  dash.calc('catalog_level', {
+    title: 'Catalog level',
+    description: 'Base tests without an engine (talk to the catalog directly): result per area, capability and catalog.',
+    inputs: ['results'],
+    fn: (results) => {
+      const rows = results.filter((r) => !r.engine && EV.compared(r));
+      return d3.groups(rows, (r) => `${r.area}\u0000${r.capability}`).map(([key, v]) => {
+        const [area, capability] = key.split('\u0000');
+        return { area, capability, ...EV.byCatalog(v), detail: EV.causes(v) };
+      }).sort((x, y) => d3.ascending(EV.areas.indexOf(x.area), EV.areas.indexOf(y.area)) || d3.ascending(x.capability, y.capability));
+    },
+  });
+
+  dash.calc('specials', {
+    title: 'Besondere Features',
+    description: 'Tests of special features of a catalog (area "Catalog-specific") or an engine ("Engine-specific"): result per catalog; "not offered" for catalogs without the feature.',
+    inputs: ['results'],
+    fn: (results) => {
+      const rows = results.filter((r) => r.area === 'Catalog-specific' || r.area === 'Engine-specific');
+      return d3.groups(rows, (r) => `${r.area}\u0000${r.engine}\u0000${r.capability}`).map(([key, v]) => {
+        const [area, engine, capability] = key.split('\u0000');
+        const st = EV.byCatalog(v);
+        const owners = EV.catalogs.filter((c) => st[c] && st[c] !== 'na');
+        const owner = area === 'Engine-specific' ? engine : owners.join(', ') || '–';
+        return { owner, capability, ...st, detail: EV.causes(v) };
+      }).sort((x, y) => d3.ascending(x.owner, y.owner) || d3.ascending(x.capability, y.capability));
+    },
+  });
+
+  dash.calc('inventory_counts', {
+    title: 'Capabilities per catalog',
+    description: 'From the feature inventory: capabilities a catalog describes in its API (✓ and ◐), and those implemented (✓ only).',
+    inputs: ['inventory'],
+    fn: (inventory) => [
+      { measure: `described in the API (of ${inventory.length})`, ...Object.fromEntries(EV.catalogs.map((c) => [c, inventory.filter((r) => r[c] === '✓' || r[c] === '◐').length])) },
+      { measure: 'of which implemented', ...Object.fromEntries(EV.catalogs.map((c) => [c, inventory.filter((r) => r[c] === '✓').length])) },
+    ],
+  });
+
+  dash.calc('news', {
+    title: 'New failures and fixed gaps',
+    description: 'Test cases with an undocumented failure or with a gap that no longer occurs.',
+    inputs: ['results'],
+    fn: (all, results = EV.forCatalog(all)) => results.filter((r) => (r.status === 'new' || r.status === 'fixed') && r.status !== 'self').map((r) => ({ test: r.test, engine: r.engine, status: r.status, detail: r.detail })),
+  });
+</script>
+
+<script>
+  const fmtInt = d3.format(',');
+  function drawNumber(field, format) {
+    return (el) => {
+      const t = dash.data('totals');
+      el.classList.toggle('dash-skeleton', t.status === 'loading');
+      el.textContent = t.status === 'ok' && t.data ? format(t.data[0][field]) : '—';
+    };
+  }
+  dash.draw('t-offered', drawNumber('offered', fmtInt));
+  dash.draw('t-works', drawNumber('works', fmtInt));
+  dash.draw('t-share', drawNumber('reliability', d3.format('.0%')));
+  dash.draw('t-na', drawNumber('na', fmtInt));
+  dash.draw('t-blocked', drawNumber('blocked', fmtInt));
+  dash.draw('t-gaps', drawNumber('gaps', fmtInt));
+  dash.draw('t-new', drawNumber('news', fmtInt));
+
+  dash.draw('summary-body', (tbody) => {
+    const s = dash.data('summary');
+    const t = dash.data('by_engine');
+    tbody.replaceChildren();
+    if (s.status !== 'ok' || !s.data) return;
+    const areas = [...new Set(s.data.map((r) => r.area))].sort((a, b) => {
+      const ia = EV.areas.indexOf(a), ib = EV.areas.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    for (const area of areas) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('td');
+      th.textContent = area;
+      tr.appendChild(th);
+      for (const engine of EV.engines) {
+        const row = s.data.find((r) => r.area === area && r.engine === engine);
+        const td = document.createElement('td');
+        const span = document.createElement('span');
+        span.className = 'st ' + (!row || !row.all ? 'st-na' : row.news ? 'st-new' : row.works === row.all ? 'st-pass' : row.works ? 'st-part' : 'st-gap');
+        span.textContent = row ? row.label : '·';
+        span.dataset.source = 'summary';
+        span.dataset.field = 'label';
+        span.dataset.where = `area=${EV.enc(area)}&engine=${EV.enc(engine)}`;
+        td.appendChild(span);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    if (t.status === 'ok' && t.data) {
+      const tr = document.createElement('tr');
+      tr.className = 'total';
+      const th = document.createElement('td');
+      th.textContent = 'total';
+      tr.appendChild(th);
+      for (const engine of EV.engines) {
+        const row = t.data.find((r) => r.engine === engine);
+        const td = document.createElement('td');
+        const span = document.createElement('span');
+        span.textContent = row && row.all ? `${row.works}/${row.all} · ${EV.pct(row.reliability)} zuverl.` : '·';
+        span.dataset.source = 'by_engine';
+        span.dataset.field = 'works';
+        span.dataset.where = `engine=${EV.enc(engine)}`;
+        td.appendChild(span);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+  });
+
+  dash.draw('engine-chart', (box) => {
+    const d = dash.data('by_engine');
+    box.replaceChildren();
+    if (d.status === 'error') { box.textContent = 'Could not be loaded'; return; }
+    if (d.status !== 'ok' || !d.data) { box.textContent = '—'; return; }
+    const rows = d.data.filter((r) => r.all > 0);
+    const width = Math.max(280, box.clientWidth);
+    const barH = 24, gap = 10;
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('role', 'img')
+      .attr('aria-label', 'Share of working, documented missing and newly failing test cases per engine');
+    const labels = svg.append('g');
+    labels.selectAll('text').data(rows).join('text').text((r) => r.engine).attr('y', (r, i) => i * (barH + gap) + barH / 2 + 4);
+    const labelW = d3.max(labels.selectAll('text').nodes(), (n) => n.getComputedTextLength()) || 60;
+    const endW = 150;
+    const left = labelW + 12;
+    const x = d3.scaleLinear().domain([0, 1]).range([left, width - endW]);
+    const height = rows.length * (barH + gap);
+    svg.attr('viewBox', `0 0 ${width} ${height}`).attr('height', height);
+    const tip = d3.select(box).append('div').attr('class', 'tip').attr('hidden', true);
+    const g = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (r, i) => `translate(0,${i * (barH + gap)})`);
+    const parts = (r) => [
+      { k: 'works', v: r.works, c: 'var(--color-ok)' },
+      { k: 'gaps', v: r.gaps, c: 'var(--color-bad)' },
+      { k: 'news', v: r.news, c: 'var(--color-warn)' },
+      { k: 'na', v: r.na, c: 'var(--cds-chart-muted)' },
+    ];
+    g.each(function (r) {
+      let acc = 0;
+      for (const p of parts(r)) {
+        const w = r.all ? p.v / r.all : 0;
+        d3.select(this).append('rect').attr('x', x(acc)).attr('y', 0).attr('height', barH)
+          .attr('width', Math.max(0, x(acc + w) - x(acc))).style('fill', p.c);
+        acc += w;
+      }
+      d3.select(this).append('text').attr('x', x(1) + 8).attr('y', barH / 2 + 4)
+        .text(`${r.works}/${r.all} · ${EV.pct(r.reliability)} zuverl.`);
+    });
+    g.on('pointermove', (ev, r) => {
+      const [mx, my] = d3.pointer(ev, box);
+      tip.attr('hidden', null)
+        .style('left', Math.min(mx + 12, box.clientWidth - 240) + 'px').style('top', my + 12 + 'px')
+        .text(`${r.engine}: ${r.works} work, ${r.gaps} documented gaps, ${r.news} new failures, ${r.na} not offered, ${r.blocked} not testable (of ${r.all}); coverage ${EV.pct(r.coverage)}, reliability ${EV.pct(r.reliability)}`);
+    }).on('pointerleave', () => tip.attr('hidden', true));
+  });
+
+  for (const sel of document.querySelectorAll('#catalog-pick')) {
+    sel.value = dash.params().catalog || 'lakekeeper';
+    sel.addEventListener('change', () => dash.setParams({ catalog: sel.value }));
+  }
+
+  const STATE_TEXT = { pass: '✓ works', gap: '✗ gap', part: '◐ partly', new: '! new failure', fixed: '🔧 fixed', na: '— not offered', blocked: '· not testable' };
+  dash.draw('catalog-compare-body', (tbody) => {
+    const d = dash.data('catalog_compare');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    d.data.forEach((r, i) => {
+      const tr = tbody.insertRow();
+      tr.insertCell().textContent = r.engine;
+      for (const cat of EV.cols) {
+        const td = tr.insertCell();
+        td.textContent = r[cat];
+        if (EV.isHelp(cat)) td.className = 'help-col';
+        td.dataset.source = 'catalog_compare';
+        td.dataset.field = cat;
+        td.dataset.row = String(i);
+      }
+    });
+  });
+  dash.draw('catalog-diff-body', (tbody) => {
+    const d = dash.data('catalog_diff');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    if (!d.data.length) {
+      const td = tbody.insertRow().insertCell();
+      td.colSpan = 4 + EV.cols.length;
+      td.textContent = 'Keine Unterschiede';
+      return;
+    }
+    d.data.forEach((r, i) => {
+      const tr = tbody.insertRow();
+      for (const f of ['area', 'capability', 'engine', ...EV.cols, 'detail']) {
+        const td = tr.insertCell();
+        const isCat = EV.cols.includes(f);
+        td.textContent = isCat ? STATE_TEXT[r[f]] || r[f] || (EV.isHelp(f) ? '–' : '') : r[f];
+        if (isCat) td.className = 'st st-' + r[f] + (EV.isHelp(f) ? ' help-col' : '');
+        if (f === 'detail') { td.style.whiteSpace = 'normal'; td.style.textAlign = 'left'; td.style.minWidth = '22em'; }
+        td.dataset.source = 'catalog_diff';
+        td.dataset.field = f;
+        td.dataset.row = String(i);
+      }
+    });
+  });
+
+  window.EV.area = null;
+  dash.draw('area-pick', (sel) => {
+    const c = dash.data('cells');
+    const areas = c.status === 'ok' && c.data ? [...new Set(c.data.map((r) => r.area))].sort((a, b) => {
+      const ia = EV.areas.indexOf(a), ib = EV.areas.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    }) : [];
+    if (!EV.area || !areas.includes(EV.area)) EV.area = areas.includes('Operations') ? 'Operations' : areas[0] || null;
+    sel.replaceChildren(...areas.map((a) => new Option(a, a)));
+    sel.value = EV.area || '';
+    sel.onchange = () => { EV.area = sel.value; dash.draw('matrix'); };
+  });
+
+  const SYM = { pass: '✓', gap: '✗', part: '◐', new: '!', fixed: '🔧', na: '—', blocked: '·' };
+  dash.draw('matrix', (box) => {
+    const c = dash.data('cells');
+    box.replaceChildren();
+    if (c.status === 'error') { box.textContent = 'Could not be loaded'; return; }
+    if (c.status !== 'ok' || !c.data || !EV.area) { box.textContent = '—'; return; }
+    const rows = c.data.filter((r) => r.area === EV.area);
+    const caps = [...new Set(rows.map((r) => r.capability))];
+    const engines = EV.engines.filter((e) => rows.some((r) => r.engine === e));
+    const table = document.createElement('table');
+    const head = table.createTHead().insertRow();
+    for (const h of ['Capability', ...engines]) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      head.appendChild(th);
+    }
+    const tb = table.createTBody();
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.hidden = true;
+    for (const cap of caps) {
+      const tr = tb.insertRow();
+      const td0 = tr.insertCell();
+      td0.textContent = cap;
+      for (const engine of engines) {
+        const cell = rows.find((r) => r.capability === cap && r.engine === engine);
+        const td = tr.insertCell();
+        td.className = 'cell';
+        const span = document.createElement('span');
+        const state = cell ? cell.state : 'blocked';
+        span.className = 'st st-' + state;
+        span.textContent = (SYM[state] || '·') + (cell && cell.applicable > 1 && state === 'part' ? ` ${cell.works}/${cell.applicable}` : '');
+        if (cell) {
+          span.dataset.source = 'cells';
+          span.dataset.field = 'state';
+          span.dataset.where = `area=${EV.enc(EV.area)}&capability=${EV.enc(cap)}&engine=${EV.enc(engine)}`;
+          if (cell.details) {
+            td.addEventListener('pointermove', (ev) => {
+              const b = box.getBoundingClientRect();
+              tip.hidden = false;
+              tip.textContent = `${engine} · ${cap}\n${cell.details}`;
+              tip.style.whiteSpace = 'pre-line';
+              tip.style.left = Math.min(ev.clientX - b.left + box.scrollLeft + 12, box.scrollWidth - 330) + 'px';
+              tip.style.top = ev.clientY - b.top + 12 + 'px';
+            });
+            td.addEventListener('pointerleave', () => { tip.hidden = true; });
+          }
+        }
+        td.appendChild(span);
+      }
+    }
+    box.append(table, tip);
+  });
+
+  dash.draw('gaps', (box) => {
+    const g = dash.data('gaps');
+    box.replaceChildren();
+    if (g.status !== 'ok' || !g.data) { box.textContent = '—'; return; }
+    for (const engine of EV.engines) {
+      const rows = g.data.filter((r) => r.engine === engine);
+      if (!rows.length) continue;
+      const div = document.createElement('div');
+      const h = document.createElement('h3');
+      h.textContent = engine;
+      const ul = document.createElement('ul');
+      for (const r of rows) {
+        const li = document.createElement('li');
+        const reason = document.createElement('span');
+        reason.textContent = r.reason + ' ';
+        const n = document.createElement('span');
+        n.className = 'count';
+        n.textContent = `(${r.count}×)`;
+        n.dataset.source = 'gaps';
+        n.dataset.field = 'count';
+        n.dataset.where = `engine=${EV.enc(engine)}&reason=${EV.enc(r.reason)}`;
+        li.append(reason, n);
+        ul.appendChild(li);
+      }
+      div.append(h, ul);
+      box.appendChild(div);
+    }
+  });
+
+  dash.draw('news', (ul) => {
+    const n = dash.data('news');
+    ul.replaceChildren();
+    if (n.status !== 'ok' || !n.data) { ul.textContent = '—'; return; }
+    if (!n.data.length) {
+      const li = document.createElement('li');
+      li.textContent = 'None – all failures are documented gaps.';
+      ul.appendChild(li);
+      return;
+    }
+    for (const r of n.data) {
+      const li = document.createElement('li');
+      const code = document.createElement('code');
+      code.textContent = r.test;
+      li.append(document.createTextNode((r.status === 'fixed' ? '🔧 behoben: ' : '! neu: ')), code, document.createTextNode(' – ' + r.detail));
+      ul.appendChild(li);
+    }
+  });
+
+  function stateRow(tbody, src, r, i, fields) {
+    const tr = tbody.insertRow();
+    for (const f of fields) {
+      const td = tr.insertCell();
+      const isCat = EV.catalogs.includes(f);
+      td.textContent = isCat ? (STATE_TEXT[r[f]] || '·') : r[f];
+      if (isCat) td.className = 'st st-' + (r[f] || 'blocked');
+      if (f === 'detail') { td.style.whiteSpace = 'normal'; td.style.textAlign = 'left'; td.style.minWidth = '22em'; }
+      td.dataset.source = src;
+      td.dataset.field = f;
+      td.dataset.row = String(i);
+    }
+  }
+  dash.draw('catalog-level-body', (tbody) => {
+    const d = dash.data('catalog_level');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    d.data.forEach((r, i) => stateRow(tbody, 'catalog_level', r, i, ['area', 'capability', ...EV.catalogs, 'detail']));
+  });
+  dash.draw('specials-body', (tbody) => {
+    const d = dash.data('specials');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    d.data.forEach((r, i) => stateRow(tbody, 'specials', r, i, ['owner', 'capability', ...EV.catalogs, 'detail']));
+  });
+  dash.draw('inventory-counts-body', (tbody) => {
+    const d = dash.data('inventory_counts');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    for (const r of d.data) {
+      const tr = tbody.insertRow();
+      tr.dataset.key = EV.enc(r.measure);
+      for (const f of ['measure', ...EV.catalogs]) tr.insertCell().textContent = r[f];
+    }
+  });
+  dash.draw('inventory-body', (tbody) => {
+    const d = dash.data('inventory');
+    tbody.replaceChildren();
+    if (d.status !== 'ok' || !d.data) return;
+    for (const r of d.data) {
+      const tr = tbody.insertRow();
+      tr.dataset.key = EV.enc(r.capability);
+      for (const f of ['title', 'kind', ...EV.catalogs, 'note']) {
+        const td = tr.insertCell();
+        td.textContent = r[f] || '';
+        if (f === 'note' || f === 'title') { td.style.whiteSpace = 'normal'; td.style.textAlign = 'left'; td.style.minWidth = f === 'note' ? '22em' : '14em'; }
+      }
+    }
+  });
+</script>

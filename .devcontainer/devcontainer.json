@@ -1,0 +1,33 @@
+{
+  "name": "Iceberg Lab (RustFS + Lakekeeper)",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
+  "runServices": ["dev", "rustfs", "db", "lakekeeper-migrate", "lakekeeper"],
+  "workspaceFolder": "/workspaces/iceberg_lab",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "vscode",
+  "forwardPorts": [8181, 9001, 8080, 8888],
+  "portsAttributes": {
+    "8181": { "label": "Lakekeeper (UI: /ui)" },
+    "9001": { "label": "RustFS Console" },
+    "8080": { "label": "Trino (optional)" },
+    "8888": { "label": "JupyterLab" }
+  },
+  "postCreateCommand": "uv sync --all-groups",
+  "postStartCommand": "uv run python -m iceberg_lab.bootstrap",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "ms-toolsai.jupyter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"]
+      }
+    }
+  }
+}

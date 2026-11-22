@@ -1,0 +1,60 @@
+[project]
+name = "iceberg-lab"
+version = "0.1.0"
+description = "Playground for Apache Iceberg on RustFS + Lakekeeper with many query engines"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pyiceberg[pyarrow,pandas,s3fs,pyiceberg-core]>=0.12",
+    "boto3>=1.35",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+    "minio>=7.2.20",
+    "pytest>=8.3",
+    "pytest-timeout>=2.3",
+    "ruff>=0.8",
+    "sqlalchemy>=2.1.8",
+]
+duckdb = ["duckdb>=1.4"]
+polars = ["polars>=1.30", "polars-iceberg>=0.1"]
+daft = ["daft>=0.7"]
+spark = ["pyspark>=4.1,<4.2"]  # Iceberg 1.12 has Spark runtimes up to 4.1
+trino = ["trino>=0.333"]
+pglake = ["psycopg[binary]>=3.2"]
+notebooks = ["jupyterlab>=4.3", "ipykernel>=6.29", "nbclient>=0.10", "nbformat>=5.10"]
+
+[tool.uv]
+default-groups = "all"
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+# A hanging test (e.g. a dead JVM that py4j keeps waiting for) must FAIL, not block the run.
+# 30 min: the STS-expiry fixture alone waits ~16 min.
+timeout = 1800  # test_sts_expiry.py raises its own limit (1 h keys on Polaris/Unity)
+markers = [
+    "slow: JVM-based engines (Spark, Trino)",
+    "long: waits for vended credentials to expire (~16 min); skip with -m 'not long'",
+    "specific: tests a feature of ONE catalog or engine (its own API) - reported separately, not part of the comparison (docs/test-architecture.md)",
+]
+filterwarnings = [
+    # PySpark's own pandas conversion uses a keyword pandas 4 deprecates (Pandas4Warning);
+    # nothing to fix in this project. Matched by message, the class lives in pandas.errors.
+    "ignore:The copy keyword is deprecated",
+]
+
+[tool.ruff]
+line-length = 100
+# One-off evidence scripts (see scripts/probes/README.md), not maintained code.
+extend-exclude = ["scripts/probes"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["iceberg_lab"]
+known-local-folder = ["conftest"]

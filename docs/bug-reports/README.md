@@ -1,0 +1,34 @@
+# Bug report drafts (NOT submitted)
+
+Drafts of upstream bug reports for findings of the lab test suite. Nothing here has been
+filed. Before filing: re-check against the newest release, search the project's tracker for
+duplicates, and remove anything specific to this lab.
+
+| # | Project | Finding | Severity | Lab test |
+|---|---|---|---|---|
+| 01 | DuckDB iceberg extension | Lost commit response -> table points to deleted manifest list | data corruption | `test_robustness.py::test_catalog_fault[duckdb-lost_response]` |
+| 02 | pg_lake | COMMIT reports success although the REST catalog refused it; on catalogs without `/transactions/commit` (Unity) every write is lost silently | silent data loss | `test_transactions.py::test_multi_table_atomicity[pg_lake]` |
+| 03 | Trino | `ts < <day boundary>` returns NULL rows on day(ts) tables without null counts | wrong result | `test_evolution.py::test_partitioned_read[pg_lake-day-v2-trino]` (CATALOG=polaris) |
+| 04 | Apache Iceberg (Spark) | ClassCastException reading int->long promoted column from DuckDB Parquet | read failure - **fixed in Iceberg 1.12** (no longer reproduces, do not file) | `test_evolution.py::test_schema_evolution_read[duckdb-v2-spark]` |
+| 05 | PyIceberg | Vended credentials of a loaded table are never refreshed | read failure after expiry | `test_sts_expiry.py::test_read_after_credentials_expired[pyiceberg]` |
+| 06 | pg_lake | 404 from `/v1/config` ignored, literal `{s}` sent as warehouse id | misleading error - **no longer reproduces since Lakekeeper 0.15.1** (2026-11-20; bob's refusal now reaches the user, also on Unity) - re-check before filing | `test_authz.py::test_engine_reads[pg_lake-bob]` |
+| 07 | Apache Polaris (image) | Federation: brotli answer of the remote -> UnsatisfiedLinkError -> HTTP 500 | feature unusable | `test_catalog_features.py::test_federation_direct` (CATALOG=polaris) |
+| 08 | pg_lake | Partition fields carry both `source-id` and `source-ids`; Lakekeeper 0.15 rejects it with 422, pg_lake ignores that -> every partitioned table / partition evolution fails | feature unusable | `test_evolution.py::test_partitioned_write[pg_lake-identity-v2]` (CATALOG=lakekeeper) |
+| 09 | PyIceberg | Spec form `geometry(OGC:CRS84)` (unquoted CRS, written by Iceberg 1.12) not parsed -> tables with geo columns cannot be loaded | feature unusable | `test_types.py::test_write[pyiceberg-v3-geometry]` (CATALOG=polaris) |
+| 10 | PyIceberg | `list_namespaces(parent)` double-encodes the `parent` parameter -> children of namespaces with non-ASCII/`%`/`\` names cannot be listed | tooling breaks | `test_security.py::test_name_is_refused_or_safe` (probe in `scripts/probes/probe_parent_encoding.py`) |
+| 11 | RustFS | ~~Catalog access needs `admin:*`~~ **withdrawn: lab misconfiguration** - RustFS has granular table actions; with them no self-escalation (403) | – | – |
+| 12 | DuckDB iceberg extension | Two concurrent MERGE INTO of the same new key both succeed - the key is there twice (no serializable validation) | duplicate data | `test_concurrency.py::test_concurrent_upsert_same_key[duckdb-v2]` (all catalogs) |
+| 13 | Lakekeeper | Empty bodies for 404/405 (no Iceberg error document); any `snapshots` value accepted | client errors unreadable | `test_rest_conformance.py::test_error_body`, `::test_snapshots_value` |
+| 14 | RustFS | STS raises DurationSeconds=60 to 900 silently; wildcard actions in session policies refused | keys live longer than asked / AWS incompatibility | `test_storage_s3.py::test_sts_session_policy` |
+| 15 | RustFS | Iceberg catalog deletes every previous metadata file on commit (`write.metadata.delete-after-commit.enabled` off) - `metadata-log` points to missing files | inconsistent table history / concurrent clients fail | `test_catalog_consistency.py::test_metadata_log_files_are_kept` (CATALOG=rustfs) |
+
+Versions 01-07 were found with (all except 04 reproduced again on 2026-11-16 with the versions
+listed for 08-09; 03 only on Polaris, see the report): Lakekeeper v0.14.3, RustFS 1.0.5, DuckDB 2.0.0 (iceberg extension 4c0c0874c4),
+pg_lake 3.6.0 (Postgres 18.7), Trino 483, Spark 4.0.5 + iceberg-spark-runtime-4.0_2.13 1.11.0,
+PyIceberg 0.12.0, Polars 2.1.0, Daft 0.7.26.
+Versions for 08-11: Lakekeeper v0.15.0, pg_lake 3.6.0, Polaris 1.9.0, Trino 484, Spark 4.1.4 + Iceberg 1.12.0, Flink 2.3.0.
+Versions for 12-14 (2026-11-18): Lakekeeper v0.15.1, RustFS 1.0.6, DuckDB 2.0.0, Polaris 1.9.0, Unity 0.7.0.
+Version 15 (2026-11-20): RustFS 1.0.6.
+
+Full run 2026-11-20 (Lakekeeper v0.15.1, Polaris 1.9.0, RustFS 1.0.6, Unity 0.7.0; engines as for 12-14):
+all findings 01-03, 05, 07-10 and 12-15 reproduced again (04 fixed, 06 no longer reproduces, 11 withdrawn).

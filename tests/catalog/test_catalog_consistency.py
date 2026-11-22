@@ -1,0 +1,536 @@
+"""Catalog consistency (base tests on catalog level, raw Iceberg REST - no engine involved).
+
+1. Commit validation: the catalog is the last line of defence against a client sending a commit
+   that breaks the table. Each invalid commit below must be refused (4xx) and leave the table
+   unchanged. (An issue elsewhere - apache/gravitino#14457 - shows catalogs that accept such
+   commits; the engines in the other tests only ever send valid ones.)
+
+       incompatible_type   change an existing column's type long -> string
+       reuse_field_id      add a column with the id of a dropped column but another type
+       spec_missing_field  partition spec on a field id the schema does not have
+       unknown_schema      set-current-schema to an id the table does not have
+       unknown_snapshot    set main to a snapshot id the table does not have
+
+2. Lost updates: many clients commit at the same time; every commit the catalog confirms must be
+   in the table afterwards (apache/iceberg#18758 shows a REST implementation that confirms and
+   loses one). Table appends through the table endpoint and namespace property updates (fixed in
+   Lakekeeper 0.15.1, a classic read-modify-write in the server).
+
+3. Re-create at a dropped location: table A is dropped with purge and B is created where A was
+   (same name, or A's location given explicitly). A's asynchronous purge must not delete B's
+   files - the catalog refuses B, gives it a location of its own, or B stays complete.
+
+4. Metadata history: after commits, the files the table's ``metadata-log`` lists must still
+   exist - the spec deletes them only with ``write.metadata.delete-after-commit.enabled``
+   (default off). Readers and committers that hold an older metadata file, time travel and
+   rollback by metadata file depend on them.
+
+Uses the lab client only to create the tables; every checked call is a raw REST request.
+"""
+
+from __future__ import annotations
+
+import copy
+import random
+import threading
+import time
+import uuid
+
+import pyarrow as pa
+import pytest
+import requests
+
+from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, catalog_auth, catalog_headers
+from iceberg_lab.engines import pyiceberg_catalog
+
+from conftest import expect_gap
+
+SCHEMA = pa.schema([("id", pa.int64()), ("name", pa.string()), ("gone", pa.int64())])
+
+# Filled from observed results only: (catalog, case, regex, reason[, flaky]).
+# fmt: off
+KNOWN_GAPS: list[tuple] = [
+    *((cat, case, r"invalid commit answered 200", f"{cat.capitalize()} accepts a schema change incompatible with the existing data files (no server-side check - the REST spec leaves it to the client); every read fails afterwards: 'Cannot promote long to string'")
+      for cat in ("lakekeeper", "polaris", "unity") for case in ("incompatible_type", "reuse_field_id")),
+    # Intermittent (about 1 run in 3): one of 8 concurrent updates confirmed and lost - the race
+    # Lakekeeper fixed in 0.15.1.
+    ("unity", "lost_namespace_property", r"confirmed but lost", "DATA LOSS: Unity intermittently loses a concurrent namespace property update (confirmed, then gone)", True),
+    ("rustfs", "metadata_log", r"metadata-log lists \d+ files?, missing: \d+", "INCONSISTENT: RustFS deletes every previous metadata file on commit although write.metadata.delete-after-commit.enabled is off - the table's metadata-log points to missing files (a client holding older metadata fails, e.g. DuckDB's compaction during appends)"),
+    *(("unity", case, r"invalid commit answered 500: .*ValidationException", "Unity refuses this invalid commit, but with 500 (ValidationException) instead of 400")
+      for case in ("spec_missing_field", "unknown_snapshot")),
+]
+# fmt: on
+
+
+def _gap(case):
+    """``expect_gap`` for the matching documented gap (none: a plain block).
+
+    Args:
+        case: Gap case.
+
+    Returns:
+        The context manager.
+    """
+    for cat, c, regex, reason, *flaky in KNOWN_GAPS:
+        if cat == PROFILE.name and c == case:
+            return expect_gap(reason, regex, flaky=bool(flaky and flaky[0]))
+    return expect_gap(None, None)
+
+
+def _prefix() -> str:
+    """The catalog's URL prefix of the STS warehouse.
+
+    Returns:
+        The prefix.
+    """
+    cfg = requests.get(
+        f"{SETTINGS.catalog_uri}/v1/config",
+        params={"warehouse": WAREHOUSE_STS},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=10,
+    ).json()
+    return (
+        cfg.get("overrides", {}).get("prefix")
+        or cfg.get("defaults", {}).get("prefix")
+        or WAREHOUSE_STS
+    )
+
+
+def _url(ns, table=None) -> str:
+    """REST URL of a namespace or table.
+
+    Args:
+        ns: Namespace.
+        table: Table name (None: the namespace URL).
+
+    Returns:
+        The URL.
+    """
+    base = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{ns}"
+    return f"{base}/tables/{table}" if table else base
+
+
+def _load(ns, table) -> dict:
+    """Raw loadTable.
+
+    Args:
+        ns: Namespace.
+        table: Table name (None: the namespace URL).
+
+    Returns:
+        The answer (metadata-location, metadata).
+    """
+    r = requests.get(_url(ns, table), headers=catalog_headers(), auth=catalog_auth(), timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+
+def _commit(ns, table, requirements, updates) -> requests.Response:
+    """Raw table commit.
+
+    Args:
+        ns: Namespace.
+        table: Table name (None: the namespace URL).
+        requirements: Commit requirements.
+        updates: Commit updates.
+
+    Returns:
+        The response.
+    """
+    return requests.post(
+        _url(ns, table),
+        json={"requirements": requirements, "updates": updates},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=30,
+    )
+
+
+@pytest.fixture
+def table(namespace):
+    """Table (id long, name string, gone long) with one snapshot, then column ``gone`` dropped.
+
+    Args:
+        namespace: Namespace of the table (the session namespace for fixtures).
+
+    Returns:
+        ``(namespace, name)``.
+    """
+    cat = pyiceberg_catalog(WAREHOUSE_STS)
+    name = f"cons_{uuid.uuid4().hex[:6]}"
+    t = cat.create_table(f"{namespace}.{name}", schema=SCHEMA)
+    t.append(pa.table({"id": [1], "name": ["a"], "gone": [7]}, schema=SCHEMA))
+    with t.update_schema() as u:
+        u.delete_column("gone")
+    return namespace, name
+
+
+def _invalid(case: str, md: dict) -> tuple[list, list]:
+    """(requirements, updates) of an invalid commit against the table metadata ``md``.
+
+    Args:
+        case: Gap case.
+        md: Current table metadata.
+
+    Returns:
+        ``(requirements, updates)``.
+    """
+    uuid_req = [{"type": "assert-table-uuid", "uuid": md["table-uuid"]}]
+    schemas = {s["schema-id"]: s for s in md["schemas"]}
+    current = copy.deepcopy(schemas[md["current-schema-id"]])
+    last_column = md["last-column-id"]
+    new_id = max(schemas) + 1
+    if case in ("incompatible_type", "reuse_field_id"):
+        if case == "incompatible_type":
+            for f in current["fields"]:
+                if f["name"] == "id":
+                    f["type"] = "string"
+        else:  # the dropped column "gone" had id 3 (long); bring id 3 back as a string
+            dropped = next(f for s in md["schemas"] for f in s["fields"] if f["name"] == "gone")
+            current["fields"].append(
+                {"id": dropped["id"], "name": "back", "type": "string", "required": False}
+            )
+        current["schema-id"] = new_id
+        return uuid_req + [
+            {"type": "assert-current-schema-id", "current-schema-id": md["current-schema-id"]}
+        ], [
+            {"action": "add-schema", "schema": current, "last-column-id": last_column},
+            {"action": "set-current-schema", "schema-id": -1},
+        ]
+    if case == "spec_missing_field":
+        spec_id = max(s["spec-id"] for s in md["partition-specs"]) + 1
+        return uuid_req, [
+            {
+                "action": "add-spec",
+                "spec": {
+                    "spec-id": spec_id,
+                    "fields": [
+                        {
+                            "source-id": last_column + 50,
+                            "field-id": 1500,
+                            "name": "ghost",
+                            "transform": "identity",
+                        }
+                    ],
+                },
+            },
+            {"action": "set-default-spec", "spec-id": -1},
+        ]
+    if case == "unknown_schema":
+        return uuid_req, [{"action": "set-current-schema", "schema-id": max(schemas) + 40}]
+    return uuid_req, [  # unknown_snapshot
+        {
+            "action": "set-snapshot-ref",
+            "ref-name": "main",
+            "type": "branch",
+            "snapshot-id": random.randint(10**15, 10**16),
+        }
+    ]
+
+
+# Not a case: a snapshot whose parent does not exist - legitimate after snapshot expiry.
+CASES = [
+    "incompatible_type",
+    "reuse_field_id",
+    "spec_missing_field",
+    "unknown_schema",
+    "unknown_snapshot",
+]
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_invalid_commit_is_refused(case, table):
+    """A commit that would produce invalid table metadata is refused - and changes nothing.
+
+    Cases (raw REST commit with correct requirements): change a column to an incompatible
+    type (long -> string); reuse the dropped column's field id with another type; a partition
+    spec on a field that does not exist; switch to a schema id that does not exist; point
+    ``main`` at a snapshot that does not exist.
+
+    Checks:
+        * never hidden by a gap: an error answer while the metadata location changed anyway;
+        * the answer is a 4xx;
+        * the table's metadata location is unchanged.
+
+    Args:
+        case: The invalid change (see ``CASES``).
+        table: ``(namespace, name)`` of a table (id long, name string, gone long) with one
+            snapshot, after which column ``gone`` (field id 3) was dropped.
+    """
+    ns, name = table
+    before = _load(ns, name)
+    requirements, updates = _invalid(case, before["metadata"])
+    r = _commit(ns, name, requirements, updates)
+    after = _load(ns, name)
+    changed = after["metadata-location"] != before["metadata-location"]
+    # never hidden by a gap: an error answer while the table was changed anyway
+    assert not (r.status_code >= 400 and changed), f"answered {r.status_code} but the table changed"
+    with _gap(case):
+        assert 400 <= r.status_code < 500, (
+            f"invalid commit answered {r.status_code}: {r.text[:200]}"
+        )
+        assert after["metadata-location"] == before["metadata-location"], "the table changed"
+
+
+# =========================================================================== lost updates
+
+WRITERS = 8
+
+
+def test_parallel_table_commits_are_not_lost(table):
+    """8 clients set their own table property at the same time - no confirmed update is lost.
+
+    Each client retries on 409 with reloaded metadata, as a client must.
+
+    Checks:
+        * at least one commit succeeded;
+        * every property whose commit the catalog confirmed (200) is in the table afterwards.
+
+    Args:
+        table: ``(namespace, name)`` of a table (id long, name string, gone long) with one
+            snapshot, after which column ``gone`` (field id 3) was dropped.
+    """
+    ns, name = table
+    confirmed, barrier = [], threading.Barrier(WRITERS)
+
+    def writer(i):
+        """Set this writer's property, retrying on 409 with fresh metadata.
+
+        Args:
+            i: Writer number.
+        """
+        barrier.wait()
+        for _ in range(20):  # optimistic concurrency: reload and retry on conflict
+            md = _load(ns, name)["metadata"]
+            r = _commit(
+                ns,
+                name,
+                [
+                    {"type": "assert-table-uuid", "uuid": md["table-uuid"]},
+                    {
+                        "type": "assert-ref-snapshot-id",
+                        "ref": "main",
+                        "snapshot-id": md.get("current-snapshot-id"),
+                    },
+                ],
+                [{"action": "set-properties", "updates": {f"writer-{i}": "x", "last": str(i)}}],
+            )
+            if r.status_code == 200:
+                confirmed.append(i)
+                return
+            if r.status_code != 409:
+                return
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(WRITERS)]
+    [t.start() for t in threads]
+    [t.join(120) for t in threads]
+    props = _load(ns, name)["metadata"].get("properties", {})
+    lost = [i for i in confirmed if f"writer-{i}" not in props]
+    with _gap("lost_table_commit"):
+        assert confirmed, "no commit succeeded at all"
+        assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
+
+
+def test_parallel_namespace_property_updates_are_not_lost(namespace):
+    """8 clients set their own namespace property at the same time - no confirmed update is lost.
+
+    (Lakekeeper fixed exactly this race in 0.15.1.)
+
+    Checks:
+        * at least one update succeeded;
+        * every property whose update the catalog confirmed (200) is on the namespace afterwards.
+
+    Args:
+        namespace: Fresh namespace of the test session.
+    """
+    ns = f"{namespace}_props"
+    requests.post(
+        f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces",
+        json={"namespace": [ns]},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=15,
+    ).raise_for_status()
+    confirmed, barrier = [], threading.Barrier(WRITERS)
+
+    def writer(i):
+        """Set this writer's namespace property once.
+
+        Args:
+            i: Writer number.
+        """
+        barrier.wait()
+        r = requests.post(
+            f"{_url(ns)}/properties",
+            json={"updates": {f"writer-{i}": "x"}, "removals": []},
+            headers=catalog_headers(),
+            auth=catalog_auth(),
+            timeout=30,
+        )
+        if r.status_code == 200:
+            confirmed.append(i)
+
+    try:
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(WRITERS)]
+        [t.start() for t in threads]
+        [t.join(60) for t in threads]
+        props = (
+            requests.get(_url(ns), headers=catalog_headers(), auth=catalog_auth(), timeout=15)
+            .json()
+            .get("properties", {})
+        )
+        lost = [i for i in confirmed if f"writer-{i}" not in props]
+        with _gap("lost_namespace_property"):
+            if not confirmed:
+                pytest.skip(
+                    f"catalog {PROFILE.name} has no API for namespace property updates (none accepted)"
+                )
+            assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
+    finally:
+        requests.delete(_url(ns), headers=catalog_headers(), auth=catalog_auth(), timeout=15)
+
+
+# =========================================================================== reuse of a location
+
+
+@pytest.mark.parametrize("how", ["same_name", "explicit_location"])
+def test_recreate_at_dropped_location(how, namespace):
+    """A table re-created where a purged table was is not damaged by the late purge.
+
+    Table A is dropped with purge and B is created right away where A was (same name -> same
+    default location, or B's location set explicitly to A's). Purges run asynchronously: when
+    A's purge comes, it must not delete B's files.
+
+    Checks:
+        * either the catalog refuses B (4xx, not 5xx) while A's purge may be pending,
+        * or B gets a location of its own (nothing can collide - printed for the report),
+        * or B lies at A's location and stays complete: its rows are readable for 60 s after
+          the drop.
+        Catalogs without purge, or without a choosable location (explicit case): not offered.
+
+    Args:
+        how: ``same_name`` (default location) or ``explicit_location`` (A's location for B).
+        namespace: Fresh namespace of the test session.
+    """
+    cat = pyiceberg_catalog(WAREHOUSE_STS)
+    a = f"reuse_{uuid.uuid4().hex[:6]}"
+    t = cat.create_table(f"{namespace}.{a}", schema=SCHEMA)
+    t.append(pa.table({"id": [1, 2], "name": ["a", "b"], "gone": [0, 0]}, schema=SCHEMA))
+    location = t.location()
+    r = requests.delete(
+        _url(namespace, a),
+        params={"purgeRequested": "true"},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=30,
+    )
+    if r.status_code in (400, 406, 501) and "purge" in r.text.lower():
+        pytest.skip(f"catalog {PROFILE.name} has no API for drop with purge ({r.status_code})")
+    r.raise_for_status()
+    b = a if how == "same_name" else f"{a}_b"
+    body = {"name": b, "schema": _iceberg_schema()}
+    if how == "explicit_location":
+        body["location"] = location
+    r = requests.post(
+        f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{namespace}/tables",
+        json=body,
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=30,
+    )
+    if r.status_code >= 400:  # refused while A's files may still be purged: safe
+        print(f"recreate {how}: refused {r.status_code} {r.text[:200]}")
+        assert r.status_code < 500, (
+            f"server error instead of a refusal: {r.status_code} {r.text[:300]}"
+        )
+        return
+    created = r.json()["metadata"]["location"]
+    if created.rstrip("/") != location.rstrip("/"):
+        if how == "explicit_location":
+            pytest.skip(
+                f"catalog {PROFILE.name} has no API for choosing a table location (got {created})"
+            )
+        print(f"recreate {how}: own location {created} (dropped: {location})")
+        return  # the catalog gives the new table a location of its own: nothing to collide
+    new = cat.load_table(f"{namespace}.{b}")
+    rows = pa.table({"id": [7, 8, 9], "name": ["x", "y", "z"], "gone": [0, 0, 0]}, schema=SCHEMA)
+    new.append(rows)
+    deadline = time.time() + 60
+    lost = None
+    while time.time() < deadline:
+        try:
+            got = sorted(cat.load_table(f"{namespace}.{b}").scan().to_arrow()["id"].to_pylist())
+            lost = None if got == [7, 8, 9] else f"rows {got}"
+        except Exception as exc:  # noqa: BLE001 - a missing file is exactly the failure
+            lost = f"{type(exc).__name__}: {str(exc)[:200]}"
+        if lost:
+            break
+        time.sleep(5)
+    with _gap(f"recreate:{how}"):
+        assert lost is None, f"the purge of the dropped table destroyed the new one: {lost}"
+
+
+def _iceberg_schema() -> dict:
+    """The table schema in Iceberg REST JSON.
+
+    Returns:
+        The schema.
+    """
+    return {
+        "type": "struct",
+        "schema-id": 0,
+        "fields": [
+            {"id": 1, "name": "id", "type": "long", "required": False},
+            {"id": 2, "name": "name", "type": "string", "required": False},
+            {"id": 3, "name": "gone", "type": "long", "required": False},
+        ],
+    }
+
+
+# =========================================================================== metadata history
+
+
+def test_metadata_log_files_are_kept(table):
+    """After commits, every metadata file in the table's ``metadata-log`` still exists.
+
+    Checks:
+        * the table has no ``write.metadata.delete-after-commit.enabled`` (spec default: off);
+        * after three more commits the ``metadata-log`` lists earlier files, and each of them
+          is still in storage (HEAD with the storage's admin keys).
+
+    Args:
+        table: ``(namespace, name)`` of a table with one snapshot and one schema change.
+    """
+    import boto3
+    import botocore
+
+    ns, name = table
+    t = pyiceberg_catalog(WAREHOUSE_STS).load_table(f"{ns}.{name}")
+    for i in range(3):
+        t.append(pa.table({"id": [10 + i], "name": ["x"]}))
+    md = _load(ns, name)["metadata"]
+    assert md.get("properties", {}).get("write.metadata.delete-after-commit.enabled", "false") in (
+        "false",
+        "False",
+    ), "the catalog set write.metadata.delete-after-commit.enabled - the test needs the default"
+    log = [e["metadata-file"] for e in md.get("metadata-log", [])]
+    assert log, "metadata-log is empty after 5 commits"
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=SETTINGS.s3_endpoint,
+        aws_access_key_id=SETTINGS.s3_access_key,
+        aws_secret_access_key=SETTINGS.s3_secret_key,
+        region_name=SETTINGS.s3_region,
+    )
+    missing = []
+    for loc in log:
+        bucket, key = loc.split("://", 1)[1].split("/", 1)
+        try:
+            s3.head_object(Bucket=bucket, Key=key)
+        except botocore.exceptions.ClientError as exc:
+            missing.append(f"{key.rsplit('/', 1)[-1]} ({exc.response['Error']['Code']})")
+    with _gap("metadata_log"):
+        assert not missing, (
+            f"metadata-log lists {len(log)} files, missing: {len(missing)} - {missing[:3]}"
+        )
