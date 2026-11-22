@@ -13,7 +13,7 @@ Runs without catalog or engines. Covered:
   is blocked; a producer that failed after correct content still feeds the reads, wrong or
   unreadable content and skips do not (``keep_if_content_ok``).
 * the report: it takes the raised reason (not expect_gap's docstring), central and fixed
-  reasons, and marks severe gaps.
+  reasons, and marks severe gaps; every compared area has a theme; every row names its run.
 * notebooks: a ``catalog_limit`` cell may print "not possible" only where an
   ``expect_<catalog>`` documents that limit.
 * documentation: every test says what it checks (``Checks:``) and describes its arguments;
@@ -30,6 +30,9 @@ import test_notebooks
 
 import conftest
 from conftest import GapFixedError, KnownGapError, expect_gap
+
+#: Needs no catalog or engine: runs without the lab (``uv run pytest -m offline``).
+pytestmark = pytest.mark.offline
 
 
 @pytest.fixture(autouse=True)
@@ -426,6 +429,44 @@ def test_report_marks_severe_gaps():
     rec = {"status": "gap", "detail": "DATA LOSS: writes are lost"}
     assert reporting.severity(rec) == "Data loss"
     assert reporting.severity({"status": "pass", "detail": "DATA LOSS: x"}) is None
+
+
+def test_every_compared_area_has_a_theme():
+    """The dashboard and the theme table group areas into themes; none may fall outside.
+
+    Checks:
+        * every compared area of ``reporting.DIMENSIONS`` is in exactly one theme;
+        * every area a theme lists exists (no stale name after a rename);
+        * areas that are not compared get the theme "Not compared".
+    """
+    compared = [n for n, _ in reporting.DIMENSIONS if n not in reporting.NOT_COMPARED]
+    listed = [a for areas in reporting.THEMES.values() for a in areas]
+    assert sorted(set(compared) - set(listed)) == [], "areas without a theme"
+    assert sorted(set(listed) - set(compared)) == [], "themes list unknown areas"
+    assert len(listed) == len(set(listed)), "an area is in two themes"
+    assert {reporting.theme_of(a) for a in reporting.NOT_COMPARED} == {"Not compared"}
+
+
+def test_report_records_the_run():
+    """Results are merged over runs, so every row must say which run produced it.
+
+    Checks:
+        * a row of ``flat_rows`` carries the record's run id and its area's theme;
+        * a record of a run before manifests existed gets an empty run id, not a wrong one.
+    """
+    rec = {
+        "nodeid": "tests/engines/test_views.py::test_x",
+        "file": "test_views",
+        "test": "test_x",
+        "params": {},
+        "status": "pass",
+        "detail": "",
+        "run": "R1",
+    }
+    row = reporting.flat_rows([rec])[0]
+    assert (row["run"], row["area"], row["theme"]) == ("R1", "Views", "Table features")
+    old = {k: v for k, v in rec.items() if k != "run"}
+    assert reporting.flat_rows([old])[0]["run"] == ""
 
 
 def _producer(results, content_ok, error):

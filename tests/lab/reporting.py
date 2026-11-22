@@ -4,9 +4,16 @@ Registered by ``conftest.py``. After each run it writes (``reports/`` for Lakeke
 ``reports/<catalog>/`` for the others, ``reports/<catalog>-nohelp/`` for the run without lab
 help; ``REPORT_DIR=<dir>`` sends a targeted run elsewhere):
 
-* ``results.json``         - one record per test: file, test, parameters, status, detail
+* ``results.json``         - one record per test: file, test, parameters, status, detail, run
 * ``comparison.md``        - per-engine summary, one matrix per test area, severe gaps
-* ``comparison_rows.json`` - one row per test for the dashboard (area, capability, severity)
+* ``comparison_rows.json`` - one row per test for the dashboard (theme, area, capability,
+  severity, run)
+* ``manifest.json``, ``runs.json`` - what each run was produced with (``tests/lab/manifest.py``):
+  results are merged over runs, every record names its run
+
+Areas are grouped into a few themes (``THEMES``). Totals over all cases are dominated by the
+large matrices (the type matrix alone is about a third of all cases), so the report also gives
+reliability per theme and the mean over the themes, each theme counting equally.
 
 Status per test (combined over setup/call):
 
@@ -39,6 +46,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import manifest
 import pytest
 
 _CATALOG = os.getenv("CATALOG", "lakekeeper")
@@ -114,6 +122,7 @@ def pytest_runtest_logreport(report):
             "specific": getattr(report, "lab_specific", False),
             "status": None,
             "detail": "",
+            "run": manifest.RUN_ID,
         },
     )
     if report.when == "teardown" and rec["status"] is not None:
@@ -211,6 +220,7 @@ def pytest_sessionfinish(session):
     (REPORT_DIR / "comparison_rows.json").write_text(
         json.dumps(flat_rows(records), indent=0, ensure_ascii=False, default=str)
     )
+    manifest.write(REPORT_DIR, _CATALOG, with_help=os.getenv("LAB_NO_HELP") != "1")
 
 
 def _warehouse_role(warehouse) -> str:
@@ -297,6 +307,7 @@ def flat_rows(records: list[dict]) -> list[dict]:
         rows.append(
             {
                 "engine": _engine(r) or "",
+                "theme": theme_of(area),
                 "area": area,
                 "capability": _capability(r),
                 "status": r["status"],
@@ -305,6 +316,8 @@ def flat_rows(records: list[dict]) -> list[dict]:
                 "writer": p.get("writer")
                 or (p.get("engine") if r["test"] in CROSS_READ_TESTS else ""),
                 "test": r["nodeid"],
+                # Results of runs before manifests existed have no run id.
+                "run": r.get("run", ""),
             }
         )
     return rows
@@ -474,6 +487,99 @@ DIMENSIONS = [
 #: Areas that are reported but not part of the comparison (features of one catalog/engine).
 NOT_COMPARED = ("Catalog-specific", "Engine-specific", "Lab self-test", "Demo notebooks")
 
+#: Every compared area belongs to exactly one theme (checked by
+#: tests/selftest/test_lab_selftest.py::test_every_compared_area_has_a_theme). The dashboard and
+#: the theme table start from these few groups instead of 50+ areas.
+THEMES = {
+    "Read & write data": (
+        "Access modes",
+        "Interop (one writes, all read)",
+        "Operations",
+        "Read others' results",
+        "Read results (neutral source)",
+        "Write file formats",
+        "Read file formats",
+        "Write large files",
+        "Read large files",
+        "Performance (correctness only)",
+    ),
+    "Types": (
+        "Write types",
+        "Read types",
+        "Read types (neutral source)",
+        "Type fidelity",
+        "Type check by the catalog",
+    ),
+    "Partitions & evolution": (
+        "Write partitions",
+        "Read partitions",
+        "Read partitions (neutral source)",
+        "Schema evolution",
+        "Partition evolution",
+        "Read evolution (neutral source)",
+    ),
+    "Table features": (
+        "v3 features",
+        "Views",
+        "Namespaces",
+        "Statistics",
+        "File layout",
+        "Files per specification",
+        "Branch isolation",
+        "Write-Audit-Publish",
+        "Incremental & streaming",
+    ),
+    "Maintenance": (
+        "Maintenance",
+        "Read others' maintenance results",
+        "Read maintenance results (neutral source)",
+    ),
+    "Concurrency & robustness": (
+        "Concurrent commits",
+        "Transactions (several tables)",
+        "Re-create with an open session",
+        "Robustness (catalog faults)",
+        "Storage faults (catalog)",
+        "Catalog consistency",
+        "Token endpoint outage",
+    ),
+    "Security & access": (
+        "Authorization",
+        "Roles and inherited grants",
+        "Single privileges (inventory and effect)",
+        "Security",
+        "STS reach",
+        "STS expiry",
+        "Credentials: reach and signing",
+        "Connection without help",
+        "Web UI",
+    ),
+    "Catalog functions": (
+        "Catalog functions",
+        "Catalog administration",
+        "REST conformance",
+        "Scan planning (server)",
+        "Object storage (S3 behaviour)",
+        "Storage (RustFS S3 API)",
+    ),
+}
+_THEME_OF = {area: theme for theme, areas in THEMES.items() for area in areas}
+
+
+def theme_of(area: str) -> str:
+    """The theme of an area (``"Not compared"`` for special features, demos and self-tests,
+    ``"Other"`` for an area no theme lists - the lab self-test reports that).
+
+    Args:
+        area: Area name (``DIMENSIONS``).
+
+    Returns:
+        The theme.
+    """
+    if area in NOT_COMPARED:
+        return "Not compared"
+    return _THEME_OF.get(area, "Other")
+
 
 def _counts(statuses: list[str]) -> dict:
     """Counts per status and the derived totals (works, offered, all).
@@ -567,6 +673,58 @@ def _table(rows: list[str], cols: list[str], cells: dict[tuple[str, str], list[s
     return "\n".join(out)
 
 
+def theme_table(
+    per_area: dict[str, dict[str, list[str]]], engines: list[str], totals: dict[str, list[str]]
+) -> list[str]:
+    """Reliability per theme and engine, plus the mean over the themes (each theme counts
+    equally) and the share of the largest area in all cases - the reason for that mean.
+
+    Args:
+        per_area: Area -> engine -> statuses (compared areas only).
+        engines: Engine columns.
+        totals: Engine -> statuses over all compared areas.
+
+    Returns:
+        The Markdown lines.
+    """
+    if not engines:
+        return []
+    by_theme: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for area, by_engine in per_area.items():
+        for e, statuses in by_engine.items():
+            by_theme[theme_of(area)][e] += statuses
+    themes = [t for t in (*THEMES, "Other") if t in by_theme]
+    hdr = "| Theme | " + " | ".join(engines) + " |"
+    lines = [
+        "",
+        "### Reliability per theme (works / offered cases)",
+        "",
+        (
+            "Each theme groups several areas (`THEMES`). The mean gives every theme the same "
+            "weight; the total above gives every case the same weight and is therefore "
+            "dominated by the largest matrices."
+        ),
+        "",
+        hdr,
+        "|---|" + "---|" * len(engines),
+    ]
+    means = {}
+    for t in themes:
+        lines.append(f"| {t} | " + " | ".join(_reliability(by_theme[t][e]) for e in engines) + " |")
+    for e in engines:
+        shares = [
+            k["works"] / k["offered"] for t in themes if (k := _counts(by_theme[t][e]))["offered"]
+        ]
+        means[e] = f"**{sum(shares) / len(shares):.0%}**" if shares else "—"
+    lines.append("| **mean over themes** | " + " | ".join(means[e] for e in engines) + " |")
+    n_all = sum(len(v) for v in totals.values())
+    if n_all:
+        biggest = max(per_area, key=lambda a: sum(len(v) for v in per_area[a].values()))
+        n_big = sum(len(v) for v in per_area[biggest].values())
+        lines += ["", f"Largest area: {biggest} with {n_big / n_all:.0%} of all compared cases."]
+    return lines
+
+
 def render_markdown(records: list[dict]) -> str:
     """The comparison report (overview, matrices, severe gaps, gap lists, news).
 
@@ -627,6 +785,7 @@ def render_markdown(records: list[dict]) -> str:
     lines.append(
         "| **total** | " + " | ".join(f"**{_reliability(totals[e])}**" for e in engines) + " |"
     )
+    lines += theme_table(per_area, engines, totals)
     lines += ["", "### Breakdown, total", "", "| | " + " | ".join(engines) + " |", sep]
     for key, label in (
         ("works", "works"),

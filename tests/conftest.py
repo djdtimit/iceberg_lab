@@ -898,12 +898,19 @@ def _update_flaky_history() -> list[tuple[str, str, int]]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _bootstrap():
+def _bootstrap(request):
     """Make sure bucket, Lakekeeper bootstrap and warehouses exist before any test runs.
 
     Aborts the whole session (instead of failing hundreds of tests) when Lakekeeper is not
     reachable, which almost always means the tests were started outside the devcontainer.
+    A session of only ``offline`` tests (lab self-tests that need no catalog) skips this, so
+    they also run without the lab: ``uv run pytest -m offline``.
+
+    Args:
+        request: pytest request (to see the session's tests).
     """
+    if all(item.get_closest_marker("offline") for item in request.session.items):
+        return
     host, _, port = SETTINGS.catalog_base.split("//")[1].partition(":")
     if not _reachable(host, int(port or 80)):
         pytest.exit(f"catalog {PROFILE.name} at {SETTINGS.catalog_base} is not reachable", 2)

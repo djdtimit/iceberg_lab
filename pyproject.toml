@@ -42,6 +42,7 @@ timeout = 1800  # test_sts_expiry.py raises its own limit (1 h keys on Polaris/U
 markers = [
     "slow: JVM-based engines (Spark, Trino)",
     "long: waits for vended credentials to expire (~16 min); skip with -m 'not long'",
+    "offline: needs no catalog and no engine (lab self-tests) - `uv run pytest -m offline` runs without the lab",
     "specific: tests a feature of ONE catalog or engine (its own API) - reported separately, not part of the comparison (docs/test-architecture.md)",
 ]
 filterwarnings = [

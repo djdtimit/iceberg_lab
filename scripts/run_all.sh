@@ -21,6 +21,10 @@ fi
 mkdir -p "$out/logs"
 rm -f "$out/results.json" "$out"/logs/*.log   # logs of earlier runs (and of renamed tests) would mix into the summary
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
+# One run id for all pytest processes of this run: every result row names it, and
+# <out>/runs.json records what the run was produced with (tests/lab/manifest.py).
+export LAB_RUN_ID="${LAB_RUN_ID:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+echo "run $LAB_RUN_ID on $catalog -> $out"
 if [ "${CLEANUP:-1}" = 1 ]; then
   uv run python scripts/cleanup_storage.py --apply || echo "cleanup failed - continuing with the leftovers"
   echo
@@ -45,3 +49,6 @@ echo "PROBABLY FIXED intermittent gaps (not seen in 5+ runs in a row - check, re
 for log in "$out"/logs/*.log; do
   awk '/PROBABLY FIXED intermittent/{on=1; next} /short test summary/{on=0} on && /^  tests\//' "$log"
 done
+echo
+# Versioned reference (results/): one line per test, so `git diff results/` shows what changed.
+uv run python scripts/export_reference.py "$out" || echo "reference export failed"

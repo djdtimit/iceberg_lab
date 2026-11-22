@@ -317,7 +317,7 @@ def test_remote_signer_scope(namespace, table_name, sample):
 def test_remote_signing_is_reliable_under_repeated_commits(namespace, table_name, sample):
     """30 PyIceberg appends on the signing warehouse must all succeed.
 
-    Root cause of the failures (traced, see README): a race in PyIceberg's
+    Root cause of the failures (traced, see docs/findings.md): a race in PyIceberg's
     ``pyiceberg/io/fsspec.py::_s3`` - re-registering the signer on a shared s3fs client leaves
     a window in which a request goes out unsigned (RustFS: anonymous -> 403).
 

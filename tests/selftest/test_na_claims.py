@@ -38,7 +38,7 @@ VERIFIED = {
     "spark": "4.1.4",
     "trino": "484",
     "flink": "2.3.0",
-    "pg_lake": "3.6",
+    "pg_lake": "3.6",  # the extension's version (pg_extension.extversion); release tag v3.7.0
 }
 
 

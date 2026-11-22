@@ -336,7 +336,7 @@ services:
       - unity-certs:/certs
 
   unity-gateway:
-    image: envoyproxy/envoy:v1.40-latest
+    image: envoyproxy/envoy:v1.40.2  # was v1.40-latest (same digest on 2026-11-22); pinned like every other image
     profiles: ["unity"]
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
     volumes:

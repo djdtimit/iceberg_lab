@@ -489,7 +489,8 @@ class DuckDBMaint(Maint):
 
 
 class PgLakeMaint(Maint):
-    """pg_lake 3.6: everything runs through ``VACUUM`` (docs/iceberg-maintenance.md).
+    """pg_lake (extension 3.6, release 3.7.0): everything runs through ``VACUUM``
+    (docs/findings.md, sections "pg_lake" and "Maintenance").
 
     ``VACUUM (FULL)`` compacts data files and applies deletes; ``VACUUM`` expires snapshots
     older than the table option ``max_snapshot_age`` and deletes the files in pg_lake's

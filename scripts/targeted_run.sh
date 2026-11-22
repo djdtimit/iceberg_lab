@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Targeted run of selected test groups on all catalogs (logs in reports/targeted/).
-cd /workspaces/iceberg_lab
+cd "$(dirname "$0")/.."
 out=reports/targeted; mkdir -p $out; rm -f $out/done
 for c in lakekeeper polaris rustfs unity; do
   for t in "tests/selftest/test_lab_selftest.py tests/selftest/test_lab_adapters.py tests/selftest/test_feature_inventory.py" \
