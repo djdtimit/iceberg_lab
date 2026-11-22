@@ -5,7 +5,7 @@ the latest full run per catalog, one test per line and sorted, so that ``git dif
 after an update shows exactly which tests changed - in both directions:
 
     results/<name>.jsonl          {"test", "status", "detail"} per test (status "self" left out)
-    results/<name>.manifest.json  what the run was produced with (tests/lab/manifest.py)
+    results/<name>.manifest.json  what the run was produced with (src/iceberg_lab/lab/manifest.py)
 
 ``<name>`` is the catalog (``lakekeeper``, ``polaris``, ``rustfs``, ``unity``) or
 ``<catalog>-nohelp`` for a run without lab help. ``scripts/run_all.sh`` calls this at the end.

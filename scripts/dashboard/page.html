@@ -70,7 +70,7 @@
 <div class="ev">
   <header id="header">
     <h1>Iceberg: four catalogs × eight engines</h1>
-    <p class="lede">On <b data-draw="t-cat">—</b>, <b data-draw="t-works" data-source="catalog_kpis" data-field="works">—</b> of <b data-draw="t-offered" data-source="catalog_kpis" data-field="offered">—</b> offered test cases work. Reliability with every theme weighted equally: <b data-draw="t-rel" data-source="catalog_kpis" data-field="themeReliability">—</b>. <b data-draw="t-severe" data-source="catalog_kpis" data-field="severeCauses">—</b> severe gap causes and <b data-draw="t-new" data-source="catalog_kpis" data-field="news">—</b> new failures. <b data-draw="t-blocked" data-source="catalog_kpis" data-field="blocked">—</b> cases could not be tested because a step before them failed.</p>
+    <p class="lede">On <b data-draw="t-cat">—</b>, <b data-draw="t-works" data-source="catalog_kpis" data-field="works">—</b> of <b data-draw="t-offered" data-source="catalog_kpis" data-field="offered">—</b> offered test cases work. Reliability with every theme weighted equally: <b data-draw="t-rel" data-source="catalog_kpis" data-field="themeReliability">—</b>. <b data-draw="t-severe" data-source="catalog_kpis" data-field="severeCauses">—</b> severe gap causes and <b data-draw="t-new" data-source="catalog_kpis" data-field="news">—</b> new failures. Of <b data-draw="t-planned" data-source="catalog_kpis" data-field="planned">—</b> planned cases, <b data-draw="t-notrun" data-source="catalog_kpis" data-field="notRun">—</b> did not run because a step before them failed; they count at that step, not at the engine that would have read.</p>
     <div class="controls" id="filters">
       <label for="catalog-pick">Catalog</label>
       <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option></select>
@@ -83,7 +83,7 @@
 
   <section id="glance" class="card">
     <h2>Catalogs at a glance</h2>
-    <p class="note">Big number: reliability (works / offered cases), every theme weighted equally. Without that weighting the type matrix alone would make up a third of the result. Below it: the same per case, and the scope (works / all cases, also counting what is not offered or not testable). Click a catalog to select it.</p>
+    <p class="note">Big number: reliability (works / offered cases), every theme weighted equally. Without that weighting the type matrix alone would make up a third of the result. Below it: the same per case, and the scope (works / all cases, also counting what is not offered or not testable by the engine's own step; a case blocked by another engine counts at that engine). Click a catalog to select it.</p>
     <div class="cards" data-draw="glance" data-source="catalog_kpis"></div>
   </section>
 
@@ -166,9 +166,10 @@
         <dt>Offered</dt><dd>Works, documented gap or new failure: the engine and the catalog have the capability, so the test ran.</dd>
         <dt>Reliability</dt><dd>Works / offered. How well what is offered works.</dd>
         <dt>Equal theme weight</dt><dd>Reliability per theme, then the mean over the themes. Without it, themes with large matrices (types: about a third of all cases) decide the total.</dd>
-        <dt>Scope</dt><dd>Works / all cases, counting "not offered" and "not testable" as not working. How much of the whole test catalogue works.</dd>
+        <dt>Scope</dt><dd>Works / all cases of the engine, counting "not offered" and its own "not testable" as not working. How much of the whole test catalogue works.</dd>
         <dt>Not offered</dt><dd>The engine or catalog has no API or type for it; checked by the lab (test_na_claims).</dd>
-        <dt>Not testable</dt><dd>A step before failed, mostly the engine that writes the table. The failure is reported at that step.</dd>
+        <dt>Not testable</dt><dd>A step before failed, mostly the engine that writes the table. The case counts at that step: against the engine that failed, or the catalog when it makes the state impossible - not against the engine that would have read. Whether the reader can read such a table shows the neutral source.</dd>
+        <dt>Planned / ran</dt><dd>Planned: every compared case. Ran: works, documented gap or new failure. The difference is "not offered" and "not testable".</dd>
         <dt>Severe gap</dt><dd>A documented gap that loses or corrupts data, gives wrong results, leaves a commit half applied or opens access wider than intended.</dd>
         <dt>New failure</dt><dd>A failure without a documented gap, or with a different error than documented.</dd>
       </dl>
@@ -182,7 +183,7 @@
     engineNames: { pyiceberg: 'PyIceberg', duckdb: 'DuckDB', polars: 'Polars', daft: 'Daft', spark: 'Spark', trino: 'Trino', pg_lake: 'pg_lake', flink: 'Flink', '': 'catalog' },
     catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity'],
     catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', rustfs_nohelp: 'RustFS without help' },
-    // Same order as tests/lab/reporting.py THEMES.
+    // Same order as src/iceberg_lab/lab/reporting.py THEMES.
     themes: ['Read & write data', 'Types', 'Partitions & evolution', 'Table features', 'Maintenance', 'Concurrency & robustness', 'Security & access', 'Catalog functions'],
     sevOrder: ['Data corruption', 'Data loss', 'Inconsistency', 'Wrong result', 'Security'],
     isHelp: (c) => String(c).endsWith('_nohelp'),
@@ -195,17 +196,23 @@
     pct: (v) => (v == null ? '·' : d3.format('.0%')(v)),
     int: d3.format(','),
     band: (v) => (v == null ? 'b-none' : v >= 0.95 ? 'b-good' : v >= 0.8 ? 'b-mid' : 'b-bad'),
+    // A blocked case belongs to the step that failed before it (blocked_by, src/iceberg_lab/lab/reporting.py):
+    // blocked by another engine or by the catalog it is "foreign" and in no denominator of the row's
+    // engine. A test without an engine is about the catalog, so the catalog is its own step.
+    isForeign: (r) => r.status === 'blocked' && !!r.blocked_by && r.blocked_by !== (r.engine || 'catalog'),
     tally: (rows) => {
-      const t = { works: 0, gaps: 0, news: 0, na: 0, blocked: 0 };
+      const t = { works: 0, gaps: 0, news: 0, na: 0, blocked: 0, foreign: 0 };
       for (const r of rows) {
         if (r.status === 'pass' || r.status === 'fixed') t.works++;
         else if (r.status === 'gap') t.gaps++;
         else if (r.status === 'new') t.news++;
         else if (r.status === 'na') t.na++;
-        else if (r.status === 'blocked') t.blocked++;
+        else if (r.status === 'blocked') { if (EV.isForeign(r)) t.foreign++; else t.blocked++; }
       }
       t.offered = t.works + t.gaps + t.news;
       t.all = t.offered + t.na + t.blocked;
+      t.planned = t.all + t.foreign;
+      t.notRun = t.blocked + t.foreign;
       t.reliability = t.offered ? t.works / t.offered : null;
       t.coverage = t.all ? t.works / t.all : null;
       return t;
@@ -217,22 +224,22 @@
     stateOf: (rows) => {
       const t = EV.tally(rows);
       const fixed = rows.some((r) => r.status === 'fixed');
-      if (!t.offered) return t.na ? 'na' : 'blocked';
+      if (!t.offered) return t.na ? 'na' : 'blocked';  // blocked: own or foreign, nothing ran
       if (t.news) return 'new';
       if (t.gaps && t.works) return 'part';
       if (t.gaps) return 'gap';
       if (fixed && !rows.some((r) => r.status === 'pass')) return 'fixed';
       return 'pass';
     },
-    blockedCause: (detail) => {
-      const m = /^not written by ([\w-]+)/.exec(detail || '');
-      return m ? `write by ${EV.engineNames[m[1]] || m[1]} failed` : (detail || 'prerequisite failed').slice(0, 110);
-    },
+    blockedCause: (r) => (r.blocked_by === 'catalog'
+      ? 'the catalog makes the state impossible (e.g. it rejects the type)'
+      : r.blocked_by ? `${EV.engineNames[r.blocked_by] || r.blocked_by} failed in the step before (mostly writing the table)`
+        : (r.detail || 'prerequisite failed').slice(0, 110)),
   };
 
   dash.calc('catalog_kpis', {
     title: 'Per catalog',
-    description: 'Compared test cases per catalog (narrowed by the engine filter): works, offered, all; reliability per case and with every theme weighted equally; scope; severe gap causes; new failures; not testable.',
+    description: 'Compared test cases per catalog (narrowed by the engine filter): works, offered, all, planned; reliability per case and with every theme weighted equally; scope (cases blocked by another engine or the catalog count at the cause, not here); severe gap causes; new failures; cases that did not run.',
     inputs: ['results'],
     fn: (results) => {
       const eng = EV.eng();
@@ -322,7 +329,7 @@
         out.push({ kind: 'gap', cause, severity: v[0].severity || '', cases: v.length,
           engines: [...new Set(v.map((r) => r.engine).filter(Boolean))].map((e) => EV.engineNames[e]).join(', ') || 'catalog' });
       }
-      for (const [cause, v] of d3.groups(rows.filter((r) => r.status === 'blocked'), (r) => EV.blockedCause(r.detail))) {
+      for (const [cause, v] of d3.groups(rows.filter((r) => r.status === 'blocked'), (r) => EV.blockedCause(r))) {
         out.push({ kind: 'blocked', cause, severity: '', cases: v.length,
           engines: [...new Set(v.map((r) => r.engine).filter(Boolean))].map((e) => EV.engineNames[e]).join(', ') || 'catalog' });
       }
@@ -507,7 +514,8 @@
   dash.draw('t-rel', lede('themeReliability', EV.pct));
   dash.draw('t-severe', lede('severeCauses', EV.int));
   dash.draw('t-new', lede('news', EV.int));
-  dash.draw('t-blocked', lede('blocked', EV.int));
+  dash.draw('t-planned', lede('planned', EV.int));
+  dash.draw('t-notrun', lede('notRun', EV.int));
   dash.draw('stand', (e) => {
     const d = dash.data('run_info');
     if (d.status !== 'ok' || !d.data) { e.textContent = '—'; return; }
@@ -541,7 +549,7 @@
       b.append(row('scope (works / all cases)', 'coverage', null, EV.pct));
       b.append(row('severe gap causes', 'severeCauses', 'bad'));
       b.append(row('new failures', 'news', 'warn'));
-      b.append(row('not testable', 'blocked', null));
+      b.append(row('cases did not run (a step before failed)', 'notRun', null));
       b.addEventListener('click', () => dash.setParams({ catalog: r.catalog }));
       box.append(b);
     }
@@ -554,7 +562,7 @@
     if (!r || !r.all) { td.textContent = '·'; return td; }
     td.append(mark(el('span', 'v', EV.pct(r.reliability)), source, 'reliability', where));
     td.append(mark(el('span', 's', `${EV.int(r.works)}/${EV.int(r.all)}`), source, 'works', where));
-    td.title = `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not testable`;
+    td.title = `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not testable (own step), ${r.foreign} blocked by another engine or the catalog (not counted here)`;
     if (onClick) td.addEventListener('click', onClick);
     return td;
   }

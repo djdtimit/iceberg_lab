@@ -14,8 +14,11 @@ when the names differ is shown by ``test_view_needs_matching_catalog_names``.
 ``test_create_view[creator]``    the view exists in the catalog with the creator's dialect
 ``test_read_view[creator-reader]`` the reader queries it and gets ``{2, 3}``
 
-Engines without any view support (PyIceberg can only manage view metadata, not run the SQL;
-Polars, Daft, pg_lake) are "no API".
+PyIceberg has view metadata but no SQL engine, so it has no dialect of its own: it creates the
+view with the same SQL in every dialect of :data:`VIEW_ENGINES` (Iceberg allows one
+representation per dialect) - the test then shows whether PyIceberg writes view metadata every
+engine can run. PyIceberg cannot query views; Polars, Daft and pg_lake have no view support
+("no API").
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ import pytest
 from iceberg_lab.config import PROFILE, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap
+from conftest import ENGINES, engine_param, expect_gap, require
 
 WAREHOUSE = WAREHOUSE_STS
 #: Engines with SQL views, and the dialect name they store.
@@ -40,8 +43,11 @@ VIEW_ENGINES = {"spark": "spark", "trino": "trino", "duckdb": "duckdb", "flink":
 KNOWN_GAPS: list[tuple[str, str, str, str]] = [
     *([("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "Unity Catalog OSS 0.7 offers only GET for views (no create/replace/drop endpoints) - no engine can create an Iceberg view")]
       if PROFILE.name == "unity" else []),
-    ("*", "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "Trino only runs views that have a 'trino' SQL representation"),
-    ("*", "duckdb", r"no SQL representation with dialect 'duckdb'", "DuckDB only runs views that have a 'duckdb' SQL representation"),
+    # Not for PyIceberg's views: they carry a representation for every dialect.
+    *((c, "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "Trino only runs views that have a 'trino' SQL representation")
+      for c in VIEW_ENGINES),
+    *((c, "duckdb", r"no SQL representation with dialect 'duckdb'", "DuckDB only runs views that have a 'duckdb' SQL representation")
+      for c in VIEW_ENGINES),
     *([(e, "create", r"view schema field id must be positive", f"RustFS catalog rejects {e.capitalize()}'s view schema (field id 0) - Lakekeeper and Polaris accept it")
        for e in ("spark", "flink")]
       if PROFILE.name == "rustfs" else []),
@@ -183,6 +189,36 @@ def _use(engine, adapter, ns):
     return None, None  # Trino: the connection's default catalog is already VIEW_CATALOG
 
 
+def _pyiceberg_view(ns: str, view: str, sql: str) -> None:
+    """Create a view through PyIceberg's catalog API with one SQL representation per dialect of
+    :data:`VIEW_ENGINES` and :data:`VIEW_CATALOG` as default catalog (as an engine would store
+    its session catalog).
+
+    Args:
+        ns: Namespace of the view and its base table.
+        view: View name.
+        sql: View SQL (portable: no catalog name).
+    """
+    import time
+
+    from pyiceberg.schema import Schema
+    from pyiceberg.types import LongType, NestedField
+    from pyiceberg.view.metadata import SQLViewRepresentation, ViewVersion
+
+    reps = [SQLViewRepresentation(type="sql", sql=sql, dialect=d) for d in VIEW_ENGINES.values()]
+    version = ViewVersion(
+        version_id=1,
+        schema_id=0,
+        timestamp_ms=int(time.time() * 1000),
+        summary={"engine-name": "pyiceberg"},
+        representations=reps,
+        default_catalog=VIEW_CATALOG,
+        default_namespace=[ns],
+    )
+    schema = Schema(NestedField(1, "id", LongType(), required=False), schema_id=0)
+    pyiceberg_catalog(WAREHOUSE).create_view((ns, view), schema=schema, view_version=version)
+
+
 @pytest.fixture(scope="module")
 def base_table(namespace):
     """``(namespace, table)`` with ids 1..3, created by PyIceberg.
@@ -213,7 +249,7 @@ def views():
 
 @pytest.mark.slow
 @pytest.mark.parametrize("creator", [engine_param(e) for e in ENGINES])
-def test_create_view(creator, base_table, adapters, views):
+def test_create_view(creator, base_table, adapters, views, engine_pool):
     """The creator creates a view with portable SQL; the catalog stores it with its dialect.
 
     Checks:
@@ -225,31 +261,37 @@ def test_create_view(creator, base_table, adapters, views):
         base_table: ``(namespace, table)`` with ids 1..3.
         adapters: ``engine -> adapter`` with the shared view catalog name.
         views: ``creator -> view name`` of the created views.
+        engine_pool: Session pool of engine adapters (for the "not offered" check).
     """
-    if creator not in VIEW_ENGINES:
-        pytest.skip(f"{creator} has no API for creating views")
+    require(creator, "creating views", engine_pool)
     ns, base = base_table
     view = f"v_{creator}_{uuid.uuid4().hex[:6]}"
+    sql = f"SELECT id FROM {ns}.{base} WHERE id > 1"
     with _gap(creator, "create"):
-        e = adapters(creator)
-        use, reset = _use(creator, e, ns)
-        if use:
-            e.execute(use)
-        try:
-            e.execute(f"CREATE VIEW {e.fq(ns, view)} AS SELECT id FROM {ns}.{base} WHERE id > 1")
-        finally:
-            if reset:
-                e.execute(reset)
+        if creator in VIEW_ENGINES:
+            e = adapters(creator)
+            use, reset = _use(creator, e, ns)
+            if use:
+                e.execute(use)
+            try:
+                e.execute(f"CREATE VIEW {e.fq(ns, view)} AS {sql}")
+            finally:
+                if reset:
+                    e.execute(reset)
+            want = {VIEW_ENGINES[creator]}
+        else:  # PyIceberg: view metadata only, the same SQL for every dialect
+            _pyiceberg_view(ns, view, sql)
+            want = set(VIEW_ENGINES.values())
         v = pyiceberg_catalog(WAREHOUSE).load_view((ns, view))
-        dialects = [r.root.dialect for r in v.metadata.versions[-1].representations]
-        assert VIEW_ENGINES[creator] in [d.lower() for d in dialects], dialects
+        dialects = {r.root.dialect.lower() for r in v.metadata.versions[-1].representations}
+        assert want <= dialects, dialects
     views[creator] = view
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("reader", [engine_param(e) for e in ENGINES])
 @pytest.mark.parametrize("creator", [engine_param(e) for e in ENGINES])
-def test_read_view(creator, reader, base_table, adapters, views):
+def test_read_view(creator, reader, base_table, adapters, views, engine_pool):
     """The reader queries the creator's view and gets the rows of the view definition.
 
     Checks:
@@ -262,9 +304,9 @@ def test_read_view(creator, reader, base_table, adapters, views):
         base_table: ``(namespace, table)`` with ids 1..3.
         adapters: ``engine -> adapter`` with the shared view catalog name.
         views: ``creator -> view name`` of the created views.
+        engine_pool: Session pool of engine adapters (for the "not offered" check).
     """
-    if reader not in VIEW_ENGINES:
-        pytest.skip(f"{reader} has no API for querying views")
+    require(reader, "querying views", engine_pool)
     if creator not in views:
         pytest.skip(f"{creator} did not create a view (see test_create_view)")
     ns, _ = base_table

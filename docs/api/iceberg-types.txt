@@ -1,0 +1,24 @@
+# apache-iceberg-1.12.0
+binary
+boolean
+date
+decimal
+double
+fixed
+float
+geography
+geometry
+int
+list
+long
+map
+string
+struct
+time
+timestamp
+timestamp_ns
+timestamptz
+timestamptz_ns
+unknown
+uuid
+variant

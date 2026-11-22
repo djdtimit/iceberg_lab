@@ -35,10 +35,9 @@ import test_robustness as rb
 from iceberg_lab.config import PROFILE
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap
+from conftest import ENGINES, engine_param, expect_gap, require
 
 WAREHOUSE = rb.WAREHOUSE
-MULTI = ("duckdb", "pg_lake", "flink", "trino")
 #: The injected refusal: HTTP 503 "ServiceUnavailable: injected" (or the engine's wrapper).
 COMMIT_REFUSED = r"(?i)(503|ServiceUnavailable|injected|unavailable)"
 
@@ -187,8 +186,7 @@ def _adapter(engine, request):
     Returns:
         The adapter.
     """
-    if engine not in MULTI:
-        pytest.skip(f"{engine} has no API for multi-table transactions")
+    require(engine, "multi-table transactions", request.getfixturevalue("engine_pool"))
     return rb.proxied_engine(engine, request)
 
 

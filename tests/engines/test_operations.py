@@ -25,13 +25,13 @@ Result semantics
            lists it in ``UNSUPPORTED`` (each class docstring names them)
     FAILED the API exists but does not work. Documented cases (:data:`KNOWN_GAPS`) carry
            the label ``[known gap]``; anything else is a new error. ``KNOWN_GAPS=xfail``
-           reports documented cases as XFAIL instead (see ``expect_gap`` in conftest).
+           reports documented cases as XFAIL instead (see ``expect_gap`` in iceberg_lab.lab.gaps).
     After every content-changing operation EVERY other engine re-reads the table
     (``test_operation_cross_read``, one test per reader), so an engine whose writes only it
     can read is caught. Setup rows are ALWAYS written by the engine under test
     (:func:`seed_writer_for`); an engine that cannot write the format version fails. If the
     operation's content is right but a later check fails (e.g. no delete file written), the
-    table still goes to the cross-read (``conftest.keep_if_content_ok``). The same states
+    table still goes to the cross-read (``iceberg_lab.lab.results.keep_if_content_ok``). The same states
     written by the reference implementation: tests/engines/test_neutral_source.py.
 
 Adding an engine: write an ``<Engine>Ops`` class with one method per supported operation
@@ -61,6 +61,8 @@ from conftest import (
     expect_gap,
     fresh,
     keep_if_content_ok,
+    not_offered,
+    require_format,
     skip_if_not_produced,
 )
 
@@ -165,6 +167,7 @@ KNOWN_GAPS: list[Gap] = [
     *(Gap(eng, op, "3", NO_V3_MSG, f"{eng} writes through PyIceberg: {PYICEBERG_NO_V3}")
       for eng in ("polars", "daft")
       for op in ("insert", "overwrite", "time_travel", "sees_external_commit", "filter_aggregate", "list_tables")),
+    Gap("polars", "add_column", "3", NO_V3_MSG, f"polars writes through PyIceberg: {PYICEBERG_NO_V3}"),
     # Base cases added 2026-11-15: findings.
     Gap("spark", "sees_external_commit", "*", r"engine does not see a commit made by another client", "Spark's Iceberg catalog caches loaded tables (cache-enabled defaults to true, 30 s expiry): a commit by another client stays invisible in the same session until the cache expires or REFRESH TABLE"),
     Gap("pg_lake", "sees_external_commit", "*", r"engine does not see a commit made by another client", "WRONG RESULT: pg_lake does not see commits by other clients to a table it created (keeps its own metadata pointer; attached tables do follow - test_pglake.py)"),
@@ -283,18 +286,10 @@ def append_rows(ctx: Ctx, pool, rows) -> None:
         pool: Engine adapter pool (``engine_pool`` fixture).
         rows: Rows ``(id, name, amount)``.
     """
-    if ctx.seed_writer == "pyiceberg":
-        ctx.pi_table().append(arrow(rows))
-    elif ctx.seed_writer == "polars":
-        import polars as pl
-
-        pl.from_arrow(arrow(rows)).write_iceberg(ctx.pi_table(), mode="append")
-    elif ctx.seed_writer == "daft":
-        import daft
-
-        daft.from_arrow(arrow(rows)).write_iceberg(ctx.pi_table(), mode="append")
+    e = pool(ctx.seed_writer)
+    if e.dialect is None:  # DataFrame engine: its own Arrow write path
+        e.append_arrow(ctx.ns, ctx.table, arrow(rows))
     else:
-        e = pool(ctx.seed_writer)
         # "<float>E0" is a DOUBLE literal in DuckDB, Spark, Trino and Postgres alike.
         values = ", ".join(f"({i}, '{n}', {a!r}E0)" for i, n, a in rows)
         e.execute(f"INSERT INTO {e.fq(ctx.ns, ctx.table)} VALUES {values}")
@@ -1309,7 +1304,8 @@ class PgLakeOps(SqlOps):
 
 
 class PolarsOps:
-    """Polars DataFrame API: ``insert`` (append), ``overwrite``, ``time_travel``.
+    """Polars DataFrame API: ``insert`` (append), ``overwrite``, ``time_travel``, ``add_column``
+    (while writing: ``schema_mode="merge"``).
 
     Writes go through PyIceberg (``write_iceberg``), reads through Polars' own reader.
     """
@@ -1370,6 +1366,23 @@ class PolarsOps:
         """``scan_iceberg(snapshot_id=...)``."""
         append_rows(self.c, self.pool, [(4, "d", 4.0)])
         assert self.rows(snapshot_id=self.c.seed_snapshot) == SEED
+
+    def add_column(self):
+        """Polars has no schema DDL: ``sink_iceberg(schema_mode="merge")`` adds the column while
+        it appends a row that has it. Existing rows read it as NULL."""
+        import polars as pl
+
+        t = self.c.pi_table()
+        pl.LazyFrame(
+            {"id": [4], "name": ["d"], "amount": [4.0], "extra": ["x"]},
+            schema={"id": pl.Int32, "name": pl.String, "amount": pl.Float64, "extra": pl.String},
+        ).sink_iceberg(
+            t, mode="append", schema_mode="merge",
+            storage_options=polars_storage_options(t.io.properties),
+        )  # fmt: skip
+        assert [f.name for f in self.c.pi_table().schema().fields][-1] == "extra"
+        df = self.scan().collect().sort("id")
+        assert df["extra"].to_list() == [None, None, None, "x"]
 
     def sees_external_commit(self):
         """Read, another client appends, read again."""
@@ -1718,12 +1731,13 @@ def test_operation(engine, op, fv, namespace, engine_pool, op_results):
             (None: attempted without a readable result).
     """
     if op in EXPECTED_CONTENT:
-        op_results[(engine, op, fv)] = None  # attempted (see conftest.skip_if_not_produced)
+        op_results[(engine, op, fv)] = (
+            None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
+        )
     cls = OPS_CLASSES.get(engine)
     if cls is None or not hasattr(cls, op) or op in getattr(cls, "UNSUPPORTED", ()):
-        pytest.skip(f"{engine} has no API for {op}")
-    if engine == "pg_lake" and fv == 3:
-        pytest.skip("pg_lake creates only format v2 tables")
+        not_offered(engine, op, None, engine_pool)
+    require_format(engine, fv)
     gap = known_gap(engine, op, fv)
 
     catalog = pyiceberg_catalog(WAREHOUSE)

@@ -9,7 +9,7 @@ RustFS 1.0, Unity 0.7):
   - the REST spec's ``read-restrictions`` (required row filter / column projection) is not
     emitted by any of them.
 
-The desired capabilities are written as known gaps (see ``expect_gap`` in conftest): they
+The desired capabilities are written as known gaps (see ``expect_gap`` in iceberg_lab.lab.gaps): they
 are reported as failures with the label "[known gap]" until an update adds them.
 """
 

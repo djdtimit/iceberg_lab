@@ -4,7 +4,8 @@ Setup (format v2, written by PyIceberg so every reader gets the same snapshots):
 ``S1`` appends ids 1-3, ``S2`` appends 4-5, ``S3`` deletes id 2.
 
 ``test_incremental_append_read[engine]``  rows appended in (S1, S2] -> {4, 5}
-    PyIceberg ``incremental_append_scan``, Spark ``start-/end-snapshot-id`` read options,
+    PyIceberg ``incremental_append_scan``, Polars ``scan_iceberg(from_snapshot_id_exclusive=,
+    to_snapshot_id_inclusive=)``, Spark ``start-/end-snapshot-id`` read options,
     Flink ``OPTIONS('start-snapshot-id', 'end-snapshot-id')``, Trino ``table_changes``.
 ``test_changelog_read[engine]``           net changes in (S2, S3] -> id 2 deleted
     Spark ``create_changelog_view(net_changes => true)``, Trino ``table_changes``.
@@ -15,8 +16,10 @@ Setup (format v2, written by PyIceberg so every reader gets the same snapshots):
     Flink (``OPTIONS('streaming'='true')``, unbounded query polled through the gateway);
     Spark (``readStream``, two ``availableNow`` runs on one checkpoint).
 
-No API (checked): DuckDB (no changelog/incremental table function), pg_lake, Polars, Daft
-(time travel only); PyIceberg has no changelog and no streaming.
+Polars streams with ``LazyFrame.sink_iceberg``; whether that commits like a streaming job is
+what ``test_streaming_write`` checks. Every other "not offered" is checked at run time against
+the engine's live API (``iceberg_lab.lab.capabilities.require``): a matching new function fails the test
+instead of hiding behind the skip.
 """
 
 from __future__ import annotations
@@ -29,15 +32,22 @@ import pyarrow as pa
 import pytest
 import test_operations as base
 
-from iceberg_lab.engines import SPARK_CATALOGS, FlinkEngine, pyiceberg_catalog
+from iceberg_lab.engines import (
+    SPARK_CATALOGS,
+    FlinkEngine,
+    polars_storage_options,
+    pyiceberg_catalog,
+)
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect_gap, require, require_engine
 
 WAREHOUSE = base.WAREHOUSE
+
 
 # Filled from observed failures only: (engine, test, regex, reason).
 # fmt: off
 KNOWN_GAPS: list[tuple[str, str, str, str]] = [
+    ("polars", "streaming_write", r"expected several streaming commits", "Polars 2.1 sink_iceberg(engine='streaming') writes all 500 rows in one commit at the end - a batch write through the streaming engine, no incremental commits"),
     ("trino", "changelog", r"\(1, 'delete'\)", "Trino table_changes reports copy-on-write carry-over rows as delete + insert (no net changes)"),
 ]
 # fmt: on
@@ -104,6 +114,19 @@ def incremental_ids(engine, adapter, ns, name, s_from, s_to) -> list[int]:
             from_snapshot_id_exclusive=s_from, to_snapshot_id_inclusive=s_to
         )
         return sorted(scan.to_arrow()["id"].to_pylist())
+    if engine == "polars":
+        # Polars 2.x: scan_iceberg(from_snapshot_id_exclusive=, to_snapshot_id_inclusive=) - found
+        # by the not_offered check, which had claimed "no incremental reads".
+        import polars as pl
+
+        t = pyiceberg_catalog(WAREHOUSE).load_table(f"{ns}.{name}")
+        lf = pl.scan_iceberg(
+            t,
+            from_snapshot_id_exclusive=s_from,
+            to_snapshot_id_inclusive=s_to,
+            storage_options=polars_storage_options(t.io.properties),
+        )
+        return sorted(lf.select("id").collect()["id"].to_list())
     if engine == "spark":
         df = (
             adapter.spark.read.format("iceberg")
@@ -142,11 +165,10 @@ def test_incremental_append_read(engine, history, namespace, engine_pool):
         namespace: Fresh namespace of the test session.
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
-    if engine not in ("pyiceberg", "spark", "flink", "trino"):
-        pytest.skip(f"{engine} has no API for incremental reads")
+    require(engine, "incremental reads", engine_pool)
     name, s1, s2, _ = history
     with _gap(engine, "incremental"):
-        adapter = None if engine == "pyiceberg" else engine_pool(engine)
+        adapter = None if engine in ("pyiceberg", "polars") else engine_pool(engine)
         assert incremental_ids(engine, adapter, namespace, name, s1, s2) == [4, 5]
 
 
@@ -198,8 +220,7 @@ def test_changelog_read(engine, history, namespace, engine_pool):
         namespace: Fresh namespace of the test session.
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
-    if engine not in ("spark", "trino"):
-        pytest.skip(f"{engine} has no API for changelog reads")
+    require(engine, "changelog reads", engine_pool)
     name, _, s2, s3 = history
     with _gap(engine, "changelog"):
         assert changelog(engine, engine_pool(engine), namespace, name, s2, s3) == [(2, "delete")]
@@ -236,13 +257,26 @@ def test_streaming_write(engine, namespace, engine_pool, tmp_path):
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         tmp_path: Temporary directory (streaming checkpoints).
     """
-    if engine not in ("flink", "spark"):
-        pytest.skip(f"{engine} has no API for streaming writes")
+    require(engine, "streaming writes", engine_pool)
     cat = pyiceberg_catalog(WAREHOUSE)
     name = f"sw_{engine}_{uuid.uuid4().hex[:6]}"
     n = 500
     with _gap(engine, "streaming_write"):
-        if engine == "flink":
+        if engine == "polars":
+            # LazyFrame.sink_iceberg: Polars' streaming-engine sink. Whether it commits like a
+            # streaming job (several snapshots) or once like a batch write decides the check below.
+            import polars as pl
+
+            t = cat.create_table(f"{namespace}.{name}", schema=base.SCHEMA)
+            pl.LazyFrame(
+                {"id": list(range(1, n + 1)), "name": [str(i) for i in range(1, n + 1)],
+                 "amount": [float(i) for i in range(1, n + 1)]},
+                schema={"id": pl.Int32, "name": pl.String, "amount": pl.Float64},
+            ).sink_iceberg(
+                t, mode="append", engine="streaming",
+                storage_options=polars_storage_options(t.io.properties),
+            )  # fmt: skip
+        elif engine == "flink":
             f = _flink_streaming()
             try:
                 gen = f"default_catalog.default_database.gen_{name}"
@@ -341,8 +375,7 @@ def test_streaming_read(engine, namespace, engine_pool, tmp_path):
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         tmp_path: Temporary directory (streaming checkpoints).
     """
-    if engine not in ("flink", "spark"):
-        pytest.skip(f"{engine} has no API for streaming reads")
+    require(engine, "streaming reads", engine_pool)
     cat = pyiceberg_catalog(WAREHOUSE)
     name = f"sr_{engine}_{uuid.uuid4().hex[:6]}"
     t = cat.create_table(f"{namespace}.{name}", schema=base.SCHEMA)

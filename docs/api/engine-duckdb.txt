@@ -1,5 +1,6 @@
 function:iceberg_bucket
 function:iceberg_column_stats
+function:iceberg_expire_snapshots
 function:iceberg_files
 function:iceberg_history
 function:iceberg_load_table_response
@@ -7,6 +8,7 @@ function:iceberg_manifests
 function:iceberg_metadata
 function:iceberg_partition_specs
 function:iceberg_partition_stats
+function:iceberg_partitions
 function:iceberg_refs
 function:iceberg_rewrite_data_files
 function:iceberg_rollback_to_snapshot
@@ -14,6 +16,7 @@ function:iceberg_scan
 function:iceberg_scan_plan
 function:iceberg_scan_tasks
 function:iceberg_schema_properties
+function:iceberg_schemas
 function:iceberg_snapshots
 function:iceberg_table_properties
 function:iceberg_to_ducklake

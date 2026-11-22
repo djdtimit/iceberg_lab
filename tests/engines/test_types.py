@@ -16,6 +16,8 @@ How it works
                                                    lab client cannot write: can the reader read
                                                    the type at all?)
     ``test_reader_type[<reader>-v<fv>-<type>]``    does the reader report the matching type?
+    ``test_nan_metrics[<writer>-v<fv>-<type>]``    no NaN in the column bounds, NaN/NULL counts
+                                                   right (filters must not prune wrongly)
     ``test_v3_types_rejected_on_v2_tables``         v3-only types are refused on v2 tables
 
     Writes are cached per session (fixture ``written``), so each table is written once and
@@ -324,6 +326,10 @@ PG_TYPES: dict[str, tuple[str, str] | None] = {
     "long": ("bigint", "9223372036854775807"),
     "float": ("real", "1.5::real"),
     "double": ("double precision", "3.141592653589793::double precision"),
+    "double_nan": ("double precision", "'NaN'::double precision"),
+    "double_inf": ("double precision", "'Infinity'::double precision"),
+    "double_neg_zero": ("double precision", "'-0'::double precision"),
+    "float_nan": ("real", "'NaN'::real"),
     "decimal_10_2": ("numeric(10,2)", "12345678.90"),
     "decimal_38_10": ("numeric(38,10)", "1234567890123456789012345678.0123456789"),
     "date": ("date", "DATE '2026-11-13'"),
@@ -375,11 +381,7 @@ def _write_pg_lake(engine, namespace: str, table: str, case: TypeCase) -> None:
     )
     if not map_exists:
         engine.execute("SELECT map_type.create('text', 'int')")
-    fq = engine.fq(namespace, table)
-    engine.execute(
-        f"CREATE TABLE {fq} (id bigint, v {pg_type}) USING iceberg WITH (catalog = '{engine.server}')"
-    )
-    engine.owned.add((namespace, table))
+    engine.create_owned_table(namespace, table, f"id bigint, v {pg_type}")
     actual = (
         pyiceberg_catalog(WAREHOUSE).load_table(f"{namespace}.{table}").schema().find_field("v")
     )
@@ -388,7 +390,7 @@ def _write_pg_lake(engine, namespace: str, table: str, case: TypeCase) -> None:
         f"pg_lake created column '{pg_type}' as Iceberg {actual.field_type} ({created}), "
         f"expected {fam(case)}"
     )
-    engine.execute(f"INSERT INTO {fq} VALUES (1, {literal}), (2, NULL)")
+    engine.execute(f"INSERT INTO {engine.fq(namespace, table)} VALUES (1, {literal}), (2, NULL)")
 
 
 def _gap(op, engine, fv, case):
@@ -709,6 +711,81 @@ def test_reader_type(reader, fv, case, namespace, engine_pool, written):
         assert same_family(expected, family), (
             f"{reader} reports '{name}' ({family}) for Iceberg {expected}"
         )
+
+
+NAN_CASES = [c for c in ALL_CASES if c.name in ("double_nan", "float_nan")]
+
+
+def _float_bound(raw: bytes | None, case: TypeCase) -> float | None:
+    """Decode a lower/upper bound of a float/double column (Iceberg single-value binary form:
+    little-endian IEEE 754, 4 bytes for float, 8 for double).
+
+    Args:
+        raw: The serialized bound, or None if the writer wrote none.
+        case: The type case (float or double).
+
+    Returns:
+        The bound, or None.
+    """
+    import struct
+
+    if raw is None:
+        return None
+    return struct.unpack("<f" if case.name.startswith("float") else "<d", bytes(raw))[0]
+
+
+@pytest.mark.parametrize("case", NAN_CASES, ids=lambda c: c.name)
+@pytest.mark.parametrize("fv", [2, 3], ids=lambda v: f"v{v}")
+@pytest.mark.parametrize("writer", [engine_param(e) for e in ENGINES])
+def test_nan_metrics(writer, fv, case, namespace, engine_pool, written):
+    """Column metrics of a NaN value follow the spec, so filters cannot prune wrongly.
+
+    The table holds one NaN and one NULL in column ``v``. Readers that prune files by
+    lower/upper bounds return wrong results if a writer puts NaN into the bounds.
+
+    Checks:
+        * no data file has NaN as lower or upper bound of ``v`` (spec: bounds exclude NaN);
+        * where the writer records ``nan_value_counts`` for ``v``, it counts exactly 1 (a
+          missing count is allowed - the field is optional);
+        * ``null_value_counts`` for ``v``, where recorded, counts exactly 1 (the NULL row).
+        Skipped (blocked) if the writer could not write the table.
+
+    Args:
+        writer: Engine that wrote the table.
+        fv: Iceberg format version (2 or 3).
+        case: ``double_nan`` or ``float_nan``.
+        namespace: Fresh namespace of the test session.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        written: ``(writer, fv, case) -> (namespace, table)`` or the writer's exception.
+    """
+    import math
+
+    result = _write(writer, fv, case, namespace, engine_pool, written)
+    if isinstance(result, Exception):
+        detail = f": {result}" if isinstance(result, NotApplicable) else ""
+        pytest.skip(f"not written by {writer}: {type(result).__name__}{detail}")
+    ns, table = result
+    with _gap("metrics", writer, fv, case):
+        tbl = pyiceberg_catalog(WAREHOUSE).load_table(f"{ns}.{table}")
+        fid = tbl.schema().find_field("v").field_id
+        files = tbl.inspect.files().to_pylist()
+        assert files, f"{writer} left no data file"
+        problems = []
+        counts = {"nan_value_counts": [], "null_value_counts": []}
+        for f in files:
+            name = f["file_path"].rsplit("/", 1)[-1]
+            for kind in ("lower_bounds", "upper_bounds"):
+                bound = _float_bound(dict(f.get(kind) or {}).get(fid), case)
+                if bound is not None and math.isnan(bound):
+                    problems.append(f"{name}: NaN in {kind}")
+            for kind, got in counts.items():
+                got.append(dict(f.get(kind) or {}).get(fid))
+        # A writer may put the two rows into separate files: the counts add up over all files.
+        # Only checked where every file records the count (the field is optional).
+        for kind, got in counts.items():
+            if got and None not in got and sum(got) != 1:
+                problems.append(f"{kind} over {len(got)} file(s) = {sum(got)}, expected 1")
+        assert not problems, f"{writer}: " + "; ".join(problems)
 
 
 @pytest.mark.parametrize(

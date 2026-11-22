@@ -203,6 +203,10 @@ class Engine:
 
     name: str
     dialect: str | None = None
+    #: ``(statement, query)`` that sets and returns the session time zone (``{z}`` = IANA name;
+    #: query None: the engine cannot report it). None: no session time zone - the registry
+    #: (``iceberg_lab.lab.capabilities.OFFERED["a session time zone"]``) says the same.
+    session_zone_sql: tuple[str, str | None] | None = None
 
     def __init__(self, warehouse: str, credentials: Credentials = "catalog"):
         """Remember the warehouse and the access mode.
@@ -289,6 +293,42 @@ class Engine:
             The engine's type name of column ``v``.
         """
         return self.execute(f"SELECT typeof(v) FROM {self.fq(namespace, table)} LIMIT 1")[0][0]
+
+    # -- engine-specific steps the matrices share ---------------------------------------------
+    # Tests call these instead of branching on the engine name, so an engine's own path lives in
+    # its adapter (one place to change after an engine update).
+
+    def append_arrow(self, namespace: str, table: str, data: pa.Table) -> None:
+        """Append Arrow rows to an existing table with the engine's own write path.
+
+        Only for DataFrame engines (``dialect is None``); SQL engines write with INSERT.
+
+        Args:
+            namespace: Namespace of the table.
+            table: Table name (without namespace).
+            data: Arrow table matching the table's schema.
+        """
+        raise NotImplementedError(f"{self.name} writes with SQL (INSERT), not Arrow")
+
+    def set_session_zone(self, zone: str) -> None:
+        """Set the session time zone and check that it took effect.
+
+        Raises:
+            NotImplementedError: the engine has no session time zone.
+            AssertionError: the engine reports another zone after setting it.
+
+        Args:
+            zone: IANA zone name (``"UTC"`` to set it back).
+        """
+        if self.session_zone_sql is None:
+            raise NotImplementedError(f"{self.name} has no session time zone")
+        stmt, query = self.session_zone_sql
+        self.execute(stmt.format(z=zone))
+        if query:
+            got = str(self.execute(query)[0][0])
+            assert got in (zone, "Etc/UTC" if zone == "UTC" else zone), (
+                f"{self.name}: session zone is {got!r} after setting {zone!r}"
+            )
 
     # -- SQL engine helpers --------------------------------------------------------------------
 
@@ -409,6 +449,16 @@ class PyIcebergEngine(Engine):
         """
         self.catalog.load_table(f"{namespace}.{table}").append(case.arrow())
 
+    def append_arrow(self, namespace, table, data):
+        """Append with ``Table.append``.
+
+        Args:
+            namespace: Namespace of the table.
+            table: Table name (without namespace).
+            data: Arrow table matching the table's schema.
+        """
+        self.catalog.load_table(f"{namespace}.{table}").append(data)
+
     def select(self, namespace, table, case=None):
         """Scan the table to Arrow.
 
@@ -524,6 +574,20 @@ class PolarsEngine(PyIcebergEngine):
         t = self.catalog.load_table(f"{namespace}.{table}")
         pl.from_arrow(case.arrow()).write_iceberg(t, mode="append")
 
+    def append_arrow(self, namespace, table, data):
+        """Append with ``write_iceberg``.
+
+        Args:
+            namespace: Namespace of the table.
+            table: Table name (without namespace).
+            data: Arrow table matching the table's schema.
+        """
+        import polars as pl
+
+        pl.from_arrow(data).write_iceberg(
+            self.catalog.load_table(f"{namespace}.{table}"), mode="append"
+        )
+
     def select(self, namespace, table, case=None):
         """Read with ``pl.scan_iceberg`` (via Arrow, keeps nanoseconds).
 
@@ -609,6 +673,20 @@ class DaftEngine(PyIcebergEngine):
         t = self.catalog.load_table(f"{namespace}.{table}")
         daft.from_arrow(case.arrow()).write_iceberg(t, mode="append")
 
+    def append_arrow(self, namespace, table, data):
+        """Append with Daft's ``write_iceberg``.
+
+        Args:
+            namespace: Namespace of the table.
+            table: Table name (without namespace).
+            data: Arrow table matching the table's schema.
+        """
+        import daft
+
+        daft.from_arrow(data).write_iceberg(
+            self.catalog.load_table(f"{namespace}.{table}"), mode="append"
+        )
+
     def select(self, namespace, table, case=None):
         """Read with ``daft.read_iceberg``.
 
@@ -655,6 +733,7 @@ class DuckDBEngine(Engine):
 
     name = "duckdb"
     dialect = "duckdb"
+    session_zone_sql = ("SET TimeZone = '{z}'", "SELECT current_setting('TimeZone')")
     #: Name under which the warehouse is attached; tables are ``lk.<namespace>.<table>``.
     alias = "lk"
 
@@ -872,6 +951,7 @@ class SparkEngine(Engine):
 
     name = "spark"
     dialect = "spark"
+    session_zone_sql = ("SET spark.sql.session.timeZone = {z}", "SELECT current_timezone()")
 
     def __init__(self, spark, warehouse: str, credentials: Credentials = "catalog"):
         """Select the warehouse's Spark catalog; only catalog-provided access is supported.
@@ -972,6 +1052,8 @@ class TrinoEngine(Engine):
 
     name = "trino"
     dialect = "trino"
+    # Not run in this lab setup yet (moved verbatim from test_timezones).
+    session_zone_sql = ("SET TIME ZONE '{z}'", "SELECT current_timezone()")
 
     def __init__(
         self, warehouse: str, credentials: Credentials = "catalog", s: Settings = SETTINGS
@@ -1092,6 +1174,8 @@ class PgLakeEngine(Engine):
 
     name = "pg_lake"
     dialect = "pg_lake"
+    # Not run in this lab setup yet (moved verbatim from test_timezones).
+    session_zone_sql = ("SET TimeZone = '{z}'", "SELECT current_setting('TimeZone')")
 
     def __init__(
         self,
@@ -1252,8 +1336,28 @@ class PgLakeEngine(Engine):
             WITH (catalog = '{self.server}', read_only = true,
                   catalog_namespace = '{namespace}', catalog_table_name = '{table}')""")
 
+    def create_owned_table(
+        self, namespace: str, table: str, columns: str, options: str = ""
+    ) -> None:
+        """Create a writable pg_lake Iceberg table (pg_lake writes only tables it created).
+
+        Writable REST tables take namespace and name from the Postgres schema and table.
+
+        Args:
+            namespace: Namespace of the table (= Postgres schema).
+            table: Table name.
+            columns: Postgres column list, e.g. ``"id bigint, v timestamptz"``.
+            options: Further table options, appended to ``WITH (catalog = ...``
+                (e.g. ``", partition_by = 'id'"``).
+        """
+        self.execute(f'CREATE SCHEMA IF NOT EXISTS "{namespace}"')
+        self.execute(
+            f"CREATE TABLE {self.fq(namespace, table)} ({columns}) USING iceberg "
+            f"WITH (catalog = '{self.server}'{options})"
+        )
+        self.owned.add((namespace, table))
+
     def write(self, namespace, table, data):
-        # Writable REST tables take namespace and name from the Postgres schema and table.
         """Create a pg_lake-owned Iceberg table and insert the rows.
 
         Args:
@@ -1261,11 +1365,7 @@ class PgLakeEngine(Engine):
             table: Table name (without namespace).
             data: Arrow table with the rows to write.
         """
-        self.execute(f'CREATE SCHEMA IF NOT EXISTS "{namespace}"')
-        self.execute(f"""CREATE TABLE {self.fq(namespace, table)}
-                         (id bigint, name text, amount double precision)
-                         USING iceberg WITH (catalog = '{self.server}')""")
-        self.owned.add((namespace, table))
+        self.create_owned_table(namespace, table, "id bigint, name text, amount double precision")
         values = ", ".join(f"({i}, '{n}', {a})" for i, n, a in rows(data))
         self.execute(f"INSERT INTO {self.fq(namespace, table)} VALUES {values}")
 
@@ -1361,6 +1461,8 @@ class FlinkEngine(Engine):
 
     name = "flink"
     dialect = "flink"
+    # Not run in this lab setup yet (moved verbatim from test_timezones). Flink cannot report it.
+    session_zone_sql = ("SET 'table.local-time-zone' = '{z}'", None)
 
     def __init__(
         self, warehouse: str, credentials: Credentials = "catalog", s: Settings = SETTINGS

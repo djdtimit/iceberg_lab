@@ -25,11 +25,12 @@ from __future__ import annotations
 import types
 
 import pytest
-import reporting
 import test_notebooks
 
+from iceberg_lab.lab import gaps, reporting
+from iceberg_lab.lab.gaps import GapFixedError, KnownGapError, expect_gap
+
 import conftest
-from conftest import GapFixedError, KnownGapError, expect_gap
 
 #: Needs no catalog or engine: runs without the lab (``uv run pytest -m offline``).
 pytestmark = pytest.mark.offline
@@ -43,8 +44,8 @@ def _isolated_summary(monkeypatch):
         monkeypatch: pytest monkeypatch fixture.
     """
     for name in ("_KNOWN_GAP_HITS", "_FIXED_GAPS", "_FLAKY_NOT_SEEN", "_FLAKY_SEEN"):
-        monkeypatch.setattr(conftest, name, [])
-    monkeypatch.setattr(conftest, "KNOWN_GAPS_MODE", "fail")
+        monkeypatch.setattr(gaps, name, [])
+    monkeypatch.setattr(gaps, "KNOWN_GAPS_MODE", "fail")
 
 
 # ---- expect_gap -------------------------------------------------------------------------------
@@ -58,7 +59,7 @@ def test_expect_gap_documented_error_is_a_known_gap():
     """
     with pytest.raises(KnownGapError, match=r"\[known gap\] doc"), expect_gap("doc", r"boom \d+"):
         raise RuntimeError("boom 42")
-    assert [r for _, r in conftest._KNOWN_GAP_HITS] == ["doc"]
+    assert [r for _, r in gaps._KNOWN_GAP_HITS] == ["doc"]
 
 
 def test_expect_gap_other_error_comes_through_unchanged():
@@ -69,7 +70,7 @@ def test_expect_gap_other_error_comes_through_unchanged():
     """
     with pytest.raises(ValueError, match="something else"), expect_gap("doc", r"boom \d+"):
         raise ValueError("something else")
-    assert conftest._KNOWN_GAP_HITS == []
+    assert gaps._KNOWN_GAP_HITS == []
 
 
 def test_expect_gap_matches_type_name_and_message():
@@ -91,7 +92,7 @@ def test_expect_gap_no_error_means_fixed():
     """
     with pytest.raises(GapFixedError, match=r"\[gap fixed\]"), expect_gap("doc", "boom"):
         pass
-    assert [r for _, r in conftest._FIXED_GAPS] == ["doc"]
+    assert [r for _, r in gaps._FIXED_GAPS] == ["doc"]
 
 
 def test_expect_gap_flaky_without_error_passes_and_is_recorded():
@@ -102,8 +103,8 @@ def test_expect_gap_flaky_without_error_passes_and_is_recorded():
     """
     with expect_gap("doc", "boom", flaky=True):
         pass
-    assert [r for _, r in conftest._FLAKY_NOT_SEEN] == ["doc"]
-    assert conftest._FIXED_GAPS == []
+    assert [r for _, r in gaps._FLAKY_NOT_SEEN] == ["doc"]
+    assert gaps._FIXED_GAPS == []
 
 
 def test_expect_gap_without_reason_changes_nothing():
@@ -178,7 +179,7 @@ def test_central_rule_does_not_cover_another_engine(monkeypatch):
     """
     report = _central(monkeypatch, "rustfs", "tests/test_x.py::test_read[spark]", DUCKDB_HOST)
     assert report.longrepr == "original"
-    assert conftest._KNOWN_GAP_HITS == []
+    assert gaps._KNOWN_GAP_HITS == []
 
 
 def test_central_rule_does_not_cover_another_catalog(monkeypatch):
@@ -216,7 +217,7 @@ def test_every_central_rule_names_engines_or_files():
     Checks:
         * no empty alternative in the node part; the regex is not ``.*``/``.+``.
     """
-    for cat, node, regex, _frames, reason in conftest.CATALOG_GAPS:
+    for cat, node, regex, _frames, reason in gaps.CATALOG_GAPS:
         assert all(alt.strip() for alt in node.split("|")), (cat, reason)
         assert regex and regex not in (".*", ".+"), (cat, reason)
 
@@ -253,10 +254,10 @@ def test_central_rules_are_specific():
     Checks:
         * no central rule matches a generic error (``GENERIC_ERRORS``).
     """
-    rules = [(r, reason) for _c, _n, r, frames, reason in conftest.CATALOG_GAPS if not frames]
-    rules += [(r, reason) for _n, r, frames, reason in conftest.FLAKY_GAPS if not frames]
+    rules = [(r, reason) for _c, _n, r, frames, reason in gaps.CATALOG_GAPS if not frames]
+    rules += [(r, reason) for _n, r, frames, reason in gaps.FLAKY_GAPS if not frames]
     for regex, reason in rules:
-        conftest._require_specific(regex, reason)
+        gaps._require_specific(regex, reason)
 
 
 # ---- notebooks --------------------------------------------------------------------------------
@@ -406,8 +407,8 @@ def test_gap_with_severity_is_accepted_and_classified():
         expect_gap("WRONG RESULT: engine silently drops the row", "row missing"),
     ):
         raise AssertionError("row missing")
-    assert conftest.gap_severity("WRONG RESULT: x") == "Wrong result"
-    assert conftest.gap_severity("Engine has no API for x") is None
+    assert gaps.gap_severity("WRONG RESULT: x") == "Wrong result"
+    assert gaps.gap_severity("Engine has no API for x") is None
 
 
 def test_central_rules_are_classified():
@@ -416,8 +417,8 @@ def test_central_rules_are_classified():
     Checks:
         * ``_require_severity`` accepts all FLAKY_GAPS and CATALOG_GAPS reasons.
     """
-    for *_, reason in list(conftest.FLAKY_GAPS) + list(conftest.CATALOG_GAPS):
-        conftest._require_severity(reason)
+    for *_, reason in list(gaps.FLAKY_GAPS) + list(gaps.CATALOG_GAPS):
+        gaps._require_severity(reason)
 
 
 def test_report_marks_severe_gaps():
@@ -467,6 +468,53 @@ def test_report_records_the_run():
     assert (row["run"], row["area"], row["theme"]) == ("R1", "Views", "Table features")
     old = {k: v for k, v in rec.items() if k != "run"}
     assert reporting.flat_rows([old])[0]["run"] == ""
+
+
+@pytest.mark.parametrize(
+    ("detail", "writer", "engine", "expected"),
+    [
+        ("not written by polars: ValueError", "polars", "duckdb", "polars"),
+        ("pg_lake identity v2 did not succeed in test_partitioned_write", "", "duckdb", "pg_lake"),
+        ("spark did not create a view (see test_create_view)", "", "trino", "spark"),
+        ("duckdb could not delete on v3: HTTP Error", "", "duckdb", "duckdb"),
+        ("neither an engine nor the neutral source wrote geometry on v3", "", "spark", "catalog"),
+        ("not testable on rustfs: the catalog is the storage itself", "", "", "catalog"),
+        ("some other prerequisite failed", "flink", "spark", "flink"),
+        ("some other prerequisite failed", "", "spark", "spark"),
+    ],
+)
+def test_blocked_case_is_charged_to_its_cause(detail, writer, engine, expected):
+    """A blocked read says nothing about the reader, so it counts at the step that failed.
+
+    Checks:
+        * ``blocked_by`` names the engine the reason starts with, the catalog for reasons
+          without an engine, else the row's writer, else the engine itself;
+        * ``counted_status`` makes a case blocked by someone else "foreign" (not counted for the
+          engine) and keeps one blocked by the engine's own step "blocked" - for a test without
+          an engine the catalog is its own subject.
+
+    Args:
+        detail: Skip reason.
+        writer: Writer of the row ("" if none).
+        engine: Engine of the row.
+        expected: Expected cause.
+    """
+    row = {"status": "blocked", "detail": detail, "writer": writer, "engine": engine}
+    assert reporting.blocked_by(row) == expected
+    own = engine or "catalog"  # a test without an engine is about the catalog
+    assert reporting.counted_status(row) == ("blocked" if expected == own else "foreign")
+    assert reporting.blocked_by({**row, "status": "gap"}) == ""
+
+
+def test_foreign_blocked_cases_leave_the_engines_coverage():
+    """Coverage of an engine must not drop because another engine could not write.
+
+    Checks:
+        * a case blocked by another engine is in no denominator of the engine;
+        * a case blocked by the engine's own step still counts against its coverage.
+    """
+    k = reporting._counts(["pass", "pass", "foreign", "foreign", "blocked"])
+    assert (k["works"], k["all"], k["foreign"]) == (2, 3, 2)
 
 
 def _producer(results, content_ok, error):

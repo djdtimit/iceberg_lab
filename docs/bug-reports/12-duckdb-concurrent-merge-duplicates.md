@@ -1,5 +1,7 @@
 # [DuckDB iceberg] Two concurrent MERGE INTO of the same new key both succeed - the key is in the table twice
 
+> **Fixed in DuckDB 2.0.1** (2026-11-22: 5 of 5 runs without duplicate; the lab's known gap reported `[gap fixed]`). Do not file.
+
 **Component:** DuckDB iceberg extension (REST catalog write path, MERGE INTO)
 **Versions:** DuckDB 2.0.0; catalogs Lakekeeper v0.15.1, Polaris 1.9.0, RustFS 1.0.6, Unity 0.7.0 (same on all)
 

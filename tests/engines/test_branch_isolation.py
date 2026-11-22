@@ -23,7 +23,7 @@ import test_operations as base
 
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh, require_engine
+from conftest import ENGINES, engine_param, expect_gap, fresh, require, require_engine
 
 WAREHOUSE = base.WAREHOUSE
 MAIN = [(1, "a", 1.0), (2, "b", 2.0)]
@@ -123,8 +123,7 @@ def test_write_to_main_leaves_branch(engine, namespace, engine_pool):
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
     require_engine(engine)
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for writing tables it did not create (read-only attach)")
+    require(engine, "writing tables it did not create", engine_pool)
     name = _branched_table(namespace)
     with _gap("write_to_main_leaves_branch", engine):
         adapter = fresh(engine_pool(engine), namespace, name)

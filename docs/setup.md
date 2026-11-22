@@ -129,6 +129,15 @@ For views, all engines give the catalog the same name per catalog profile: `sts`
 `psts` (Polaris), `rsts` (RustFS), `usts` (Unity) – Trino catalogs are fixed files
 (`trino/catalog/`), and `sts` points at Lakekeeper.
 
+## Version updates
+
+Every engine, catalog and image version is pinned (uv.lock, docker-compose.yml, the Dockerfiles,
+`ICEBERG_VERSION` in `src/iceberg_lab/engines.py`). `renovate.json` makes Renovate open one PR
+per engine/catalog when a new version is out (Mondays; lab tooling monthly). It needs the
+Renovate GitHub app on the repository - nothing runs until it is installed. Spark majors/minors
+stay manual (Iceberg ships Spark runtimes only for some minors). What a version PR has to go
+through is in [test-architecture.md](test-architecture.md#new-versions-and-new-features-show-up).
+
 ## Services
 
 | Service | Address (in the container / host) | Purpose |
@@ -149,7 +158,9 @@ For views, all engines give the catalog the same name per catalog profile: `sts`
 Versions are pinned (checked 2026-11-17): Lakekeeper `v0.15.1`, Polaris `1.9.0`, Unity Catalog
 `v0.7.0`, RustFS `1.0.6`, Trino `484`, Spark `4.1.4` with `iceberg-spark-runtime-4.1_2.13:1.12.0`,
 Flink `2.3.0` with `iceberg-flink-runtime-2.3:1.12.0` and Hadoop client `3.5.0`, PyIceberg `0.12.0`,
-DuckDB `2.0.0`, Polars `2.1.0`, Daft `0.7.26`, Keycloak `26.8.2`, OpenFGA `v1.22.1`, Envoy `v1.40.2`,
+DuckDB `2.0.1` (its `iceberg`/`httpfs` extensions are installed at run time and follow the DuckDB
+version; the manifest records the installed extension versions), Polars `2.1.0`, Daft `0.7.26`,
+Keycloak `26.8.2`, OpenFGA `v1.23.0`, Envoy `v1.40.2`,
 Postgres `17.12` (catalog databases) and `19.0` with pg_lake `3.7.0` (built from source; the
 extension itself reports version `3.6`, which is the number the findings use). What a run actually
 ran with is recorded in its manifest (`reports/.../manifest.json`, `results/<catalog>.manifest.json`).

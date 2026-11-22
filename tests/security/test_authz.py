@@ -30,7 +30,7 @@ from authz_backends import ROWS, Conn, backend, pyiceberg_for
 
 from iceberg_lab.config import PROFILE, SETTINGS
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect_gap, require, require_engine
 
 #: What a refusal looks like: a permission or authentication error. Any other error (syntax,
 #: connection, driver) must NOT pass as "correctly refused".
@@ -725,8 +725,7 @@ def test_engine_write_allowed_with_modify_grant(engine, az, request):
             (no grant); bob has no grant at all.
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for writing tables it did not create")
+    require(engine, "writing tables it did not create")
     require_engine(engine)
     b, ns = az
     before = b.rows(ns, "t_modify")
@@ -752,8 +751,7 @@ def test_engine_write_denied_with_select_grant(engine, az, request):
             (no grant); bob has no grant at all.
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for writing tables it did not create")
+    require(engine, "writing tables it did not create")
     require_engine(engine)
     b, ns = az
     exists(b, ns, "t_select")

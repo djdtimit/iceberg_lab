@@ -262,6 +262,51 @@ def _register(rest, ns, t):
     )
 
 
+def _register_view(rest, ns, _t):
+    """Adopt a copy of a fresh view's metadata under a new name (registerView). The copy gets a
+    location and uuid of its own, so it overlaps with nothing the catalog already holds.
+
+    Args:
+        rest: Raw REST client.
+        ns: Namespace.
+        _t: Table name (unused).
+
+    Returns:
+        The response.
+    """
+    import json as _json
+
+    v = _create_view(rest, ns)
+    md = rest.call("GET", f"namespaces/{ns}/views/{v}").json()["metadata"]
+    md = md | {"view-uuid": str(uuid.uuid4())}
+    md["location"] = f"{md['location'].rstrip('/')}_reg_{uuid.uuid4().hex[:6]}"
+    bucket, prefix = md["location"].removeprefix("s3://").split("/", 1)
+    key = f"{prefix}/metadata/00000-{uuid.uuid4()}.metadata.json"
+    _s3().put_object(Bucket=bucket, Key=key, Body=_json.dumps(md).encode())
+    return rest.call(
+        "POST",
+        f"namespaces/{ns}/register-view",
+        json={"name": _new("rcw"), "metadata-location": f"s3://{bucket}/{key}"},
+    )
+
+
+def _sign(rest, ns, t):
+    """Ask the catalog to sign a GET of a file in the table's location (signRequest).
+
+    Args:
+        rest: Raw REST client.
+        ns: Namespace.
+        t: Table name.
+
+    Returns:
+        The response.
+    """
+    loc = rest.call("GET", f"namespaces/{ns}/tables/{t}").json()["metadata"]["location"]
+    uri = f"{SETTINGS.s3_endpoint.rstrip('/')}/{loc.removeprefix('s3://').rstrip('/')}/metadata/x"
+    body = {"region": SETTINGS.s3_region, "uri": uri, "method": "GET", "headers": {}}
+    return rest.call("POST", f"namespaces/{ns}/tables/{t}/sign", json=body)
+
+
 def _metrics(rest, ns, t):
     """POST a scan report for the table.
 
@@ -512,7 +557,28 @@ ENDPOINTS = {
         ),
         Endpoint("DELETE /v1/{prefix}/namespaces/{namespace}/views/{view}", _view("DELETE")),
         Endpoint("POST /v1/{prefix}/views/rename", _rename_view),
+        Endpoint("POST /v1/{prefix}/namespaces/{namespace}/register-view", _register_view),
+        Endpoint(
+            "POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/unregister",
+            lambda r, ns, t: r.call("POST", T.format(ns=ns, t=t) + "/unregister"),
+        ),
+        Endpoint("POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/sign", _sign),
+        Endpoint(
+            "GET /v1/{prefix}/namespaces/{namespace}/functions",
+            lambda r, ns, t: r.call("GET", f"namespaces/{ns}/functions"),
+        ),
+        Endpoint(
+            "GET /v1/{prefix}/namespaces/{namespace}/functions/{function}",
+            lambda r, ns, t: r.call("GET", f"namespaces/{ns}/functions/no_such_function"),
+            exists_if=("NoSuchFunctionException",),
+        ),
     ]
+}
+
+#: Spec endpoints tested elsewhere, not by test_spec_endpoint (tests/selftest/test_rest_spec.py).
+SPEC_ELSEWHERE = {
+    "GET /v1/config": "read by every test (tests/lab/rest_client.py) and test_advertised_endpoints_are_recorded",
+    "POST /v1/oauth/tokens": "token exchange of the authz profile (tests/security/test_security.py)",
 }
 
 NO_ROUTE = (404, 405, 406, 501)

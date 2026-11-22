@@ -33,7 +33,7 @@ import test_operations as base
 
 from iceberg_lab.config import SETTINGS
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect_gap, require_engine, require_format
 
 WAREHOUSE = base.WAREHOUSE
 FV = pytest.mark.parametrize("fv", [2, 3], ids=lambda v: f"v{v}")
@@ -159,8 +159,7 @@ def _written(engine: str, fv: int, namespace: str, engine_pool):
         The PyIceberg table.
     """
     require_engine(engine)
-    if engine == "pg_lake" and fv == 3:
-        pytest.skip("pg_lake creates only format v2 tables")
+    require_format(engine, fv)
     ctx = cc.new_ctx("fs", engine, fv, namespace)
     cc.seed_table(engine, ctx, engine_pool)
     return ctx.pi_table()

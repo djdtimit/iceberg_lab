@@ -4,8 +4,9 @@
                          (reports/comparison_rows.json = Lakekeeper, reports/<cat>/... = others),
                          plus the runs without lab help as catalog ``<cat>_nohelp`` (rows of
                          the helped engines only; shown next to the catalog, never counted).
-                         Every row has its theme (tests/lab/reporting.py THEMES) and the id of
-                         the run that produced it. Left out, because the page shows them
+                         Every row has its theme (src/iceberg_lab/lab/reporting.py THEMES), the id of
+                         the run that produced it and, for a "not testable" case, the engine
+                         (or "catalog") whose step failed before it (reporting.blocked_by). Left out, because the page shows them
                          nowhere: lab self-tests and cross-reads of an engine's own result.
     runs.json            one row per recorded run (reports/.../runs.json): catalog, run id,
                          start, end, git commit, versions of engines and images
@@ -60,8 +61,8 @@ def report_dir(name: str) -> Path:
 
 
 def complete(row: dict, catalog: str) -> dict:
-    """A dashboard row: catalog, theme and severity filled in also for reports written before
-    those fields existed.
+    """A dashboard row: catalog, theme, severity and the cause of a blocked case filled in also
+    for reports written before those fields existed.
 
     Args:
         row: A row of comparison_rows.json.
@@ -70,9 +71,8 @@ def complete(row: dict, catalog: str) -> dict:
     Returns:
         The row.
     """
-    from reporting import theme_of
-
-    from conftest import gap_severity
+    from iceberg_lab.lab.gaps import gap_severity
+    from iceberg_lab.lab.reporting import blocked_by, theme_of
 
     sev = row.get("severity") or (gap_severity(row["detail"]) if row["status"] == "gap" else "")
     return {
@@ -81,6 +81,7 @@ def complete(row: dict, catalog: str) -> dict:
         "theme": row.get("theme") or theme_of(row["area"]),
         "severity": sev or "",
         "run": row.get("run", ""),
+        "blocked_by": row.get("blocked_by", blocked_by(row)),
     }
 
 
@@ -132,7 +133,7 @@ def results() -> list[dict]:
 
 
 def runs() -> list[dict]:
-    """One row per recorded run of every report directory (tests/lab/manifest.py).
+    """One row per recorded run of every report directory (src/iceberg_lab/lab/manifest.py).
 
     Returns:
         The rows, newest first per catalog.

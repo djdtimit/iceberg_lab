@@ -4,7 +4,7 @@ What the eight engines do with Iceberg tables – the same on every catalog (bas
 the comparison): operations, types, partitions and evolution, maintenance, file formats and files
 per specification, concurrent commits, views, WAP, incremental reads, statistics, layout, branches,
 re-creating with an open session, performance (only correctness counts). Read matrices depend on
-their write tests (`conftest.skip_if_not_produced`); the neutral read source writes every state with
+their write tests (`iceberg_lab.lab.results.skip_if_not_produced`); the neutral read source writes every state with
 the reference implementation.
 
 | File | Content | Test functions |

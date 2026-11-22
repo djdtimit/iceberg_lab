@@ -26,7 +26,7 @@ from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.datatypes import CASES, canonical, normalize
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh
+from conftest import ENGINES, engine_param, expect_gap, fresh, offers
 
 WAREHOUSE = WAREHOUSE_STS
 FORMATS = ["orc", "avro"]
@@ -95,9 +95,9 @@ def _write(writer, fmt, namespace, engine_pool, written):
     key = (writer, fmt)
     if key in written:
         return written[key]
-    if writer == "pg_lake":
+    if not offers(writer, "writing tables it did not create"):
         written[key] = NotOffered(
-            "pg_lake has no API for writing tables it did not create (Parquet only)"
+            f"{writer} has no API for writing tables it did not create (capability registry)"
         )
         return written[key]
     table = f"fmt_{writer}_{fmt}_{uuid.uuid4().hex[:6]}"

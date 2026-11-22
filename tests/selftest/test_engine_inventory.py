@@ -19,7 +19,12 @@ Sources (live, per engine):
     flink      procedures of the Iceberg catalog (SHOW PROCEDURES; none so far - the Iceberg
                Flink catalog does not implement them)
 
-Baselines: docs/api/engine-<engine>.txt. Lab self-test: reported, not part of the comparison.
+Baselines: docs/api/engine-<engine>.txt. Re-recording alone does not make a new name pass:
+every entry must be used by a test (its name occurs in a test or the adapters) or be listed in
+docs/api/engine-classified.toml as "ignored: <reason>" or "untested: <what>" (offline check
+below) - so a new feature is either tested or consciously put on the open list.
+
+Lab self-test: reported, not part of the comparison.
 """
 
 from __future__ import annotations
@@ -29,136 +34,11 @@ import pathlib
 
 import pytest
 
+from iceberg_lab.lab.inventory import CLASSIFIED_FILE, classified, offered, unclassified
+
 from conftest import ENGINES, engine_param, require_engine
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-
-
-def _public(prefix: str, obj) -> list[str]:
-    """Public callables of an object, prefixed.
-
-    Args:
-        prefix: Prefix of the names.
-        obj: Class or module.
-
-    Returns:
-        ``<prefix>.<name>`` entries.
-    """
-    return [
-        f"{prefix}.{n}"
-        for n in dir(obj)
-        if not n.startswith("_") and callable(getattr(obj, n, None))
-    ]
-
-
-def _iceberg_names(prefix: str, obj) -> list[str]:
-    """Attributes with "iceberg" in the name, prefixed.
-
-    Args:
-        prefix: Prefix of the names.
-        obj: Class or module.
-
-    Returns:
-        ``<prefix>.<name>`` entries.
-    """
-    return [f"{prefix}.{n}" for n in dir(obj) if "iceberg" in n.lower()]
-
-
-def offered(engine: str, engine_pool) -> list[str]:
-    """What the engine offers for Iceberg, read live (see the module docstring).
-
-    Args:
-        engine: Engine name (see ``conftest.ENGINES``).
-        engine_pool: Session pool of engine adapters (conftest fixture).
-
-    Returns:
-        The inventory entries.
-    """
-    if engine == "pyiceberg":
-        from pyiceberg.catalog.rest import RestCatalog
-        from pyiceberg.table import InspectTable, Table, Transaction
-        from pyiceberg.table.update.schema import UpdateSchema
-        from pyiceberg.table.update.snapshot import ManageSnapshots
-        from pyiceberg.table.update.spec import UpdateSpec
-
-        names = []
-        for prefix, cls in (
-            ("Catalog", RestCatalog),
-            ("Table", Table),
-            ("Transaction", Transaction),
-            ("InspectTable", InspectTable),
-            ("ManageSnapshots", ManageSnapshots),
-            ("UpdateSchema", UpdateSchema),
-            ("UpdateSpec", UpdateSpec),
-        ):
-            names += _public(prefix, cls)
-        try:
-            from pyiceberg.table.maintenance import MaintenanceTable
-
-            names += _public("MaintenanceTable", MaintenanceTable)
-        except ImportError:
-            pass
-        return names
-    if engine == "polars":
-        import polars as pl
-
-        return (
-            _iceberg_names("pl", pl)
-            + _iceberg_names("DataFrame", pl.DataFrame)
-            + _iceberg_names("LazyFrame", pl.LazyFrame)
-        )
-    if engine == "daft":
-        import daft
-
-        return _iceberg_names("daft", daft) + _iceberg_names("DataFrame", daft.DataFrame)
-    adapter = engine_pool(engine)
-    if engine == "duckdb":
-        rows = adapter.execute(
-            "SELECT DISTINCT function_name FROM duckdb_functions() "
-            "WHERE function_name ILIKE '%iceberg%'"
-        )
-        return [f"function:{r[0]}" for r in rows]
-    if engine == "spark":
-        jvm = adapter.spark._jvm
-        loader = jvm.java.lang.Thread.currentThread().getContextClassLoader()
-        field = loader.loadClass(
-            "org.apache.iceberg.spark.procedures.SparkProcedures"
-        ).getDeclaredField("BUILDERS")
-        field.setAccessible(True)
-        return [f"procedure:{n}" for n in field.get(None).keySet()]
-    if engine == "trino":
-        cat = adapter.catalog
-        names = [f"function:{r[0]}" for r in adapter.sql(f"SHOW FUNCTIONS FROM {cat}.system")]
-        names += [
-            f"procedure:{r[0]}.{r[1]}"
-            for r in adapter.sql(
-                "SELECT procedure_schem, procedure_name FROM system.jdbc.procedures "
-                f"WHERE procedure_cat = '{cat}'"
-            )
-        ]
-        names += [
-            f"table_property:{r[0]}"
-            for r in adapter.sql(
-                "SELECT property_name FROM system.metadata.table_properties "
-                f"WHERE catalog_name = '{cat}'"
-            )
-        ]
-        return names
-    if engine == "pg_lake":
-        rows = adapter.execute(
-            "SELECT DISTINCT n.nspname || '.' || p.proname FROM pg_proc p "
-            "JOIN pg_namespace n ON n.oid = p.pronamespace "
-            "WHERE (n.nspname ILIKE '%lake%' OR n.nspname ILIKE '%iceberg%') "
-            "AND n.nspname NOT LIKE '\\_\\_%'"
-        )
-        return [f"function:{r[0]}" for r in rows]
-    # flink
-    catalog = adapter.fq("x", "y").split(".")[0].strip("`")
-    try:
-        rows = adapter.execute(f"SHOW PROCEDURES FROM `{catalog}`.`system`")
-    except Exception as exc:  # noqa: BLE001 - the catalog has no procedures at all
-        return [f"procedures: none ({type(exc).__name__})"]
-    return [f"procedure:{r[0]}" for r in rows]
 
 
 @pytest.mark.parametrize("engine", [engine_param(e) for e in ENGINES])
@@ -185,6 +65,40 @@ def test_engine_inventory_is_recorded(engine, engine_pool):
     recorded = [e for e in (path.read_text().split("\n") if path.exists() else []) if e]
     new, gone = sorted(set(live) - set(recorded)), sorted(set(recorded) - set(live))
     assert not new and not gone, (
-        f"{engine} changed - classify it (tests, docs/engine-inventory.md), then "
+        f"{engine} changed - test the new names or list them in docs/api/engine-classified.toml, then "
         f"RECORD_INVENTORY=1 pytest tests/selftest/test_engine_inventory.py:\n  new: {new}\n  gone: {gone}"
     )
+
+
+@pytest.mark.offline
+@pytest.mark.parametrize("engine", ENGINES)
+def test_every_inventory_entry_is_used_or_classified(engine):
+    """Every recorded API name of an engine is used by a test or classified.
+
+    Checks:
+        * each name of ``docs/api/engine-<engine>.txt`` occurs in a test / the adapters, or is
+          listed in ``docs/api/engine-classified.toml``;
+        * listed values are "ignored: <reason>" or "untested: <what>";
+        * no listed name is stale: gone from the inventory, or "untested" although a test now
+          uses it (then remove the entry).
+
+    Args:
+        engine: Engine whose recorded inventory is checked.
+    """
+    path = ROOT / "docs" / "api" / f"engine-{engine}.txt"
+    names = [n for n in path.read_text().split("\n") if n] if path.exists() else []
+    problems = {k: v for k, v in unclassified(engine, names).items() if v}
+    assert not problems, (
+        f"{engine}: {problems} - test the names or classify them in "
+        f"{CLASSIFIED_FILE.relative_to(ROOT)}"
+    )
+
+
+@pytest.mark.offline
+def test_classification_names_only_lab_engines():
+    """The classification file has one section per lab engine at most.
+
+    Checks:
+        * every section of ``docs/api/engine-classified.toml`` is a lab engine.
+    """
+    assert set(classified()) <= set(ENGINES)

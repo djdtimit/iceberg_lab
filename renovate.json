@@ -1,0 +1,104 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "New engine/catalog versions arrive as PRs; the lab's self-tests (inventory, VERIFIED versions, known gaps) then show what the version changed.",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 6,
+  "labels": ["version-update"],
+  "prBodyNotes": [
+    "**Lab checklist** (docs/test-architecture.md, \"New versions\"):",
+    "1. `RECORD_INVENTORY=1 pytest tests/selftest/test_engine_inventory.py` - new API names must be tested or classified in `docs/api/engine-classified.toml`.",
+    "2. Re-check the \"not offered\" claims and update `VERIFIED` in `tests/selftest/test_na_claims.py`.",
+    "3. Run the engine's tests: `[gap fixed]` and `[claim outdated?]` show what the version changed; update KNOWN_GAPS, docs/findings.md, CHANGELOG.md."
+  ],
+  "pep621": { "rangeStrategy": "update-lockfile" },
+  "packageRules": [
+    {
+      "description": "One PR per engine, so a version change is compared on its own.",
+      "matchPackageNames": ["polars", "polars-iceberg"],
+      "groupName": "polars"
+    },
+    {
+      "matchPackageNames": ["pyiceberg", "pyiceberg-core"],
+      "groupName": "pyiceberg"
+    },
+    {
+      "description": "Iceberg Java runtime of Spark and Flink: one version for both (engines.py and flink/Dockerfile).",
+      "matchPackageNames": ["org.apache.iceberg:iceberg-core"],
+      "groupName": "iceberg java runtime"
+    },
+    {
+      "description": "pg_lake: the git ref in pg_lake/Dockerfile and the image tag in docker-compose.yml move together.",
+      "matchPackageNames": ["snowflake-labs/pg_lake"],
+      "groupName": "pg_lake"
+    },
+    {
+      "description": "Images built by the lab itself have no registry; their parts are updated by the custom managers below.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["iceberg-lab/**"],
+      "enabled": false
+    },
+    {
+      "description": "Spark: Iceberg ships Spark runtimes only for some Spark minors (pyproject comment) - majors/minors by hand.",
+      "matchPackageNames": ["pyspark"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    {
+      "description": "Lab tooling, not under test: monthly, grouped.",
+      "matchDepTypes": ["dependency-groups"],
+      "matchPackageNames": ["minio", "pytest", "pytest-timeout", "ruff", "sqlalchemy", "jupyterlab", "ipykernel", "nbclient", "nbformat"],
+      "groupName": "lab tooling",
+      "schedule": ["before 6am on the first day of the month"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Iceberg Java version of the Spark session (engines.py) and the Flink image (Dockerfile ARG and compose tag).",
+      "managerFilePatterns": ["/^src/iceberg_lab/engines\\.py$/", "/^flink/Dockerfile$/", "/^\\.devcontainer/docker-compose\\.yml$/"],
+      "matchStrings": [
+        "ICEBERG_VERSION = \"(?<currentValue>[\\d.]+)\"",
+        "ARG ICEBERG_VERSION=(?<currentValue>[\\d.]+)",
+        "iceberg-lab/flink:[\\d.]+-iceberg(?<currentValue>[\\d.]+)-"
+      ],
+      "depNameTemplate": "org.apache.iceberg:iceberg-core",
+      "datasourceTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "Hadoop of the Flink image.",
+      "managerFilePatterns": ["/^flink/Dockerfile$/", "/^\\.devcontainer/docker-compose\\.yml$/"],
+      "matchStrings": ["ARG HADOOP_VERSION=(?<currentValue>[\\d.]+)", "iceberg-lab/flink:[\\d.]+-iceberg[\\d.]+-hadoop(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "org.apache.hadoop:hadoop-common",
+      "datasourceTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "Flink version in the compose tag of the lab's Flink image (the Dockerfile FROM is found by the dockerfile manager).",
+      "managerFilePatterns": ["/^\\.devcontainer/docker-compose\\.yml$/"],
+      "matchStrings": ["iceberg-lab/flink:(?<currentValue>\\d+\\.\\d+\\.\\d+)-iceberg"],
+      "depNameTemplate": "flink",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "pg_lake release built by pg_lake/Dockerfile, and the matching compose tag.",
+      "managerFilePatterns": ["/^pg_lake/Dockerfile$/", "/^\\.devcontainer/docker-compose\\.yml$/"],
+      "matchStrings": ["ARG PG_LAKE_REF=v(?<currentValue>[\\d.]+)", "iceberg-lab/pg-lake:(?<currentValue>[\\d.]+)-pg"],
+      "depNameTemplate": "snowflake-labs/pg_lake",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "vcpkg used to build pg_lake (date tags).",
+      "managerFilePatterns": ["/^pg_lake/Dockerfile$/"],
+      "matchStrings": ["ARG VCPKG_VERSION=(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "microsoft/vcpkg",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "loose"
+    }
+  ]
+}

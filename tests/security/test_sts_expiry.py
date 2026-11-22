@@ -27,7 +27,14 @@ from iceberg_lab import engines
 from iceberg_lab.bootstrap import warehouse_payload
 from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, catalog_auth_props
 
-from conftest import AVAILABILITY, ENGINES, engine_param, expect_gap, require_vended_credentials
+from conftest import (
+    AVAILABILITY,
+    ENGINES,
+    engine_param,
+    expect_gap,
+    require,
+    require_vended_credentials,
+)
 
 #: Lakekeeper: a dedicated short-lived warehouse; elsewhere the main one (1 h keys).
 WH = "demo-sts-short" if PROFILE.name == "lakekeeper" else WAREHOUSE_STS
@@ -176,21 +183,21 @@ def after_expiry(request):
 
 
 @pytest.mark.parametrize("engine", [engine_param(e) for e in ENGINES])
-def test_read_after_credentials_expired(engine, after_expiry):
+def test_read_after_credentials_expired(engine, after_expiry, engine_pool):
     """The same table object / session still reads after its vended keys expired.
 
     Checks:
         * before and after the expiry the engine reads all 3 rows (clients that hold a table
           object must refresh the keys - PyIceberg, Polars, Daft do not: documented gap).
-        pg_lake (static key): not offered.
+        pg_lake (static key): not offered - checked against its live API (iceberg_lab.lab.capabilities.require).
 
     Args:
         engine: Engine under test.
         after_expiry: ``engine -> outcome`` - every engine opened at t0, read once, then read
             again after the short-lived keys expired.
+        engine_pool: Session pool of engine adapters (for the "not offered" check).
     """
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for vended credentials (static S3 secret)")
+    require(engine, "vended credentials", engine_pool)
     res = after_expiry[engine]
     gap = KNOWN_GAPS.get(engine)
     with expect_gap(gap[1] if gap else None, gap[0] if gap else None):

@@ -32,7 +32,7 @@ LABEL = {
     "na": "not offered",
     "blocked": "not testable",
 }
-#: Areas that are reported but not compared (tests/lab/reporting.py).
+#: Areas that are reported but not compared (src/iceberg_lab/lab/reporting.py).
 NOT_COMPARED = {"Catalog-specific", "Engine-specific", "Lab self-test", "Demo notebooks"}
 
 

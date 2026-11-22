@@ -34,8 +34,9 @@ from pyiceberg.types import LongType, NestedField, StringType
 
 from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
+from iceberg_lab.lab.capabilities import OFFERED
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect_gap, require, require_engine
 
 WAREHOUSE = WAREHOUSE_STS
 SCHEMA = Schema(
@@ -44,7 +45,8 @@ SCHEMA = Schema(
 )
 DATA = pa.table({"id": pa.array(range(100), pa.int64()), "g": [f"g{i % 7}" for i in range(100)]})
 EXPECTED_NDV = {1: 100, 2: 7}
-STATS_ENGINES = ("spark", "trino", "pg_lake")
+#: Engines that compute table statistics (capability registry).
+STATS_ENGINES = sorted(OFFERED["computing table statistics"])
 
 
 def _table(namespace, partitioned=False):
@@ -136,8 +138,7 @@ def test_compute_table_stats(engine, namespace, engine_pool, stats_tables):
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         stats_tables: ``writer -> (namespace, table)`` with successfully computed statistics.
     """
-    if engine not in STATS_ENGINES:
-        pytest.skip(f"{engine} has no API for computing table statistics")
+    require(engine, "computing table statistics", engine_pool)
     name = _table(namespace)
     gap = (
         expect_gap(
@@ -196,7 +197,8 @@ def test_compute_partition_stats(engine, namespace, engine_pool, partition_stats
 
     Checks:
         * the metadata lists partition statistics for the current snapshot id.
-        Engines without an API for it: not offered.
+        Engines without an API for it: not offered, checked against their live API (DuckDB's
+        iceberg_partition_stats only reads - conftest.NOT_OFFERED_EXEMPT).
 
     Args:
         engine: Engine under test.
@@ -204,8 +206,7 @@ def test_compute_partition_stats(engine, namespace, engine_pool, partition_stats
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         partition_stats_tables: Reserved for reads of partition statistics.
     """
-    if engine != "spark":
-        pytest.skip(f"{engine} has no API for computing partition statistics")
+    require(engine, "computing partition statistics", engine_pool)
     name = _table(namespace, partitioned=True)
     engine_pool("spark").execute(
         f"CALL {SPARK_CATALOGS[WAREHOUSE]}.system.compute_partition_stats(table => '{namespace}.{name}')"

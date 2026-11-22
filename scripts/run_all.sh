@@ -22,7 +22,7 @@ mkdir -p "$out/logs"
 rm -f "$out/results.json" "$out"/logs/*.log   # logs of earlier runs (and of renamed tests) would mix into the summary
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
 # One run id for all pytest processes of this run: every result row names it, and
-# <out>/runs.json records what the run was produced with (tests/lab/manifest.py).
+# <out>/runs.json records what the run was produced with (src/iceberg_lab/lab/manifest.py).
 export LAB_RUN_ID="${LAB_RUN_ID:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 echo "run $LAB_RUN_ID on $catalog -> $out"
 if [ "${CLEANUP:-1}" = 1 ]; then

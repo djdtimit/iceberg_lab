@@ -16,6 +16,14 @@ Schema evolution (``test_schema_evolution_write`` / ``..._read``)
     Readers must resolve the OLD files by field id, not by name: the renamed column keeps its
     values, the added column is NULL in old rows, the dropped column is gone.
 
+Nested schema evolution (``test_nested_evolution_write`` / ``..._read``)
+    The lab client writes a row, then evolves nested types: a struct field added, renamed and
+    dropped, a map value widened (float -> double), a list element widened (int -> long), a
+    required column made optional, a column moved to the front. The writer appends a row that
+    only fits the new schema; readers must resolve old and new files by nested field id.
+    pg_lake writes only tables it created, so it creates the same table with Postgres types and
+    runs the same steps with its own DDL; a step it cannot do fails with its own error.
+
 Partition evolution (``test_partition_evolution_write`` / ``..._read``)
     Unpartitioned -> ``day(ts)`` -> ``day(ts), bucket(4, id)``, with data written under every
     spec; readers must combine files of three specs, filtered and unfiltered.
@@ -27,7 +35,7 @@ writes only tables it created itself, so it creates them with its own DDL (``par
 
 A read whose writer did not produce the table is blocked; a writer that failed only after its
 content was right (e.g. Spark's stale spec) still hands the table to the readers
-(``conftest.keep_if_content_ok``). The same states written by the reference implementation:
+(``iceberg_lab.lab.results.keep_if_content_ok``). The same states written by the reference implementation:
 tests/engines/test_neutral_source.py.
 """
 
@@ -54,10 +62,22 @@ from pyiceberg.transforms import (
     TruncateTransform,
     YearTransform,
 )
-from pyiceberg.types import IntegerType, LongType, NestedField, StringType, TimestampType
+from pyiceberg.types import (
+    DoubleType,
+    FloatType,
+    IntegerType,
+    ListType,
+    LongType,
+    MapType,
+    NestedField,
+    StringType,
+    StructType,
+    TimestampType,
+)
 from pyiceberg.utils.datetime import datetime_to_micros
 
 from iceberg_lab.config import PROFILE
+from iceberg_lab.datatypes import TypeCase, normalize
 from iceberg_lab.engines import polars_storage_options, pyiceberg_catalog
 
 from conftest import (
@@ -66,6 +86,7 @@ from conftest import (
     expect_gap,
     fresh,
     keep_if_content_ok,
+    require_format,
     skip_if_not_produced,
 )
 
@@ -140,6 +161,8 @@ class Gap(NamedTuple):
 # Filled from observed failures only; first match wins.
 # fmt: off
 KNOWN_GAPS: list[Gap] = [
+    # Observed 2026-11-22 (DuckDB 2.0.1, Daft 0.7.26): the same cause as in test_types (DUCKDB_NESTED).
+    Gap("test_nested_evolution_read", "duckdb", "daft", "*", "*", r"list type must have a single child", "Daft cannot read DuckDB's nested Parquet lists ('list type must have a single child')"),
     # Iceberg's SparkCatalog caches loaded tables (cache-enabled=true, 30 s expiry): a change
     # made by another engine stays invisible to Spark until the entry expires.
     Gap("test_schema_evolution_write", "spark", "*", "*", "*", r"name `label` cannot be resolved", "Spark's table cache (cache-enabled=true, 30 s) hides a column renamed by another engine"),
@@ -254,42 +277,14 @@ def write_rows(engine, adapter, ns, table, schema: Schema, rows, kinds) -> None:
         kinds: Value kinds of the columns.
     """
     cols = [f.name for f in schema.fields]
-    if engine in ("pyiceberg", "polars", "daft"):
-        t = pyiceberg_catalog(WAREHOUSE).load_table(f"{ns}.{table}")
+    if adapter.dialect is None:  # DataFrame engine: its own Arrow write path
         data = pa.Table.from_pylist(
             [dict(zip(cols, r, strict=True)) for r in rows],
             schema=schema_to_pyarrow(schema, include_field_ids=False),
         )
-        if engine == "pyiceberg":
-            t.append(data)
-        elif engine == "polars":
-            import polars as pl
-
-            pl.from_arrow(data).write_iceberg(t, mode="append")
-        else:
-            import daft
-
-            daft.from_arrow(data).write_iceberg(t, mode="append")
+        adapter.append_arrow(ns, table, data)
         return
     adapter.execute(insert_sql(adapter, ns, table, cols, kinds, rows))
-
-
-def pg_create(adapter, ns, table, ddl_cols: str, options: str = "") -> None:
-    """Create a writable pg_lake Iceberg table (pg_lake only writes its own tables).
-
-    Args:
-        adapter: Engine adapter.
-        ns: Namespace of the table.
-        table: Table name (without namespace).
-        ddl_cols: Postgres column list.
-        options: Further pg_lake table options.
-    """
-    adapter.execute(f'CREATE SCHEMA IF NOT EXISTS "{ns}"')
-    adapter.execute(
-        f"CREATE TABLE {adapter.fq(ns, table)} ({ddl_cols}) USING iceberg "
-        f"WITH (catalog = '{adapter.server}'{options})"
-    )
-    adapter.owned.add((ns, table))
 
 
 def read_cols(reader, adapter, ns, table, cols, pred=None) -> list[tuple]:
@@ -346,14 +341,13 @@ def read_cols(reader, adapter, ns, table, cols, pred=None) -> list[tuple]:
 
 
 def _skip_pg_v3(engine, fv):
-    """Skip: pg_lake creates only format v2 tables.
+    """Skip a format-v3 case for an engine that creates no v3 tables (capability registry).
 
     Args:
         engine: Engine name (see ``conftest.ENGINES``).
         fv: Iceberg format version (2 or 3).
     """
-    if engine == "pg_lake" and fv == 3:
-        pytest.skip("pg_lake creates only format v2 tables")
+    require_format(engine, fv)
 
 
 def _name(prefix, writer, fv, case=""):
@@ -442,7 +436,9 @@ def test_partitioned_write(writer, case, fv, namespace, engine_pool, partitioned
         partitioned: ``(writer, case, fv) -> (namespace, table)`` of the written tables (None:
             attempted without a readable result).
     """
-    partitioned[(writer, case, fv)] = None  # attempted (see conftest.skip_if_not_produced)
+    partitioned[(writer, case, fv)] = (
+        None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
+    )
     _skip_pg_v3(writer, fv)
     tr = TRANSFORMS[case]
     table = _name("pt", writer, fv, case)
@@ -458,8 +454,7 @@ def test_partitioned_write(writer, case, fv, namespace, engine_pool, partitioned
     ):
         adapter = engine_pool(writer)
         if writer == "pg_lake":
-            pg_create(
-                adapter, namespace, table, "id bigint, name text, ts timestamp",
+            adapter.create_owned_table(namespace, table, "id bigint, name text, ts timestamp",
                 f", partition_by = '{tr.pg}'",
             )  # fmt: skip
         else:
@@ -569,7 +564,7 @@ def test_schema_evolution_write(writer, fv, namespace, engine_pool, evolved):
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         evolved: ``(writer, fv) -> (namespace, table)`` of the evolved tables.
     """
-    evolved[(writer, fv)] = None  # attempted (see conftest.skip_if_not_produced)
+    evolved[(writer, fv)] = None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
     _skip_pg_v3(writer, fv)
     table = _name("se", writer, fv)
     cat = pyiceberg_catalog(WAREHOUSE)
@@ -585,7 +580,9 @@ def test_schema_evolution_write(writer, fv, namespace, engine_pool, evolved):
     ):
         adapter = engine_pool(writer)
         if writer == "pg_lake":
-            pg_create(adapter, namespace, table, "id integer, name text, amount double precision")
+            adapter.create_owned_table(
+                namespace, table, "id integer, name text, amount double precision"
+            )
             write_rows(writer, adapter, namespace, table, SCHEMA0, R1, ("int", "str", "dbl"))
             fq = adapter.fq(namespace, table)
             for stmt in (
@@ -640,6 +637,317 @@ def test_schema_evolution_read(writer, fv, reader, engine_pool, evolved):
         assert got == EVOLVED
 
 
+# =========================================================================== nested schema evolution
+
+#: Before: id, s struct<a int, b string>, m map<string, float>, tags list<int>, r int (required).
+NESTED0 = Schema(
+    NestedField(1, "id", LongType(), required=False),
+    NestedField(
+        2,
+        "s",
+        StructType(
+            NestedField(10, "a", IntegerType(), required=False),
+            NestedField(11, "b", StringType(), required=False),
+        ),
+        required=False,
+    ),
+    NestedField(
+        3,
+        "m",
+        MapType(
+            key_id=12,
+            key_type=StringType(),
+            value_id=13,
+            value_type=FloatType(),
+            value_required=False,
+        ),
+        required=False,
+    ),
+    NestedField(
+        4,
+        "tags",
+        ListType(element_id=14, element_type=IntegerType(), element_required=False),
+        required=False,
+    ),
+    NestedField(5, "r", IntegerType(), required=True),
+)
+NESTED_OLD = {"id": 1, "s": {"a": 1, "b": "x"}, "m": {"k": 1.5}, "tags": [1, 2], "r": 10}
+#: After the evolution: column order and types as the readers must see them.
+NESTED_COLS = {
+    "tags": ListType(element_id=14, element_type=LongType(), element_required=False),
+    "id": LongType(),
+    "s": StructType(
+        NestedField(11, "bb", StringType(), required=False),
+        NestedField(15, "c", LongType(), required=False),
+    ),
+    "m": MapType(
+        key_id=12, key_type=StringType(), value_id=13, value_type=DoubleType(), value_required=False
+    ),
+    "r": IntegerType(),
+}
+#: The writer's row after the evolution: 3_000_000_000 needs the widened long element, r is NULL
+#: (now optional), s has the renamed and the added field.
+NESTED_NEW = {
+    "id": 2,
+    "s": {"bb": "y", "c": 7},
+    "m": {"k": 2.5},
+    "tags": [3_000_000_000],
+    "r": None,
+}
+NESTED_EXPECTED = [
+    ([1, 2], 1, {"bb": "x", "c": None}, {"k": 1.5}, 10),
+    ([3_000_000_000], 2, {"bb": "y", "c": 7}, {"k": 2.5}, None),
+]
+#: ``INSERT ... (id, s, m, tags, r) VALUES <literal>`` per SQL dialect (explicit column list:
+#: the evolution moved ``tags`` to the front, a positional insert would be wrong).
+NESTED_SQL = {
+    "duckdb": "(2, {'bb': 'y', 'c': 7}, MAP {'k': 2.5}, [3000000000], NULL)",
+    "spark": "(2, named_struct('bb', 'y', 'c', 7L), map('k', 2.5D), array(3000000000L), CAST(NULL AS INT))",
+    "trino": (
+        "(2, CAST(ROW('y', 7) AS ROW(bb VARCHAR, c BIGINT)), MAP(ARRAY['k'], ARRAY[DOUBLE '2.5']), "
+        "ARRAY[BIGINT '3000000000'], CAST(NULL AS INTEGER))"
+    ),
+    "flink": (
+        "(2, CAST(ROW('y', 7) AS ROW<bb STRING, c BIGINT>), MAP['k', CAST(2.5 AS DOUBLE)], "
+        "ARRAY[CAST(3000000000 AS BIGINT)], CAST(NULL AS INT))"
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def nested_evolved():
+    """(writer, fv) -> (namespace, table) after a successful nested-evolution write.
+
+    Returns:
+        An empty dict.
+    """
+    return {}
+
+
+def _nested_setup(namespace: str, table: str, fv: int) -> None:
+    """Create the table, write the old row and evolve the schema - all through the lab client.
+
+    PyIceberg 0.12 writes no v3 data, so the table starts as v2 and is upgraded afterwards (as
+    the neutral source of the type matrix does).
+
+    Args:
+        namespace: Namespace of the table.
+        table: Table name.
+        fv: Target format version (2 or 3).
+    """
+    cat = pyiceberg_catalog(WAREHOUSE)
+    t = cat.create_table(f"{namespace}.{table}", schema=NESTED0, properties={"format-version": "2"})
+    t.append(
+        pa.Table.from_pylist(
+            [NESTED_OLD], schema=schema_to_pyarrow(NESTED0, include_field_ids=False)
+        )
+    )
+    with t.update_schema() as u:
+        u.add_column(("s", "c"), LongType())
+        u.rename_column(("s", "b"), "bb")
+        u.delete_column(("s", "a"))
+        u.update_column(("m", "value"), DoubleType())
+        u.update_column(("tags", "element"), LongType())
+        u.update_column("r", required=False)
+        u.move_first("tags")
+    if fv == 3:
+        # PyIceberg 0.12 refuses upgrade_table_version(3); the REST update does it (as the
+        # neutral source of test_types).
+        from pyiceberg.table.update import AssertTableUUID, UpgradeFormatVersionUpdate
+
+        t = cat.load_table(f"{namespace}.{table}")
+        cat.commit_table(
+            t,
+            (AssertTableUUID(uuid=t.metadata.table_uuid),),
+            (UpgradeFormatVersionUpdate(format_version=3),),
+        )
+
+
+def _nested_write(writer: str, adapter, namespace: str, table: str) -> None:
+    """Append :data:`NESTED_NEW` through the writer's own write path.
+
+    Args:
+        writer: Engine that writes.
+        adapter: Engine adapter.
+        namespace: Namespace of the table.
+        table: Table name.
+    """
+    if adapter.dialect is None:  # DataFrame engine: its own Arrow write path
+        t = pyiceberg_catalog(WAREHOUSE).load_table(f"{namespace}.{table}")
+        data = pa.Table.from_pylist(
+            [NESTED_NEW], schema=schema_to_pyarrow(t.schema(), include_field_ids=False)
+        )
+        adapter.append_arrow(namespace, table, data)
+        return
+    fresh(adapter, namespace, table)  # e.g. Spark's table cache: write with the evolved schema
+    adapter.execute(
+        f"INSERT INTO {adapter.fq(namespace, table)} (id, s, m, tags, r) VALUES {NESTED_SQL[adapter.dialect]}"
+    )
+
+
+def _nested_pg_lake(adapter, namespace: str, table: str) -> None:
+    """pg_lake's own path: create the same table with Postgres types, write the old row, run the
+    same evolution steps with Postgres DDL, then append :data:`NESTED_NEW`.
+
+    Every step is attempted; one Postgres cannot express (e.g. moving a column) fails the test
+    with its own error, which is then documented as a gap - nothing is skipped up front.
+
+    Args:
+        adapter: pg_lake adapter.
+        namespace: Namespace of the table.
+        table: Table name.
+    """
+    ns_q = f'"{namespace}"'
+    st = f"{ns_q}.ne_{table[-6:]}"  # composite type of column s, one per table (ALTER TYPE)
+    for key, val in (("text", "real"), ("text", "float8")):
+        exists = adapter.execute(
+            "SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
+            f"WHERE n.nspname = 'map_type' AND t.typname = 'key_{key}_val_{val}'"
+        )
+        if not exists:
+            adapter.execute(f"SELECT map_type.create('{key}', '{val}')")
+    adapter.execute(f"CREATE SCHEMA IF NOT EXISTS {ns_q}")
+    adapter.execute(f"CREATE TYPE {st} AS (a integer, b text)")
+    adapter.create_owned_table(
+        namespace,
+        table,
+        f"id bigint, s {st}, m map_type.key_text_val_real, tags integer[], r integer NOT NULL",
+    )
+    fq = adapter.fq(namespace, table)
+    adapter.execute(
+        f"INSERT INTO {fq} VALUES (1, ROW(1, 'x')::{st}, "
+        "ARRAY[('k', 1.5)]::map_type.key_text_val_real, ARRAY[1, 2], 10)"
+    )
+    for stmt in (
+        f"ALTER TYPE {st} ADD ATTRIBUTE c bigint CASCADE",
+        f"ALTER TYPE {st} RENAME ATTRIBUTE b TO bb CASCADE",
+        f"ALTER TYPE {st} DROP ATTRIBUTE a CASCADE",
+        f"ALTER TABLE {fq} ALTER COLUMN m TYPE map_type.key_text_val_float8",
+        f"ALTER TABLE {fq} ALTER COLUMN tags TYPE bigint[]",
+        f"ALTER TABLE {fq} ALTER COLUMN r DROP NOT NULL",
+        # Postgres has no statement that moves a column; the schema-order check below shows it.
+    ):
+        adapter.execute(stmt)
+    adapter.execute(
+        f"INSERT INTO {fq} (id, s, m, tags, r) VALUES (2, ROW('y', 7)::{st}, "
+        "ARRAY[('k', 2.5)]::map_type.key_text_val_float8, ARRAY[3000000000]::bigint[], NULL)"
+    )
+
+
+def _nested_read(reader: str, adapter, namespace: str, table: str) -> list[tuple]:
+    """All rows in :data:`NESTED_COLS` order, normalised per column type, sorted by id.
+
+    Args:
+        reader: Engine that reads.
+        adapter: Engine adapter (None for DataFrame engines).
+        namespace: Namespace of the table.
+        table: Table name.
+
+    Returns:
+        The rows.
+    """
+    cols = list(NESTED_COLS)
+    if reader in ("pyiceberg", "polars", "daft"):
+        t = pyiceberg_catalog(WAREHOUSE).load_table(f"{namespace}.{table}")
+        if reader == "pyiceberg":
+            a = t.scan(selected_fields=tuple(cols)).to_arrow()
+            raw = list(zip(*(a[c].to_pylist() for c in cols), strict=True))
+        elif reader == "polars":
+            import polars as pl
+
+            lf = pl.scan_iceberg(t, storage_options=polars_storage_options(t.io.properties))
+            raw = list(lf.select(cols).collect().iter_rows())
+        else:
+            import daft
+
+            d = daft.read_iceberg(t).select(*cols).to_pydict()
+            raw = list(zip(*(d[c] for c in cols), strict=True))
+    else:
+        if hasattr(adapter, "_attach"):
+            adapter._attach(namespace, table)
+        exprs = [
+            f"to_jsonb({c})" if adapter.dialect == "pg_lake" and c in ("s", "m") else c
+            for c in cols
+        ]
+        raw = adapter.execute(f"SELECT {', '.join(exprs)} FROM {adapter.fq(namespace, table)}")
+    cases = [TypeCase(c, NESTED_COLS[c], None) for c in cols]
+    rows = [tuple(normalize(case, v) for case, v in zip(cases, r, strict=True)) for r in raw]
+    return sorted(rows, key=lambda r: r[cols.index("id")])
+
+
+@pytest.mark.slow
+@FV
+@pytest.mark.parametrize("writer", [engine_param(e) for e in ENGINES])
+def test_nested_evolution_write(writer, fv, namespace, engine_pool, nested_evolved):
+    """After a nested schema evolution, the writer appends a row in the new schema.
+
+    The lab client creates the table, writes the old row and evolves the schema: a field added
+    to, renamed in and dropped from a struct, a map value widened (float -> double), a list
+    element widened (int -> long), a required column made optional, a column moved to the front.
+
+    Checks:
+        * the writer appends a row that only fits the evolved schema (long list element, NULL in
+          the formerly required column, the renamed and the added struct field);
+        * the lab client then reads both rows exactly, resolved by field id, and sees the columns
+          in the new order.
+
+    Args:
+        writer: Engine that appends.
+        fv: Iceberg format version of the table (2 or 3).
+        namespace: Fresh namespace of the test session.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        nested_evolved: ``(writer, fv) -> (namespace, table)`` of the evolved tables.
+    """
+    nested_evolved[(writer, fv)] = (
+        None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
+    )
+    _skip_pg_v3(writer, fv)
+    table = _name("ne", writer, fv)
+    with _gap("test_nested_evolution_write", writer, fv):
+        adapter = engine_pool(writer)
+        if writer == "pg_lake":
+            # pg_lake writes only tables it created: same table, same steps with its own DDL.
+            _nested_pg_lake(adapter, namespace, table)
+        else:
+            _nested_setup(namespace, table, fv)
+            _nested_write(writer, adapter, namespace, table)
+        t = pyiceberg_catalog(WAREHOUSE).load_table(f"{namespace}.{table}")
+        assert [f.name for f in t.schema().fields] == list(NESTED_COLS), t.schema()
+        assert _nested_read("pyiceberg", None, namespace, table) == NESTED_EXPECTED
+    nested_evolved[(writer, fv)] = (namespace, table)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("reader", [engine_param(e) for e in ENGINES])
+@FV
+@pytest.mark.parametrize("writer", [engine_param(e) for e in ENGINES])
+def test_nested_evolution_read(writer, fv, reader, engine_pool, nested_evolved):
+    """The reader resolves the nested fields of old and new files by field id.
+
+    Checks:
+        * the old row shows the renamed struct field with its old value, NULL in the added field
+          and no dropped field; widened map value and list element keep their values;
+        * the new row (written by ``writer``) comes back exactly, including the long element
+          and the NULL in the formerly required column.
+        Skipped (blocked) if the writer could not append.
+
+    Args:
+        writer: Engine that appended the new row.
+        fv: Iceberg format version of the table (2 or 3).
+        reader: Engine that reads it.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        nested_evolved: ``(writer, fv) -> (namespace, table)`` of the evolved tables.
+    """
+    ns, table = skip_if_not_produced(nested_evolved, (writer, fv), "test_nested_evolution_write")
+    with _gap("test_nested_evolution_read", writer, fv, reader):
+        adapter = (
+            None
+            if reader in ("pyiceberg", "polars", "daft")
+            else fresh(engine_pool(reader), ns, table)
+        )
+        assert _nested_read(reader, adapter, ns, table) == NESTED_EXPECTED
+
+
 # =========================================================================== partition evolution
 
 PE_PRED = ("ts", ">=", _ts("2026-02-01"))
@@ -674,7 +982,9 @@ def test_partition_evolution_write(writer, fv, namespace, engine_pool, spec_evol
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         spec_evolved: ``(writer, fv) -> (namespace, table)`` of the spec-evolved tables.
     """
-    spec_evolved[(writer, fv)] = None  # attempted (see conftest.skip_if_not_produced)
+    spec_evolved[(writer, fv)] = (
+        None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
+    )
     _skip_pg_v3(writer, fv)
     table = _name("pe", writer, fv)
     cat = pyiceberg_catalog(WAREHOUSE)
@@ -695,7 +1005,7 @@ def test_partition_evolution_write(writer, fv, namespace, engine_pool, spec_evol
     ):
         adapter = engine_pool(writer)
         if writer == "pg_lake":
-            pg_create(adapter, namespace, table, "id bigint, name text, ts timestamp")
+            adapter.create_owned_table(namespace, table, "id bigint, name text, ts timestamp")
             fq = adapter.fq(namespace, table)
             steps = [
                 None,

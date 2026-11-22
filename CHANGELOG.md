@@ -2,9 +2,72 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-22 (3): one registry, adapters, new versions show up
+
+- **Framework is a package** (`src/iceberg_lab/lab/`): gaps, dependent results, inventory,
+  capabilities, reporting and manifest moved out of `tests/conftest.py` and `tests/lab/`;
+  conftest keeps the fixtures and re-exports the helpers.
+- **Capability registry** (`capabilities.OFFERED`, `PROVEN_BY`, `require`): every "not offered"
+  skip of an engine goes through it - checked against the live API or proven by a named test.
+  Removed the remaining hard-coded engine skips (pg_lake as writer, upsert, session time zone,
+  access-delegation combinations). `test_capability_registry.py` fails on a new
+  `if engine == ...: pytest.skip(...)`.
+- **Engine steps in the adapters**: `append_arrow` (PyIceberg/Polars/Daft), `set_session_zone`,
+  `PgLakeEngine.create_owned_table` replace the copies in test_evolution, test_operations,
+  test_timezones and test_types. The Trino, Flink and pg_lake parts were moved verbatim and have
+  not run in this setup yet.
+- **New features cannot pass unseen**: Renovate config (one PR per engine/catalog, incl. Iceberg
+  Java runtime, Hadoop, pg_lake ref); every engine API name is used by a test or classified
+  (`docs/api/engine-classified.toml`: 27 ignored, 79 untested - the open list, e.g.
+  `pl.delete_iceberg`, pg_lake `vacuum`, Spark `rewrite_table_path`); the Iceberg spec
+  (REST endpoints, types) is recorded per release and every entry needs a test. Its first run
+  found five 1.12 endpoints without a test - now in `test_rest_conformance.py`: Lakekeeper signs
+  (`/sign` works), functions, register-view and unregister are not offered on Lakekeeper.
+- **DuckDB 2.0.1 checked** (Lakekeeper; `VERIFIED` updated): the known gaps "concurrent MERGE
+  duplicates the key" (bug report 12, do not file) and "compaction keeps the position delete
+  files" (v2) report `[gap fixed]` and are removed. New in the inventory: `iceberg_expire_snapshots`
+  (tested: only removes snapshots from the metadata, files stay - a gap like PyIceberg's; on v3 no
+  data file can be taken out of a table at all), `iceberg_partitions`, `iceberg_schemas` (untested).
+- Polars `sink_iceberg(engine='streaming')` writes, but in one commit at the end - documented gap.
+- The three claims the API check refuted are tested now: Polars adds a column while writing
+  (`sink_iceberg(schema_mode="merge")`, v2; v3 has PyIceberg's write gap), DuckDB sets namespace
+  properties (`set_iceberg_schema_properties`), PyIceberg creates views (`Catalog.create_view`,
+  one representation per dialect - DuckDB and Spark run them).
+- Fixed: the "incremental reads" API check matched DuckDB's `iceberg_rollback_to_snapshot`;
+  Polars' `sink_iceberg` got no storage options (failed on the EC2 metadata endpoint).
+
+## Lab changes 2026-11-22 (2): honest counts, checked skips, new tests
+
+- **"Not testable" counts at its cause** (`reporting.blocked_by`, report and dashboard): a read
+  whose table the writer could not produce no longer lowers the reader's coverage; it shows as
+  "blocks N cases of other engines" at the writer (or the catalog). With the data of 2026-11-20
+  the coverage rises from 63 % to 80 % (Lakekeeper), 64 → 80 % (Polaris), 57 → 76 % (Unity),
+  32 → 45 % (RustFS); reliability is unchanged. The dashboard shows planned vs. ran cases.
+- **"Not offered" is checked** (`iceberg_lab.lab.capabilities`, `CAPABILITY_API`, `NOT_OFFERED_EXEMPT`):
+  every skip of that kind first checks the engine's live API; tries where cheap (Flink MERGE,
+  Lakekeeper generic tables, Polars `sink_iceberg`). Found four outdated claims: Polars
+  incremental reads (now tested), PyIceberg `create_view`, DuckDB namespace properties, Polars
+  adding columns while writing - the last three fail until tested.
+- **New tests**: special floats (NaN, ±Inf, -0.0) in the type matrix and `test_nan_metrics`
+  (no NaN in column bounds); `test_timezones.py` (session zones Kathmandu, Berlin at the DST
+  switch, Los Angeles 1969); nested schema evolution in `test_evolution.py`;
+  `test_maintenance_cross_write` (every engine appends after another engine's maintenance).
+  pg_lake takes part in the nested evolution with its own DDL instead of being skipped.
+- **Checked live** (Lakekeeper v0.15.1): every spelling of `geometry`/`geography` is refused with
+  422 ("untagged enum SchemaEnum") - Lakekeeper cannot parse a schema with these types.
+
+## Versions 2026-11-22
+
+- DuckDB 2.0.0 → 2.0.1 (bug-fix release of 2026-11-20: newer `iceberg` and `httpfs` extensions,
+  Parquet min/max kept for all-NULL row groups; no change named for commits, conflicts or MERGE).
+- OpenFGA v1.22.1 → v1.23.0 (authorization backend of `lakekeeper-authz`).
+- The manifest now records the installed DuckDB extension versions: `INSTALL iceberg` fetches the
+  build that belongs to the DuckDB version, so the package version alone does not say which
+  Iceberg code ran.
+
 ## Lab changes 2026-11-22: comparability and overview
 
-- **Run manifest** (`tests/lab/manifest.py`): every result row names the run that produced it
+- **Run manifest** (`src/iceberg_lab/lab/manifest.py`): every result row names the run that produced it
   (`run`); each report directory gets `manifest.json` and `runs.json` with git commit, package
   versions, declared images and the digests of the running lab containers. `run_all.sh` gives all
   pytest processes of a run one id (`LAB_RUN_ID`).

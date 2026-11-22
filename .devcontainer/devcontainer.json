@@ -21,7 +21,8 @@
         "ms-python.python",
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
-        "ms-toolsai.jupyter"
+        "ms-toolsai.jupyter",
+        "Anthropic.claude-code"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",

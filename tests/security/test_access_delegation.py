@@ -16,7 +16,7 @@ Background
 What is tested
     1. Matrix *engine x warehouse x read/write* where the engine uses ONLY what the catalog
        hands out (``credentials="catalog"``); documented gaps only with their exact error
-       (``expect_gap`` in conftest).
+       (``expect_gap`` in iceberg_lab.lab.gaps).
     2. The static-key fallback for engines without remote signing.
     3. The *scope* of what the catalog hands out: STS keys must not open other tables, and
        the signer must refuse paths that belong to no table.
@@ -35,6 +35,7 @@ from conftest import (
     ENGINES,
     engine_param,
     expect_gap,
+    require,
     require_remote_signing,
     require_vended_credentials,
     warehouse_params,
@@ -60,20 +61,17 @@ UNSUPPORTED = {
     ("polars", WAREHOUSE_SIGNING, "read"): NO_SIGNING + " in its native reader",
 }
 
-#: Combinations that cannot be expressed with catalog-only access at all - a property of
-#: the engine's configuration model, not a bug. These are skipped.
-NOT_APPLICABLE = {
-    (
-        "trino",
-        WAREHOUSE_SIGNING,
-    ): "Trino has no remote signing; catalog lk_signing uses static keys",
-    ("pg_lake", WAREHOUSE_SIGNING): "pg_lake always uses pgduck_server's static S3 secret",
-    ("pg_lake", WAREHOUSE_STS): "pg_lake always uses pgduck_server's static S3 secret",
+#: Per warehouse: the capability an engine needs to be configured with catalog-only access
+#: (``iceberg_lab.lab.capabilities.OFFERED``). An engine that cannot be configured for it at all
+#: is skipped as not offered - checked against its live API, not assumed.
+NEEDS = {
+    WAREHOUSE_SIGNING: "configuring remote signing",
+    WAREHOUSE_STS: "vended credentials",
 }
 
 
-def _check_applicable(engine, warehouse, op):
-    """Skip not-applicable combinations; return the ``expect_gap`` context for this cell.
+def _check_applicable(engine, warehouse, op, engine_pool):
+    """Skip engines that cannot be configured for the warehouse's mode (:data:`NEEDS`); return the ``expect_gap`` context for this cell.
 
     Known gaps only count as expected if the error looks like missing signing support
     (:data:`NO_SIGNING_ERROR`); any other error fails the test.
@@ -82,12 +80,13 @@ def _check_applicable(engine, warehouse, op):
         engine: Engine name (see ``conftest.ENGINES``).
         warehouse: Warehouse (catalog) name.
         op: ``read`` or ``write``.
+        engine_pool: Session pool of engine adapters (for the "not offered" check).
 
     Returns:
         The context manager.
     """
-    if (engine, warehouse) in NOT_APPLICABLE:
-        pytest.skip(NOT_APPLICABLE[(engine, warehouse)])
+    if warehouse in NEEDS:
+        require(engine, NEEDS[warehouse], engine_pool)
     reason = UNSUPPORTED.get((engine, warehouse, op))
     return expect_gap(
         reason.format(engine=engine) if reason else None, NO_SIGNING_ERROR.get(engine)
@@ -99,7 +98,7 @@ def _check_applicable(engine, warehouse, op):
 
 @pytest.mark.parametrize("warehouse", warehouse_params())
 @pytest.mark.parametrize("engine", [engine_param(e) for e in ENGINES])
-def test_read(engine, warehouse, make_engine, namespace, table_name, sample):
+def test_read(engine, warehouse, make_engine, engine_pool, namespace, table_name, sample):
     """``engine`` reads a table using only the S3 access the catalog provides.
 
     The table is written by PyIceberg, which supports both access modes, so a failure can only
@@ -115,12 +114,13 @@ def test_read(engine, warehouse, make_engine, namespace, table_name, sample):
         engine: Engine under test (reader).
         warehouse: Warehouse with the access mode under test (``sts`` or ``signing``).
         make_engine: Factory for an engine adapter on a warehouse and credential mode.
+        engine_pool: Session pool of engine adapters (conftest fixture).
         namespace: Fresh namespace of the test session.
         table_name: Unique table name for this test.
         sample: Small Arrow table (id, name, amount) that is written and expected back.
     """
     require_vended_credentials()
-    gap = _check_applicable(engine, warehouse, "read")
+    gap = _check_applicable(engine, warehouse, "read", engine_pool)
     PyIcebergEngine(warehouse).write(namespace, table_name, sample)
     with gap:
         assert make_engine(engine, warehouse).read(namespace, table_name) == rows(sample)
@@ -128,7 +128,7 @@ def test_read(engine, warehouse, make_engine, namespace, table_name, sample):
 
 @pytest.mark.parametrize("warehouse", warehouse_params())
 @pytest.mark.parametrize("engine", [engine_param(e) for e in ENGINES])
-def test_write(engine, warehouse, make_engine, namespace, table_name, sample):
+def test_write(engine, warehouse, make_engine, engine_pool, namespace, table_name, sample):
     """``engine`` creates and fills a table using only the S3 access the catalog provides.
 
     Checks:
@@ -142,12 +142,13 @@ def test_write(engine, warehouse, make_engine, namespace, table_name, sample):
         engine: Engine under test (writer).
         warehouse: Warehouse with the access mode under test (``sts`` or ``signing``).
         make_engine: Factory for an engine adapter on a warehouse and credential mode.
+        engine_pool: Session pool of engine adapters (conftest fixture).
         namespace: Fresh namespace of the test session.
         table_name: Unique table name for this test.
         sample: Small Arrow table (id, name, amount) that is written and expected back.
     """
     require_vended_credentials()
-    gap = _check_applicable(engine, warehouse, "write")
+    gap = _check_applicable(engine, warehouse, "write", engine_pool)
     engine_obj = make_engine(engine, warehouse)
     with gap:
         engine_obj.write(namespace, table_name, sample)

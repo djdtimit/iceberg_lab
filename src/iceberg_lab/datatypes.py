@@ -235,6 +235,36 @@ CASES: list[TypeCase] = [
             "trino": "DOUBLE '3.141592653589793'",
         },
     ),
+    # Special floating-point values: Iceberg's metrics treat NaN apart (nan_value_counts, never in
+    # lower/upper bounds), and -0.0 must keep its sign. Compared via _float_key: NaN != NaN.
+    TypeCase(
+        "double_nan",
+        DoubleType(),
+        float("nan"),
+        {"duckdb": "'NaN'::DOUBLE", "spark": "CAST('NaN' AS DOUBLE)", "trino": "nan()"},
+    ),
+    TypeCase(
+        "double_inf",
+        DoubleType(),
+        float("inf"),
+        {
+            "duckdb": "'Infinity'::DOUBLE",
+            "spark": "CAST('Infinity' AS DOUBLE)",
+            "trino": "infinity()",
+        },
+    ),
+    TypeCase(
+        "double_neg_zero",
+        DoubleType(),
+        -0.0,
+        {"duckdb": "'-0.0'::DOUBLE", "spark": "CAST('-0.0' AS DOUBLE)", "trino": "DOUBLE '-0.0'"},
+    ),
+    TypeCase(
+        "float_nan",
+        FloatType(),
+        float("nan"),
+        {"duckdb": "'NaN'::FLOAT", "spark": "CAST('NaN' AS FLOAT)", "trino": "CAST(nan() AS REAL)"},
+    ),
     TypeCase(
         "decimal_10_2",
         DecimalType(10, 2),
@@ -477,6 +507,10 @@ FLINK_SQL: dict[str, str | None] = {
     "long": "CAST(9223372036854775807 AS BIGINT)",
     "float": "CAST(1.5 AS FLOAT)",
     "double": "CAST(3.141592653589793 AS DOUBLE)",
+    "double_nan": "CAST('NaN' AS DOUBLE)",
+    "double_inf": "CAST('Infinity' AS DOUBLE)",
+    "double_neg_zero": "CAST('-0.0' AS DOUBLE)",
+    "float_nan": "CAST('NaN' AS FLOAT)",
     "decimal_10_2": "CAST('12345678.90' AS DECIMAL(10, 2))",
     "decimal_38_10": "CAST('1234567890123456789012345678.0123456789' AS DECIMAL(38, 10))",
     "date": "DATE '2026-11-13'",
@@ -526,7 +560,29 @@ def canonical(case: TypeCase):
         return case.value.astimezone(UTC).replace(tzinfo=None)
     if isinstance(case.iceberg, (GeometryType, GeographyType)):
         return _geo_text(case.value)
+    if isinstance(case.iceberg, (FloatType, DoubleType)):
+        return _float_key(case.value)
     return case.value
+
+
+def _float_key(x) -> float | str:
+    """A float in a form ``==`` can compare: NaN is never equal to itself and ``-0.0 == 0.0``,
+    so both become text; every other value stays a float.
+
+    Args:
+        x: The value (float, numpy float, or text such as "NaN" from a JSON-based client).
+
+    Returns:
+        ``"NaN"``, ``"-0.0"`` or the float.
+    """
+    import math
+
+    f = float(x)
+    if math.isnan(f):
+        return "NaN"
+    if f == 0.0 and math.copysign(1.0, f) < 0:
+        return "-0.0"
+    return f
 
 
 def _geo_text(v):
@@ -623,8 +679,8 @@ def normalize(case: TypeCase, v):
         if isinstance(el, StructType):
             return [None if x is None else _norm_struct(x, el) for x in v]
         return list(v)  # tuples / numpy arrays -> list
-    if isinstance(t, FloatType):
-        return float(v)  # numpy.float32 -> float
+    if isinstance(t, (FloatType, DoubleType)):
+        return _float_key(v)  # numpy.float32 -> float; NaN and -0.0 comparable
     if isinstance(t, DecimalType):
         return Decimal(str(v))
     return v

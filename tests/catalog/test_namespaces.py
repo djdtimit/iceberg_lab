@@ -23,7 +23,7 @@ import pytest
 from iceberg_lab.config import PROFILE, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, drop_namespace_tree, engine_param, expect_gap
+from conftest import ENGINES, drop_namespace_tree, engine_param, expect_gap, not_offered
 
 WAREHOUSE = WAREHOUSE_STS
 #: How engines word "namespace still contains tables" (observed messages).
@@ -151,9 +151,22 @@ class TrinoNs(SqlNs):
 
 
 class DuckDBNs(SqlNs):
-    """DuckDB: ``CREATE/DROP SCHEMA`` in the attached catalog; no namespace properties."""
+    """DuckDB: ``CREATE/DROP SCHEMA`` in the attached catalog; properties with the table function
+    ``set_iceberg_schema_properties`` (no DDL for it)."""
 
     engine = "duckdb"
+
+    def set_property(self, ns, k, v):
+        """``CALL set_iceberg_schema_properties('<catalog>."<ns>"', {k: v})``.
+
+        Args:
+            ns: Namespace (tuple of levels).
+            k: Property key.
+            v: Property value.
+        """
+        self.e.execute(
+            f"CALL set_iceberg_schema_properties('{_sql('duckdb', self.e, ns)}', {{'{k}': '{v}'}})"
+        )
 
 
 class FlinkNs(SqlNs):
@@ -248,9 +261,9 @@ def test_namespace(engine, task, engine_pool):
     """
     cls = NS_CLASSES.get(engine)
     if cls is None:
-        pytest.skip(f"{engine} has no API for namespaces")
+        not_offered(engine, "namespaces", None, engine_pool)
     if task == "properties" and not hasattr(cls, "set_property"):
-        pytest.skip(f"{engine} has no API for namespace properties")
+        not_offered(engine, "namespace properties", None, engine_pool)
     cat = pyiceberg_catalog(WAREHOUSE)
     name = f"nst_{engine}_{task}_{uuid.uuid4().hex[:6]}"
     with _gap(engine, task):

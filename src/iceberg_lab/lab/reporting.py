@@ -1,6 +1,6 @@
 """Engine comparison report: collects every test result and writes a side-by-side overview.
 
-Registered by ``conftest.py``. After each run it writes (``reports/`` for Lakekeeper,
+Registered by ``tests/conftest.py``. After each run it writes (``reports/`` for Lakekeeper,
 ``reports/<catalog>/`` for the others, ``reports/<catalog>-nohelp/`` for the run without lab
 help; ``REPORT_DIR=<dir>`` sends a targeted run elsewhere):
 
@@ -8,7 +8,7 @@ help; ``REPORT_DIR=<dir>`` sends a targeted run elsewhere):
 * ``comparison.md``        - per-engine summary, one matrix per test area, severe gaps
 * ``comparison_rows.json`` - one row per test for the dashboard (theme, area, capability,
   severity, run)
-* ``manifest.json``, ``runs.json`` - what each run was produced with (``tests/lab/manifest.py``):
+* ``manifest.json``, ``runs.json`` - what each run was produced with (``src/iceberg_lab/lab/manifest.py``):
   results are merged over runs, every record names its run
 
 Areas are grouped into a few themes (``THEMES``). Totals over all cases are dominated by the
@@ -46,8 +46,9 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import manifest
 import pytest
+
+from iceberg_lab.lab import manifest
 
 _CATALOG = os.getenv("CATALOG", "lakekeeper")
 #: reports/ for the reference catalog (Lakekeeper), reports/<catalog>/ for the others.
@@ -55,14 +56,14 @@ _CATALOG = os.getenv("CATALOG", "lakekeeper")
 REPORT_DIR = (
     Path(os.environ["REPORT_DIR"])
     if os.getenv("REPORT_DIR")
-    else Path(__file__).resolve().parents[2]
+    else Path(__file__).resolve().parents[3]
     / "reports"
     / ("" if _CATALOG == "lakekeeper" else _CATALOG)
 )
 if os.getenv("LAB_NO_HELP") == "1" and not os.getenv("REPORT_DIR"):
     # Run without help (iceberg_lab.config.WITH_HELP false): its own report, never the
     # comparison - reports/<catalog>-nohelp/ for every catalog (Lakekeeper's own is reports/).
-    REPORT_DIR = Path(__file__).resolve().parents[2] / "reports" / f"{_CATALOG}-nohelp"
+    REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / f"{_CATALOG}-nohelp"
 ENGINE_ORDER = ["pyiceberg", "duckdb", "polars", "daft", "spark", "trino", "pg_lake", "flink"]
 SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "—", "blocked": "·"}
 
@@ -285,9 +286,57 @@ def severity(rec) -> str | None:
     Returns:
         The label, or None.
     """
-    from conftest import gap_severity
+    from iceberg_lab.lab.gaps import gap_severity
 
     return gap_severity(rec["detail"]) if rec["status"] == "gap" else None
+
+
+#: "Not testable" reasons that name no engine: the catalog (or the lab's storage setup) makes
+#: the state impossible, e.g. a type the catalog rejects.
+_CATALOG_BLOCKED = ("neither an engine nor the neutral source", "not testable on ")
+
+
+def blocked_by(row: dict) -> str:
+    """Who a "not testable" case is blocked by: the engine whose step failed before it, or
+    ``"catalog"``. Empty for every other status.
+
+    A blocked read is no statement about the reader, so it must not count against it: the
+    report charges it to the cause instead. The skip reasons name the cause first ("not
+    written by X", "X v3 did not succeed in ...", "X did not create a view", ...); without such
+    a name the writer of the row decides, else the engine itself.
+
+    Args:
+        row: A row of :func:`flat_rows` (``status``, ``detail``, ``engine``, ``writer``).
+
+    Returns:
+        The engine name, ``"catalog"`` or ``""``.
+    """
+    if row["status"] != "blocked":
+        return ""
+    detail = row.get("detail") or ""
+    if m := re.match(r"not written by ([\w-]+)", detail):
+        return m.group(1)
+    first = detail.split(" ", 1)[0]
+    if first in ENGINE_ORDER:
+        return first
+    if detail.startswith(_CATALOG_BLOCKED):
+        return "catalog"
+    return row.get("writer") or row.get("engine") or "catalog"
+
+
+def counted_status(row: dict) -> str:
+    """The status a case counts with for its engine: ``"foreign"`` for a case blocked by
+    another engine or the catalog (counted at the cause, not here), else the status.
+
+    Args:
+        row: A row of :func:`flat_rows`.
+
+    Returns:
+        The status.
+    """
+    by = blocked_by(row)
+    # A test without an engine is about the catalog: blocked by the catalog is its own step.
+    return "foreign" if by and by != (row.get("engine") or "catalog") else row["status"]
 
 
 def flat_rows(records: list[dict]) -> list[dict]:
@@ -304,26 +353,31 @@ def flat_rows(records: list[dict]) -> list[dict]:
         # Unassigned tests stay visible (and compared) instead of silently dropping out.
         area = next((name for name, pred in DIMENSIONS if pred(r)), "Unassigned")
         p = r["params"]
-        rows.append(
-            {
-                "engine": _engine(r) or "",
-                "theme": theme_of(area),
-                "area": area,
-                "capability": _capability(r),
-                "status": r["status"],
-                "detail": r["detail"],
-                "severity": severity(r) or "",
-                "writer": p.get("writer")
-                or (p.get("engine") if r["test"] in CROSS_READ_TESTS else ""),
-                "test": r["nodeid"],
-                # Results of runs before manifests existed have no run id.
-                "run": r.get("run", ""),
-            }
-        )
+        row = {
+            "engine": _engine(r) or "",
+            "theme": theme_of(area),
+            "area": area,
+            "capability": _capability(r),
+            "status": r["status"],
+            "detail": r["detail"],
+            "severity": severity(r) or "",
+            "writer": (
+                p.get("engine")
+                if r["test"] in (*CROSS_READ_TESTS, CROSS_WRITE_TEST)
+                else p.get("writer") or ""
+            ),
+            "test": r["nodeid"],
+            # Results of runs before manifests existed have no run id.
+            "run": r.get("run", ""),
+        }
+        row["blocked_by"] = blocked_by(row)
+        rows.append(row)
     return rows
 
 
 CROSS_READ_TESTS = ("test_operation_cross_read", "test_maintenance_cross_read")
+#: Writes after another engine's maintenance: the row is about the writer, produced by "engine".
+CROSS_WRITE_TEST = "test_maintenance_cross_write"
 
 
 def _engine(rec) -> str | None:
@@ -336,6 +390,8 @@ def _engine(rec) -> str | None:
         The engine, or None.
     """
     p = rec["params"]
+    if rec["test"] == CROSS_WRITE_TEST:
+        return p["writer"]  # about the engine that writes after the other one's maintenance
     for key in ("reader", "engine", "writer", "creator"):
         if key in p and rec["test"] not in ("test_write",):
             if rec["test"] in CROSS_READ_TESTS and key == "reader":
@@ -417,6 +473,8 @@ DIMENSIONS = [
     ("Write partitions", lambda r: r["test"] == "test_partitioned_write"),
     ("Read partitions", lambda r: r["test"] == "test_partitioned_read"),
     ("Schema evolution", lambda r: r["test"].startswith("test_schema_evolution")),
+    ("Nested schema evolution", lambda r: r["test"].startswith("test_nested_evolution")),
+    ("Time zones", lambda r: r["file"] == "test_timezones"),
     ("Partition evolution", lambda r: r["test"].startswith("test_partition_evolution")),
     ("Concurrent commits", lambda r: r["file"] == "test_concurrency"),
     ("Views", lambda r: r["file"] == "test_views"),
@@ -447,7 +505,10 @@ DIMENSIONS = [
     ("REST conformance", lambda r: r["file"] == "test_rest_conformance"),
     ("Branch isolation", lambda r: r["file"] == "test_branch_isolation"),
     ("Re-create with an open session", lambda r: r["file"] == "test_recreate_session"),
-    ("Files per specification", lambda r: r["file"] == "test_file_spec"),
+    (
+        "Files per specification",
+        lambda r: r["file"] == "test_file_spec" or r["test"] == "test_nan_metrics",
+    ),
     ("Storage (RustFS S3 API)", lambda r: r["file"] == "test_storage_s3"),
     ("Token endpoint outage", lambda r: r["file"] == "test_idp_outage"),
     ("Connection without help", lambda r: r["file"] == "test_stock_connection"),
@@ -481,6 +542,7 @@ DIMENSIONS = [
     ),
     ("Maintenance", lambda r: r["test"] == "test_maintenance"),
     ("Read others' maintenance results", lambda r: r["test"] == "test_maintenance_cross_read"),
+    ("Write after others' maintenance", lambda r: r["test"] == CROSS_WRITE_TEST),
 ]
 
 
@@ -509,12 +571,14 @@ THEMES = {
         "Read types (neutral source)",
         "Type fidelity",
         "Type check by the catalog",
+        "Time zones",
     ),
     "Partitions & evolution": (
         "Write partitions",
         "Read partitions",
         "Read partitions (neutral source)",
         "Schema evolution",
+        "Nested schema evolution",
         "Partition evolution",
         "Read evolution (neutral source)",
     ),
@@ -532,6 +596,7 @@ THEMES = {
     "Maintenance": (
         "Maintenance",
         "Read others' maintenance results",
+        "Write after others' maintenance",
         "Read maintenance results (neutral source)",
     ),
     "Concurrency & robustness": (
@@ -599,8 +664,12 @@ def _counts(statuses: list[str]) -> dict:
         "new": c["new"],
         "na": c["na"],
         "blocked": c["blocked"],
+        # Blocked by another engine or the catalog (counted_status): no statement about this
+        # engine, so not one of its cases - charged to the cause ("blocks N cases").
+        "foreign": c["foreign"],
         "offered": offered,
-        # Coverage counts "not testable" as not working: a case that never ran is no success.
+        # Coverage counts the engine's own "not testable" as not working: a case that never
+        # ran is no success.
         "all": offered + c["na"] + c["blocked"],
     }
 
@@ -738,7 +807,7 @@ def render_markdown(records: list[dict]) -> str:
     lines = [
         "# Engine comparison",
         "",
-        "Generated by `tests/lab/reporting.py` during the last test run.",
+        "Generated by `src/iceberg_lab/lab/reporting.py` during the last test run.",
         "",
         (
             "Legend: ✅ works · ❌ known gap · ◐ partly (works/applicable) · "
@@ -751,8 +820,10 @@ def render_markdown(records: list[dict]) -> str:
         (
             "Every engine runs the same test cases in every area. **Coverage** = works / "
             "all cases (capabilities that are not offered count as cases too). **Reliability** = "
-            "works / offered cases. Cases that are not testable (prerequisite failed) count as not "
-            "working for coverage. Reading back an engine's own results counts nowhere, nor do "
+            "works / offered cases. Cases that are not testable because the engine's own step "
+            "failed count as not working for coverage; cases blocked by another engine (it could "
+            "not write the table) or by the catalog count at the cause, not here - see "
+            "'blocks cases of others' below. Reading back an engine's own results counts nowhere, nor do "
             "tests of special features of one engine or catalog (engine-/catalog-specific) - only "
             "the base tests, which are the same for all (docs/test-architecture.md)."
         ),
@@ -762,14 +833,19 @@ def render_markdown(records: list[dict]) -> str:
     sep = "|---|" + "---|" * len(engines)
     per_area = {}
     totals = defaultdict(list)
+    blocks = Counter()  # engine (or "catalog") -> cases of OTHER engines it blocked
+    rows_of = dict(zip((r["nodeid"] for r in records), flat_rows(records), strict=True))
     for name, pred in DIMENSIONS:
         if name in NOT_COMPARED:
             continue
         by_engine = defaultdict(list)
         for r in records:
             if pred(r) and _engine(r) in engines and r["status"] != "self":
-                by_engine[_engine(r)].append(r["status"])
-                totals[_engine(r)].append(r["status"])
+                st = counted_status(rows_of[r["nodeid"]])
+                by_engine[_engine(r)].append(st)
+                totals[_engine(r)].append(st)
+                if st == "foreign":
+                    blocks[rows_of[r["nodeid"]]["blocked_by"]] += 1
         per_area[name] = by_engine
     lines += ["### Coverage (works / all cases)", "", hdr, sep]
     for name, by_engine in per_area.items():
@@ -793,11 +869,16 @@ def render_markdown(records: list[dict]) -> str:
         ("severe", "of which severe (result, data, security)"),
         ("new", "new failure"),
         ("na", "not offered"),
-        ("blocked", "not testable"),
+        ("blocked", "not testable (own step failed)"),
+        ("foreign", "not testable (blocked by another engine / the catalog; not counted here)"),
+        ("blocks", "blocks cases of other engines (its write or step failed)"),
     ):
         if key == "severe":
             n = {e: sum(1 for r in records if _engine(r) == e and severity(r)) for e in engines}
             lines.append(f"| {label} | " + " | ".join(str(n[e]) for e in engines) + " |")
+            continue
+        if key == "blocks":
+            lines.append(f"| {label} | " + " | ".join(str(blocks[e]) for e in engines) + " |")
             continue
         lines.append(
             f"| {label} | " + " | ".join(str(_counts(totals[e])[key]) for e in engines) + " |"
@@ -810,6 +891,8 @@ def render_markdown(records: list[dict]) -> str:
         ),
         "",
     ]
+    if blocks["catalog"]:
+        lines += [f"Blocked by the catalog itself (no engine to blame): {blocks['catalog']}.", ""]
 
     # ---- detail matrices
     def section(title, pred, row_of, col_of=_engine, rows_sort=None):

@@ -12,12 +12,15 @@ Every task follows the same three steps, for every engine:
      delete files, one manifest, the old snapshot is gone;
    * content: every file the table still references exists in storage, and the engine reads
      the expected rows - from here on the table goes to the cross-read even if a later check
-     fails (``conftest.keep_if_content_ok``);
+     fails (``iceberg_lab.lab.results.keep_if_content_ok``);
    * the task's effect in storage (boto3 directly against RustFS): e.g. the expired
      snapshot's data file and manifest list are really deleted, the planted orphan is gone,
      nothing is left after DROP;
    * afterwards every OTHER engine reads the result (``test_maintenance_cross_read``); the
-     same states written by the reference implementation: tests/engines/test_neutral_source.py.
+     same states written by the reference implementation: tests/engines/test_neutral_source.py;
+   * and every engine, the maintaining one included, appends a row to the maintained table
+     (``test_maintenance_cross_write``): writing must still work after another engine's
+     compaction, manifest rewrite, snapshot expiry or orphan cleanup.
 
 Tasks (``TASKS``):
 
@@ -58,6 +61,9 @@ from conftest import (
     expect_gap,
     fresh,
     keep_if_content_ok,
+    not_offered,
+    require,
+    require_format,
     skip_if_not_produced,
 )
 
@@ -119,7 +125,9 @@ KNOWN_GAPS: list[Gap] = [
       for e in ("pyiceberg", "trino", "flink") if PROFILE.name == "unity"),
     Gap("duckdb", "drop_table", "*", r"files left after DROP", "DuckDB DROP TABLE does not request a purge (purgeRequested=false), so Lakekeeper keeps the data files"),
     Gap("duckdb", "compact_*", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "DuckDB 2.0: iceberg_rewrite_data_files does not support v3 tables yet"),
-    Gap("duckdb", "compact_delete_files", "2", r"delete files left after compaction", "DuckDB iceberg_rewrite_data_files keeps the position delete files"),
+    # DuckDB 2.0.1 fixed "iceberg_rewrite_data_files keeps the position delete files" (v2).
+    Gap("duckdb", "expire_snapshots", "2", r"expired data file still in storage", "DuckDB 2.0.1 iceberg_expire_snapshots only removes snapshots from the metadata; data files and manifest lists stay in storage"),
+    Gap("duckdb", "expire_snapshots", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "DuckDB 2.0.1 cannot take a data file out of a v3 table (a full DELETE only adds deletion vectors, iceberg_rewrite_data_files does not support v3), so the expiry setup is impossible"),
     # Two intermittent symptoms (probed by hand): the old snapshot stays in the metadata, or it
     # is removed but its data file stays in storage (also after VACUUM again and
     # lake_engine.flush_deletion_queue()).
@@ -472,9 +480,11 @@ class TrinoMaint(Maint):
 
 
 class DuckDBMaint(Maint):
-    """DuckDB 2.0 iceberg extension: ``iceberg_rewrite_data_files`` and ``DROP TABLE``.
+    """DuckDB iceberg extension: ``iceberg_rewrite_data_files``, ``iceberg_expire_snapshots``
+    (new in DuckDB 2.0.1, found by the engine inventory) and ``DROP TABLE``.
 
-    No API (checked: ``duckdb_functions()`` lists no expire/manifest/orphan function).
+    Manifest rewrite and orphan removal: not offered - checked against DuckDB's live function
+    list on every run (capabilities.not_offered).
     """
 
     engine_name = "duckdb"
@@ -486,6 +496,27 @@ class DuckDBMaint(Maint):
     def compact_delete_files(self):
         """``iceberg_rewrite_data_files`` (also single files with deletes)."""
         self.q(f"SELECT * FROM iceberg_rewrite_data_files('{self.fq()}', min_input_files => 1)")
+
+    def replace_all(self, rows):
+        """Delete everything, insert the rows, then compact (setup of ``expire_snapshots``).
+
+        DuckDB's ``DELETE FROM t`` and ``TRUNCATE`` both keep the seed data file and add a delete
+        file (checked with DuckDB 2.0.1); only ``iceberg_rewrite_data_files`` takes it out of the
+        current snapshot.
+
+        Args:
+            rows: Rows ``(id, name, amount)`` to write.
+        """
+        super().replace_all(rows)
+        self.compact_delete_files()
+
+    def expire_snapshots(self):
+        """``iceberg_expire_snapshots`` older than now + 5 s, keeping one (as Spark)."""
+        now = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=5)).strftime("%Y-%m-%d %H:%M:%S")
+        self.q(
+            f"SELECT * FROM iceberg_expire_snapshots('{self.fq()}', "
+            f"older_than => TIMESTAMP '{now}', retain_last => 1)"
+        )
 
 
 class PgLakeMaint(Maint):
@@ -648,7 +679,7 @@ def run_task(m: Maint, task: str, engine_pool):
 
     Order: the task's effect in the metadata, then the shared content check, then the checks of
     the task's effect in storage - so a gap there (files not deleted) cannot hide a broken
-    table, and the table still goes to the cross-read (conftest.keep_if_content_ok).
+    table, and the table still goes to the cross-read (iceberg_lab.lab.results.keep_if_content_ok).
 
     Args:
         m: The engine's maintenance object.
@@ -757,12 +788,13 @@ def test_maintenance(engine, task, fv, namespace, engine_pool, maint_results):
             cross-read (None: attempted without a readable result).
     """
     if task in EXPECTED:
-        maint_results[(engine, task, fv)] = None  # attempted (see conftest.skip_if_not_produced)
+        maint_results[(engine, task, fv)] = (
+            None  # attempted (see iceberg_lab.lab.results.skip_if_not_produced)
+        )
     cls = MAINT_CLASSES.get(engine)
     if cls is None or not hasattr(cls, task):
-        pytest.skip(f"{engine} has no API for {task}")
-    if engine == "pg_lake" and fv == 3:
-        pytest.skip("pg_lake creates only format v2 tables")
+        not_offered(engine, task, None, engine_pool)
+    require_format(engine, fv)
     ctx = base.Ctx(
         pyiceberg_catalog(WAREHOUSE),
         namespace,
@@ -802,8 +834,10 @@ CROSS_GAPS: list[tuple[str, str, str, str, str, str]] = [
       for w in ("spark", "trino")),
     # DuckDB 2.0 cannot compact v3 (documented gap); its table keeps the live deletion vector,
     # which these readers cannot apply (the same gaps as in test_operations / test_neutral_source).
-    ("duckdb", "daft", "compact_delete_files", "3", r"\.puffin is not a valid parquet file", "Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet)"),
-    ("duckdb", "pg_lake", "compact_delete_files", "3", r"deletion vectors are not supported", "pg_lake 3.6 cannot read v3 deletion vectors"),
+    *(("duckdb", "daft", task, "3", r"\.puffin is not a valid parquet file", "Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet)")
+      for task in ("compact_delete_files", "expire_snapshots")),
+    *(("duckdb", "pg_lake", task, "3", r"deletion vectors are not supported", "pg_lake 3.6 cannot read v3 deletion vectors")
+      for task in ("compact_delete_files", "expire_snapshots")),
 ]
 # fmt: on
 
@@ -856,6 +890,85 @@ def test_maintenance_cross_read(engine, task, fv, reader, engine_pool, maint_res
     gap = _cross_gap(engine, reader, task, fv)
     with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
         assert fresh(engine_pool(reader), *result).read(*result) == EXPECTED[task]
+
+
+#: Known gaps when writing after maintenance: (engine, writer, task, fv) globs, regex, reason.
+# fmt: off
+CROSS_WRITE_GAPS: list[tuple[str, str, str, str, str, str]] = [
+    *(("*", w, "*", "3", r"Cannot write manifest for table version: 3", "PyIceberg 0.12 cannot write DATA to v3 tables (Polars and Daft write through it)")
+      for w in ("pyiceberg", "polars", "daft")),
+]
+# fmt: on
+
+
+def _cross_write_gap(engine, writer, task, fv):
+    """First matching gap of :data:`CROSS_WRITE_GAPS`.
+
+    Args:
+        engine: Engine that ran the task.
+        writer: Engine that writes afterwards.
+        task: Maintenance task (see ``TASKS``).
+        fv: Iceberg format version (2 or 3).
+
+    Returns:
+        ``(regex, reason)``, or None.
+    """
+    for g_eng, g_writer, g_task, g_fv, regex, reason in CROSS_WRITE_GAPS:
+        if all(
+            fnmatch.fnmatch(v, p)
+            for v, p in ((engine, g_eng), (writer, g_writer), (task, g_task), (str(fv), g_fv))
+        ):
+            return regex, reason
+    return None
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("writer", [engine_param(e) for e in ENGINES])
+@pytest.mark.parametrize("fv", [2, 3], ids=lambda v: f"v{v}")
+@pytest.mark.parametrize("task", sorted(EXPECTED))
+@pytest.mark.parametrize("engine", [engine_param(e) for e in ENGINES])
+def test_maintenance_cross_write(engine, task, fv, writer, engine_pool, maint_results):
+    """After the engine's maintenance, every engine (itself included) can still append.
+
+    Runs after all cross-reads (the writes change the tables). Each writer appends its own row
+    (id 100 + its position in ``ENGINES``), so the writers of one table do not disturb each
+    other's checks.
+
+    Checks:
+        * the append works on the maintained table (compacted files, rewritten manifests,
+          expired snapshots, removed orphans);
+        * the lab client then reads every row the task left, the writer's row exactly once, no
+          duplicated and no other unexpected row.
+        Skipped (blocked) if the maintenance produced no table.
+
+    Args:
+        engine: Engine that ran the maintenance.
+        task: Maintenance task (see ``TASKS``).
+        fv: Iceberg format version of the table (2 or 3).
+        writer: Engine that appends afterwards.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        maint_results: ``(engine, task, fv) -> (namespace, table)`` of the maintained tables.
+    """
+    ns, table = skip_if_not_produced(maint_results, (engine, task, fv), "test_maintenance")
+    if writer != engine:
+        require(writer, "writing tables it did not create", engine_pool)
+    n = 100 + ENGINES.index(writer)
+    row = (n, f"w{n}", float(n))
+    gap = _cross_write_gap(engine, writer, task, fv)
+    with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
+        ctx = base.Ctx(pyiceberg_catalog(WAREHOUSE), ns, table, fv, seed_writer=writer)
+        if writer not in ("pyiceberg", "polars", "daft"):
+            fresh(engine_pool(writer), ns, table)
+        base.append_rows(ctx, engine_pool, [row])
+        got = fresh(engine_pool("pyiceberg"), ns, table).read(ns, table)
+        missing = [r for r in EXPECTED[task] if r not in got]
+        assert not missing, f"rows the task left are gone after {writer}'s append: {missing}"
+        assert got.count(row) == 1, f"{writer}'s row appears {got.count(row)} times"
+        assert len(got) == len(set(got)), (
+            f"duplicated rows: {sorted(r for r in got if got.count(r) > 1)}"
+        )
+        unexpected = [r for r in got if r not in EXPECTED[task] and r[0] < 100]
+        assert not unexpected, f"rows that should not be there: {unexpected}"
 
 
 def test_maint_classes_define_only_known_tasks():

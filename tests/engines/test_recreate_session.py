@@ -26,7 +26,7 @@ import test_operations as base
 
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect_gap, require, require_engine
 
 WAREHOUSE = base.WAREHOUSE
 OLD = [(1, "old", 1.0)]
@@ -136,8 +136,7 @@ def test_writes_the_recreated_table(engine, namespace, engine_pool):
         namespace: Fresh namespace of the test session.
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for writing tables it did not create (read-only attach)")
+    require(engine, "writing tables it did not create", engine_pool)
     name, old_location = _open_then_recreate(engine, namespace, engine_pool)
     with _gap("writes_the_recreated_table", engine):
         adapter = engine_pool(engine)

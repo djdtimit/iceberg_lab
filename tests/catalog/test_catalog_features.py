@@ -910,14 +910,24 @@ def test_generic_tables(rest, namespace, table_name):
         namespace: Fresh namespace of the test session.
         table_name: Unique table name for this test.
     """
-    if PROFILE.name == "lakekeeper":
-        pytest.skip(
-            "catalog lakekeeper has no API for creating non-Iceberg tables (generic-tables: 404; "
-            "only grants/tags/protection endpoints for generic tables exist)"
-        )
-    offered_by("polaris", "unity", what="non-Iceberg (generic/Delta) tables")
     name = f"{table_name}_delta"
     location = f"{PROFILE.location}/{namespace}/{name}"
+    if PROFILE.name == "lakekeeper":
+        # Checked, not assumed: the generic-tables create call (the shape Polaris uses) must be
+        # refused as an unknown route. Should it ever succeed, the claim is outdated.
+        body = {"name": name, "format": "delta", "base-location": location}
+        r = rest.call("POST", f"namespaces/{namespace}/generic-tables", json=body)
+        if r.ok:
+            rest.call("DELETE", f"namespaces/{namespace}/generic-tables/{name}")
+            pytest.fail("[claim outdated?] Lakekeeper created a generic table - test it here")
+        assert r.status_code in (404, 405, 501), (
+            f"unexpected answer: HTTP {r.status_code} {r.text[:300]}"
+        )
+        pytest.skip(
+            f"catalog lakekeeper has no API for creating non-Iceberg tables (generic-tables "
+            f"create: HTTP {r.status_code}; only grants/tags/protection endpoints exist)"
+        )
+    offered_by("polaris", "unity", what="non-Iceberg (generic/Delta) tables")
     with gap("generic_tables"):
         if PROFILE.name == "polaris":
             path = f"{rest.prefix}/namespaces/{namespace}/generic-tables"

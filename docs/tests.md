@@ -7,11 +7,34 @@ Back to the [README](../README.md).
 Every test run writes `reports/comparison.md` (Lakekeeper; other catalogs in
 `reports/<catalog>/`) (overview "works / applicable" per engine and area, plus matrices for
 operations, cross-reads, types, type fidelity, access, interop, v3) and `reports/results.json` (raw
-data, one entry per test). **Coverage** = works / all cases (not offered and not testable count as
-not working), **reliability** = works / offered cases. Only the base tests are compared;
-"engine-specific", "catalog-specific" and "lab self-test" are reported separately. Every test
-belongs explicitly to one area (`tests/lab/reporting.py`); without an area it shows up as
-"unassigned" and is counted.
+data, one entry per test). **Coverage** = works / all cases of the engine (not offered and its
+own "not testable" count as not working), **reliability** = works / offered cases. Only the base
+tests are compared; "engine-specific", "catalog-specific" and "lab self-test" are reported
+separately. Every test belongs explicitly to one area (`src/iceberg_lab/lab/reporting.py`), and every area
+to one of eight themes (`THEMES`); without an area it shows up as "unassigned" and is counted.
+
+Further figures, because a plain total over all cases misleads:
+
+- **Reliability per theme** and the mean over the themes, each theme counting equally - the
+  type matrix alone is about a third of all cases and would otherwise decide every total.
+- **Who a "not testable" case belongs to** (`blocked_by`): a read whose table the writer could
+  not produce says nothing about the reader. It counts at the step that failed - the writing
+  engine ("blocks N cases of other engines"), or the catalog when it makes the state
+  impossible - and is in no denominator of the reading engine. A reader's ability to read such
+  a table is shown by the neutral source.
+- **Planned / ran**: every compared case, and those that actually ran (works, gap, new).
+- **Run manifest**: every row names its run; `manifest.json` / `runs.json` record git commit,
+  package versions, DuckDB extension versions and image digests (`src/iceberg_lab/lab/manifest.py`).
+
+"Not offered" is never just claimed: tests ask `require(engine, capability, engine_pool)`
+(`src/iceberg_lab/lab/capabilities.py`). The registry `OFFERED` lists who offers a capability;
+for every other engine the claim is proven by a test of its own (`PROVEN_BY`) or checked against
+the engine's live API (functions, procedures, methods, parameters) with a pattern per capability
+(`CAPABILITY_API`). A matching name fails the test as a new failure - the engine may
+have gained the capability - unless it is listed with a reason in `NOT_OFFERED_EXEMPT`. Where a
+try is cheap, the test tries instead (Flink `MERGE`, Lakekeeper generic tables). The check
+covers APIs, not SQL grammar; a new SQL statement is caught by the version pin in
+`test_na_claims.py`.
 
 ## Layout
 
@@ -43,10 +66,11 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_access_delegation.py` | engine × warehouse × read/write with catalog credentials only; STS scope; signer scope |
 | `test_interop.py` | every engine writes, every engine reads |
 | `test_file_formats.py` | data formats ORC and Avro (besides Parquet): every engine writes into a table with `write.format.default`, the actual file format is checked; every engine reads |
-| `test_types.py` | all Iceberg types (v2 + v3) × writer × reader: values (`test_read`) and type fidelity (`test_reader_type`: does the engine report the matching type, e.g. `uuid` instead of `string`?). pg_lake writes with its own Postgres types (composite for structs, `map_type` for maps). Plus `test_read_neutral`: every reader reads a table written by the lab client (PyIceberg) – this shows whether a reader can read a type at all, even where writers fail |
+| `test_types.py` | all Iceberg types (v2 + v3) × writer × reader: values (`test_read`) and type fidelity (`test_reader_type`: does the engine report the matching type, e.g. `uuid` instead of `string`?). pg_lake writes with its own Postgres types (composite for structs, `map_type` for maps). Plus `test_read_neutral`: every reader reads a table written by the lab client (PyIceberg) – this shows whether a reader can read a type at all, even where writers fail; special floats (NaN, ±Inf, -0.0) in the whole matrix, and `test_nan_metrics`: no NaN in the lower/upper bounds of any data file, NaN/NULL counts right where recorded (else filters prune wrongly) |
+| `test_timezones.py` | session time zones: every SQL engine writes `timestamptz` (local time of the session) and `timestamp` (no zone) while its session zone is Kathmandu (+05:45), Berlin right after the DST switch or Los Angeles 1969; every engine reads: the instant must be the local time in UTC, the plain timestamp unchanged |
 | `test_operations.py` | DDL/DML/evolution/time travel per engine, format v2 and v3; plus merge-on-read DELETE, a transaction with several changes (one commit), an aborted transaction, seeing foreign commits, identifier fields, CREATE on an existing table, filter/aggregation, listing tables; MERGE must be a single commit. Every engine writes its starting data itself (if it cannot, the test failed – no substitute engine); then **every other engine** reads the result back (`test_operation_cross_read`) |
 | `test_v3_features.py` | deletion vectors, default values, row lineage |
-| `test_maintenance.py` | maintenance per engine, v2 + v3: compact data files and delete files, rewrite manifests, expire snapshots, remove orphan files, DROP deletes files – each checked in the metadata, **directly in RustFS** and by cross-reads of all engines |
+| `test_maintenance.py` | maintenance per engine, v2 + v3: compact data files and delete files, rewrite manifests, expire snapshots, remove orphan files, DROP deletes files – each checked in the metadata, **directly in RustFS** and by cross-reads of all engines; afterwards every engine, the maintaining one included, appends a row to the maintained table (`test_maintenance_cross_write`) |
 | `test_concurrency.py` | concurrent commits: 4 parallel appends per engine, all engines at once on one table, appends during a compaction, DELETE against UPDATE of the same row (isolation), two concurrent upserts of the same new key |
 | `test_neutral_source.py` | neutral read source for operations, partitions, evolution and maintenance: Iceberg Java core (the reference implementation, directly through the JVM, without Spark SQL) writes every state once – natively v2 and v3, with position deletes, deletion vectors and equality deletes – then every engine reads. Neutral row fine, matrix cell red → the combination (mostly the writer's files); neutral row red → the reader |
 | `test_rbac.py` | roles and inherited grants on all catalogs: a grant to a role reaches every member (and only that table), whoever leaves the role loses access at once, grants of several roles add up without spilling over, a grant on a namespace applies to its tables (also later ones) and not to others. Lakekeeper roles, Polaris principal/catalog roles, RustFS IAM groups; Unity OSS has no roles, RustFS no namespace data grants (both checked on every run) |
@@ -58,8 +82,8 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_recreate_session.py` | an engine has the table open, it is dropped and re-created with the same name: does the engine then read and write the new table? |
 | `test_file_spec.py` | written files per specification: Avro metadata of every manifest (`partition-spec`, `format-version`, `content`, ...; `schema-id` separately), field IDs in every Parquet file – per engine |
 | `test_sts_scope.py` | reach of a table's STS keys (directly with boto3): write/delete/list only in the own table, not in table B, the bucket root, another warehouse, foreign buckets; expiry time, renewal through `/credentials`, tampered token |
-| `test_evolution.py` | partition transforms (identity, bucket, truncate, year/month/day/hour) × writer × reader with filters, schema evolution (rename/add/drop/widen) and partition evolution across engines |
-| `test_views.py` | create views and read foreign views (dialects); dependency on the catalog name |
+| `test_evolution.py` | partition transforms (identity, bucket, truncate, year/month/day/hour) × writer × reader with filters, schema evolution (rename/add/drop/widen) and partition evolution across engines; nested schema evolution (`test_nested_evolution_*`): a struct field added, renamed and dropped, map value and list element widened, required made optional, a column moved - then every engine appends in the new schema and every engine reads old and new files by nested field id |
+| `test_views.py` | create views and read foreign views (dialects); PyIceberg creates view metadata with one representation per dialect; dependency on the catalog name |
 | `test_namespaces.py` | namespaces per engine: create, nest, properties, do not drop non-empty ones, drop |
 | `test_statistics.py` | compute table statistics (Puffin/NDV) and have Trino use them, partition statistics |
 | `test_robustness.py` | fault proxy in front of the catalog (all four): lost commit response, 503 on commit, catalog gone – with an integrity check of the table |
@@ -67,7 +91,7 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_rustfs.py` | object storage: multipart upload, range reads, bulk delete, listing over 1000 objects, consistency (directly with boto3); plus per engine one large table (1.5 M rows, ~60 MB) written and read by all engines |
 | `test_transactions.py` | transactions over two tables (DuckDB/pg_lake `BEGIN…COMMIT`, Flink `STATEMENT SET`, Trino): one atomic `/transactions/commit`? Does A stay unchanged when B's commit fails? |
 | `test_wap.py` | write-audit-publish: write to a branch, check, publish to `main` |
-| `test_incremental.py` | incremental reads, changelog, streaming writes and reads (Flink, Spark) |
+| `test_incremental.py` | incremental reads, changelog, streaming writes and reads (Flink, Spark); Polars incremental reads through `scan_iceberg(from_snapshot_id_exclusive=, to_snapshot_id_inclusive=)` and its streaming sink `sink_iceberg` |
 | `test_sts_expiry.py` | *(marker `long`)* do all engines keep reading with the same object/session after the vended credentials expired? Lakekeeper 900 s (~16 min wait), Polaris and Unity 1 h (~62 min; not configurable per catalog there), RustFS vends no credentials |
 | `test_layout.py` | sort order (checked physically in every Parquet file) and target file size per writer |
 | `test_performance.py` | run times: write 1 M rows, full scan, selective query – `reports/performance.md` |
@@ -77,7 +101,9 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_idp_outage.py` | outage of the token endpoint (proxy in front, no container is stopped), PyIceberg and Spark: a running session keeps working, a new session fails fast and recognisably, then recovery |
 | `test_storage_s3.py` | the storage under all catalogs (RustFS S3 API against AWS behaviour): checksums, conditional writes, multipart error codes, STS session policies (prefix, deny, wildcards, duration) |
 | `test_catalog_features.py` | catalog functions, the same list for every catalog (a missing one shows as "not offered"). **Base** (REST specification or ≥2 catalogs): register a table from a foreign catalog, rename across namespaces, drop a namespace after a rename, metrics report, `/credentials`, pagination, ETag/304, idempotency key, remote signing, generic tables (Polaris, Unity), sync with externally written metadata, functions in the catalog (Lakekeeper, Unity). **Special features** (marker `specific`, not in the comparison) – Lakekeeper: trash bin + undrop, protection, tags, warehouse statistics, table search, move namespace, format-version policy, storage validation, permission check, projects, maintenance mode, endpoint statistics, task queue, "managed by", unregistering tables; Polaris: policies with inheritance, federation to Lakekeeper (direct and through a proxy without compression), OpenLineage; RustFS: enable/disable table buckets, unknown bucket, second endpoint `/_iceberg/v1`, table maintenance, refs API, metadata pointer, table management, backup; Unity: volumes (write/read with temporary credentials), functions, ML models, temporary path credentials, schema API. Authorization on all catalogs: `test_authz.py` |
-| `test_engine_inventory.py` | lab self-test: what every engine offers for Iceberg (functions, procedures, table properties, API methods), read live and compared with `docs/api/engine-<engine>.txt` – new or removed functions after an update stand out; overview `docs/engine-inventory.md` |
+| `test_engine_inventory.py` | lab self-test: what every engine offers for Iceberg (functions, procedures, table properties, API methods), read live and compared with `docs/api/engine-<engine>.txt` – new or removed functions after an update stand out; every name must be used by a test or classified in `docs/api/engine-classified.toml` (`ignored` / `untested`, offline check); overview `docs/engine-inventory.md` |
+| `test_capability_registry.py` | lab self-test (offline): the capability registry is complete (every missing capability has an API pattern or a proving test, every proving test exists) and no test skips an engine by name outside it |
+| `test_iceberg_spec.py` | lab self-test (offline): every REST endpoint of the recorded Iceberg spec has a conformance test, every spec type a type case, and the recorded release is the lab's `ICEBERG_VERSION` (`scripts/iceberg_spec.py` re-records it) |
 | `test_catalog_admin.py` | catalog administration as a base on all catalogs (adapter per catalog): create, list, use, drop a warehouse/catalog; rename/alter; disable and enable; change storage access; manage users; server info; background tasks |
 | `test_feature_inventory.py` | lab self-test: every endpoint of the four catalogs (`docs/api/`) belongs to exactly one capability, every capability has a test, base capabilities have a test for all catalogs, `docs/feature-inventory.md` is up to date; ✓ described and implemented, ◐ described but not implemented (backed by a known gap) |
 | `test_lab_selftest.py`, `test_lab_adapters.py` | lab self-tests: the gap mechanism hides nothing (wrong error message, a rule outside its engine, a notebook limit without expectation); the token adapter and STS adapter for Unity open and close nothing by themselves |

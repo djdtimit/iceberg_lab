@@ -34,7 +34,7 @@ VERIFIED = {
     "pyiceberg": "0.12.0",
     "polars": "2.1.0",
     "daft": "0.7.26",
-    "duckdb": "2.0.0",
+    "duckdb": "2.0.1",
     "spark": "4.1.4",
     "trino": "484",
     "flink": "2.3.0",

@@ -27,6 +27,7 @@ Tests (each thread uses its OWN adapter instance: own connection, session or cat
 from __future__ import annotations
 
 import fnmatch
+import re
 import threading
 import uuid
 from typing import NamedTuple
@@ -38,13 +39,19 @@ import test_operations as base
 from iceberg_lab.config import PROFILE
 from iceberg_lab.engines import SparkEngine, pyiceberg_catalog
 
-from conftest import ENGINE_CLASSES, ENGINES, engine_param, expect_gap, require_engine
+from conftest import (
+    ENGINE_CLASSES,
+    ENGINES,
+    engine_param,
+    expect_gap,
+    not_offered,
+    require,
+    require_engine,
+    require_format,
+)
 
 WAREHOUSE = base.WAREHOUSE
 N_THREADS = 4
-
-#: Engines with a SQL DELETE + UPDATE (used by the conflict test).
-ROW_LEVEL = {"duckdb", "spark", "trino", "pg_lake"}
 
 
 class Gap(NamedTuple):
@@ -77,7 +84,7 @@ KNOWN_GAPS: list[Gap] = [
     # MERGE's default isolation is serializable (write.merge.isolation-level): a concurrent
     # insert that matches the MERGE condition must make one of them fail.
     Gap("test_concurrent_upsert_same_key", "pyiceberg", "2", r"key 4 2 times after two concurrent upserts", "WRONG RESULT: PyIceberg 0.12: two concurrent upserts of the same new key both succeed - the loser's retry re-appends its row without checking for concurrent inserts (apache/iceberg-python#4194; 0.11.1 raised CommitFailedException)"),
-    Gap("test_concurrent_upsert_same_key", "duckdb", "*", r"key 4 2 times after two concurrent upserts", "WRONG RESULT: DuckDB: two concurrent MERGE INTO of the same new key both succeed and the key is there twice - no validation of concurrent inserts (Iceberg's default MERGE isolation is serializable; Spark and Trino refuse one)"),
+    # DuckDB 2.0.1 fixed "two concurrent MERGE INTO of the same new key both succeed" (5/5 runs).
     # Setup by the engine itself: PyIceberg (and Polars/Daft through it) cannot write v3 data.
     *(Gap("*", e, "3", base.NO_V3_MSG, f"{e}: " + base.PYICEBERG_NO_V3) for e in ("pyiceberg", "polars", "daft")),
 ]
@@ -273,15 +280,41 @@ def new_ctx(prefix: str, engine: str, fv: int, namespace: str) -> base.Ctx:
 FV = pytest.mark.parametrize("fv", [2, 3], ids=lambda v: f"v{v}")
 
 
+def _flink_merge_refused(engine_pool, ctx) -> None:
+    """Flink: try a MERGE on a table without primary key; skip as not offered only when Flink
+    refuses the statement itself (its upsert needs a primary key - test_operations: merge).
+    If the MERGE works, the claim is outdated and the test fails.
+
+    Args:
+        engine_pool: Session pool of engine adapters.
+        ctx: Context of the test table.
+    """
+    ctx.catalog.create_table(
+        ctx.ident, schema=base.SCHEMA, properties={"format-version": str(ctx.fv)}
+    )
+    f = engine_pool("flink")
+    fq = f.fq(ctx.ns, ctx.table)
+    try:
+        f.execute(
+            f"MERGE INTO {fq} t USING (SELECT 4 AS id, 'x' AS name, 4.0 AS amount) s "
+            "ON t.id = s.id WHEN NOT MATCHED THEN INSERT VALUES (s.id, s.name, s.amount)"
+        )
+    except Exception as e:
+        first = str(e).strip().splitlines()[0][:160] if str(e).strip() else type(e).__name__
+        if re.search(r"(?i)merge|parse|encountered|not support|unsupported", str(e)):
+            pytest.skip(f"flink has no API for MERGE (refused: {first})")
+        raise
+    pytest.fail("[claim outdated?] Flink accepted MERGE INTO - test the concurrent upsert with it")
+
+
 def _skip_pg_lake_v3(engine, fv):
-    """Skip: pg_lake creates only format v2 tables.
+    """Skip a format-v3 case for an engine that creates no v3 tables (capability registry).
 
     Args:
         engine: Engine name (see ``conftest.ENGINES``).
         fv: Iceberg format version (2 or 3).
     """
-    if engine == "pg_lake" and fv == 3:
-        pytest.skip("pg_lake creates only format v2 tables")
+    require_format(engine, fv)
 
 
 # =========================================================================== tests
@@ -384,8 +417,7 @@ def test_all_engines_append_concurrently(engine, shared_append):
             available engines appended to at the same time (parametrized v2/v3).
     """
     fv, ns, table, results = shared_append
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for writing tables it did not create")
+    require(engine, "writing tables it did not create")
     row, err = results[engine]
     with _gap_ctx("test_all_engines_append_concurrently", engine, fv):
         if err is not None:
@@ -414,7 +446,7 @@ def test_append_during_compaction(engine, fv, namespace, engine_pool, fresh_engi
     """
     cls = maint.MAINT_CLASSES.get(engine)
     if cls is None or not hasattr(cls, "compact_data_files"):
-        pytest.skip(f"{engine} has no API for compact_data_files")
+        not_offered(engine, "compact_data_files", None, engine_pool)
     _skip_pg_lake_v3(engine, fv)
     ctx = new_ctx("ccmp", engine, fv, namespace)
     extra = [(20 + k, f"w{k}", float(20 + k)) for k in range(3)]
@@ -455,8 +487,7 @@ def test_conflicting_delete_and_update(engine, fv, namespace, engine_pool, fresh
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         fresh_engine: Factory for a NEW adapter of an engine (own connection), closed afterwards.
     """
-    if engine not in ROW_LEVEL:
-        pytest.skip(f"{engine} has no API for SQL DELETE + UPDATE")
+    require(engine, "SQL DELETE + UPDATE", engine_pool)
     _skip_pg_lake_v3(engine, fv)
     ctx = new_ctx("ccdu", engine, fv, namespace)
     with _gap_ctx("test_conflicting_delete_and_update", engine, fv):
@@ -523,8 +554,8 @@ def test_concurrent_upsert_same_key(engine, fv, namespace, engine_pool, fresh_en
     Checks:
         * key 4 is exactly once in the table;
         * the seed rows are unchanged.
-        Engines without MERGE/upsert (Polars, Daft, pg_lake; Flink without a primary key): not
-        offered.
+        Not offered, each checked: Polars/Daft (no upsert in their live API), pg_lake (its MERGE
+        fails in test_operations), Flink (refuses MERGE INTO on a table without primary key).
 
     Args:
         engine: Engine under test.
@@ -533,14 +564,11 @@ def test_concurrent_upsert_same_key(engine, fv, namespace, engine_pool, fresh_en
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
         fresh_engine: Factory for a NEW adapter of an engine (own connection), closed afterwards.
     """
-    if engine in ("polars", "daft"):
-        pytest.skip(f"{engine} has no API for upsert/MERGE")
-    if engine == "flink":
-        pytest.skip("flink has no API for MERGE on a table without primary key (upserts need one)")
-    if engine == "pg_lake":
-        pytest.skip("pg_lake has no API for MERGE on Iceberg tables (test_operations: merge)")
+    require(engine, "upsert/MERGE", engine_pool)
     _skip_pg_lake_v3(engine, fv)
     ctx = new_ctx("ccup", engine, fv, namespace)
+    if engine == "flink":
+        _flink_merge_refused(engine_pool, ctx)
     with _gap_ctx("test_concurrent_upsert_same_key", engine, fv):
         seed_table(engine, ctx, engine_pool)
         rows = [(4, "x", 4.0), (4, "y", 5.0)]

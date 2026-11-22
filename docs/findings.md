@@ -16,7 +16,8 @@ of the test files and the central rules in `tests/conftest.py`)
 - **All four**: no server-side scan planning (`/plan` not offered), no row/column security, no
   `read-restrictions` in `loadTable`.
 - **Lakekeeper 0.15**: hides objects without a grant (answers "does not exist" instead of 403);
-  rejects `geometry`/`geography` (422) and – new in 0.15 – partition fields with both `source-id`
+  rejects `geometry`/`geography` (422 - every spelling: plain, with CRS, with SRID, with edge
+  algorithm; checked by raw REST on 2026-11-22: it cannot parse such a schema at all) and – new in 0.15 – partition fields with both `source-id`
   and `source-ids` (affects pg_lake, see below); describes `functions` and `unregister` in the API
   but answers 404; the namespace properties response lacks the field `missing` (PyIceberg fails);
   unknown paths and disallowed methods with an empty body instead of an Iceberg error document
@@ -114,8 +115,11 @@ of the test files and the central rules in `tests/conftest.py`)
   manifest list files stay in storage.
 - Lakekeeper deletes files on DROP only with `purgeRequested=true`: PyIceberg `purge_table`, Spark,
   Trino, pg_lake and Flink do that; **DuckDB's `DROP TABLE` does not** (files stay).
-- DuckDB: `iceberg_rewrite_data_files` leaves position delete files behind, cannot do v3 and does
-  not retry after a commit conflict (409) – with concurrent appends it fails.
+- DuckDB 2.0.1: `iceberg_rewrite_data_files` now removes the applied position delete files (fixed;
+  2.0.0 left them behind), still cannot do v3 and does not retry after a commit conflict (409) –
+  with concurrent appends it fails. The new `iceberg_expire_snapshots` removes snapshots only from
+  the metadata (data files and manifest lists stay, like PyIceberg). On v3 DuckDB cannot take a
+  data file out of a table at all: a full `DELETE` or `TRUNCATE` only adds deletion vectors.
 - pg_lake: `VACUUM` does not remove foreign orphan files (only those it tracks itself).
 - Spark's SQL procedure `remove_orphan_files` refuses intervals under 24 h; the Java action
   (`deleteOrphanFiles().usePrefixListing(true)`) works.
@@ -127,6 +131,8 @@ of the test files and the central rules in `tests/conftest.py`)
   DuckDB deletes the commit's files; the current snapshot then points to a missing manifest list
   (reproduced on Lakekeeper, Polaris and Unity; on RustFS DuckDB cannot connect).
 - DuckDB does not retry commits after a conflict (409) (intermittent, depending on timing).
+- DuckDB 2.0.1 fixed concurrent `MERGE INTO` of the same new key (2.0.0: both succeeded, the key
+  was there twice); one of them is now refused, as in Spark and Trino.
 - All other engines: parallel appends are retried, DELETE against UPDATE is serializable, lost
   responses do not lead to duplicate rows.
 

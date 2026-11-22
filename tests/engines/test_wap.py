@@ -25,12 +25,11 @@ import test_operations as base
 
 from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap
+from conftest import ENGINES, engine_param, expect_gap, require
 
 WAREHOUSE = base.WAREHOUSE
 ROW = (4, "d", 4.0)
 BRANCH = "audit"
-WAP_ENGINES = ("pyiceberg", "spark", "flink", "trino")
 
 
 def write_branch(engine, adapter, ctx):
@@ -140,8 +139,7 @@ def test_write_audit_publish(engine, fv, namespace, engine_pool):
         namespace: Fresh namespace of the test session.
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
-    if engine not in WAP_ENGINES:
-        pytest.skip(f"{engine} has no API for writing to branches")
+    require(engine, "writing to branches", engine_pool)
     cat = pyiceberg_catalog(WAREHOUSE)
     ctx = base.Ctx(
         cat, namespace, f"wap_{engine}_v{fv}_{uuid.uuid4().hex[:6]}", fv, seed_writer=engine

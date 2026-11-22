@@ -27,7 +27,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = ROOT / ".devcontainer" / "docker-compose.yml"
 STARTED = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 #: Shared by all pytest processes of one full run (run_all.sh), else this process's start.
@@ -119,6 +119,31 @@ def packages() -> dict[str, str]:
     return found
 
 
+def duckdb_extensions() -> dict[str, str]:
+    """Versions of the installed DuckDB extensions the lab uses (``iceberg``, ``httpfs``, ...).
+
+    ``INSTALL iceberg`` fetches the extension build that belongs to the DuckDB version, and that
+    build can change without a DuckDB release - so the package version alone does not say which
+    Iceberg code ran. Reads the local extension directory only (no download).
+
+    Returns:
+        ``{extension: version}`` of the installed extensions; empty without DuckDB.
+    """
+    try:
+        import duckdb
+
+        rows = (
+            duckdb.connect()
+            .execute(
+                "SELECT extension_name, extension_version FROM duckdb_extensions() WHERE installed"
+            )
+            .fetchall()
+        )
+    except Exception:  # noqa: BLE001 - best effort, never fails a run
+        return {}
+    return {name: version or "" for name, version in rows}
+
+
 def build(catalog: str, with_help: bool) -> dict:
     """The manifest of this run.
 
@@ -140,6 +165,7 @@ def build(catalog: str, with_help: bool) -> dict:
             "dirty": bool(_run(["git", "status", "--porcelain"])),
         },
         "packages": packages(),
+        "duckdb_extensions": duckdb_extensions(),
         "images_declared": declared_images(),
         "images_running": running_images(),
     }
