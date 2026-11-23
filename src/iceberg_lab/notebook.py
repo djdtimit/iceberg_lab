@@ -97,6 +97,12 @@ def describe_catalog() -> None:
             print(
                 f"External location {loc['name']}: {loc['url']} (credential {loc['credential_name']})"
             )
+    elif PROFILE.name == "reference":
+        c = requests.get(f"{SETTINGS.catalog_uri}/v1/config", timeout=10).json()
+        print(
+            f"Iceberg REST fixture: no management API; /v1/config defaults={c.get('defaults')} "
+            f"overrides={c.get('overrides')}, data under {PROFILE.location}"
+        )
     else:
         print(f"Catalog {PROFILE.name}: no description available")
 

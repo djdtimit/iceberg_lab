@@ -42,7 +42,6 @@ tests/engines/test_neutral_source.py.
 from __future__ import annotations
 
 import datetime as dt
-import fnmatch
 import operator
 import uuid
 from typing import NamedTuple
@@ -83,8 +82,10 @@ from iceberg_lab.engines import polars_storage_options, pyiceberg_catalog
 from conftest import (
     ENGINES,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
     fresh,
+    gap_table,
     keep_if_content_ok,
     require_format,
     skip_if_not_produced,
@@ -145,41 +146,35 @@ TRANSFORMS = {
 OPS = {"=": operator.eq, ">=": operator.ge, "<": operator.lt}
 
 
-class Gap(NamedTuple):
-    """``test``/``writer``/``reader``/``case``/``fv`` globs + regex the error must contain."""
-
-    test: str
-    writer: str
-    reader: str
-    case: str
-    fv: str
-    match: str
-    reason: str
-    flaky: bool = False
-
-
-# Filled from observed failures only; first match wins.
+# Filled from observed failures only. Rows that apply to a case are alternatives: the first
+# whose regex matches the error names the cause (gap_register.find_gap).
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
+KNOWN_GAPS = gap_table(("test", "writer", "reader", "case", "fv"), [
     # Observed 2026-11-22 (DuckDB 2.0.1, Daft 0.7.26): the same cause as in test_types (DUCKDB_NESTED).
-    Gap("test_nested_evolution_read", "duckdb", "daft", "*", "*", r"list type must have a single child", "Daft cannot read DuckDB's nested Parquet lists ('list type must have a single child')"),
+    ("test_nested_evolution_read", "duckdb", "daft", "*", "*", r"list type must have a single child", "daft-duckdb-nested-lists"),
+    # Observed 2026-11-23 (pg_lake 3.7, DuckDB 1.5.6 inside), checked by hand: a struct field that
+    # was only renamed reads as NULL (no error); here the struct also lost field a, so no name is
+    # left in common and the read fails.
+    ("test_nested_evolution_read", "*", "pg_lake", "*", "*", r"STRUCT to STRUCT cast must have at least one matching member", "pglake-struct-by-name"),
+    ("test_nested_evolution_write", "pg_lake", "*", "*", "*", r"cannot alter type \S+ because it is used in an iceberg table", "pglake-no-struct-evolution"),
     # Iceberg's SparkCatalog caches loaded tables (cache-enabled=true, 30 s expiry): a change
     # made by another engine stays invisible to Spark until the entry expires.
-    Gap("test_schema_evolution_write", "spark", "*", "*", "*", r"name `label` cannot be resolved", "Spark's table cache (cache-enabled=true, 30 s) hides a column renamed by another engine"),
-    Gap("test_partition_evolution_write", "spark", "*", "*", "*", r"data files under specs \{0, 1\}", "Spark's table cache (cache-enabled=true, 30 s) keeps writing with the old partition spec after another engine changed it"),
+    ("test_schema_evolution_write", "spark", "*", "*", "*", r"name `label` cannot be resolved", "spark-catalog-cache"),
+    ("test_partition_evolution_write", "spark", "*", "*", "*", r"data files under specs \{0, 1\}", "spark-catalog-cache"),
     # Wrong result: pg_lake writes no null_value_counts; Trino then treats "ts < <day boundary>"
     # as fully answered by the day(ts) partition and keeps the NULL partition (row with ts NULL).
     # Not at "<day boundary + 1 s>", not with month(ts), not with ">=" (checked).
-    Gap("test_partitioned_read", "pg_lake", "trino", "day", "*", r"got \[1, 2, 6\]", "WRONG RESULT: Trino returns the ts=NULL row for 'ts < <day boundary>' on a day(ts)-partitioned table without null_value_counts (pg_lake writes none)"),
+    ("test_partitioned_read", "pg_lake", "trino", "day", "*", r"got \[1, 2, 6\]", "trino-null-partition-pruning"),
     # pg_lake sends partition fields with BOTH source-id and source-ids; Lakekeeper 0.15 rejects
-    # that (422, "mutually exclusive"), pg_lake only warns and fails later
+    # that (422, "mutually exclusive"), pg_lake only warns and fails later (3.7 words the
+    # later error as 'could not load table ... from the REST catalog')
     # (docs/bug-reports/08-pg_lake-partition-field-source-id-and-source-ids.md).
-    *([Gap("test_partitioned_write", "pg_lake", "*", "*", "*", r"HTTP request failed \(HTTP 404\)\s+DETAIL:\s+Error getting tabular from catalog", base.PGLAKE_SOURCE_IDS),
-       Gap("test_partition_evolution_write", "pg_lake", "*", "*", "*", r"partition spec 1 not found for manifest", base.PGLAKE_SOURCE_IDS)]
+    *([("test_partitioned_write", "pg_lake", "*", "*", "*", r"(HTTP request failed \(HTTP 404\)\s+DETAIL:\s+|could not load table \"[^\"]+\" from the REST catalog: )Error getting tabular from catalog", "pglake-partition-source-ids"),
+       ("test_partition_evolution_write", "pg_lake", "*", "*", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]
       if PROFILE.name == "lakekeeper" else []),
-    *(Gap("*_write", e, "*", "*", "3", base.NO_V3_MSG, f"{e}: " + base.PYICEBERG_NO_V3)
+    *(("*_write", e, "*", "*", "3", base.NO_V3_MSG, "pyiceberg-v3-data-write")
       for e in ("pyiceberg", "polars", "daft")),
-]
+])
 # fmt: on
 
 
@@ -196,19 +191,7 @@ def _gap(test, writer, fv, reader="-", case="-"):
     Returns:
         The context manager.
     """
-    for g in KNOWN_GAPS:
-        if all(
-            fnmatch.fnmatch(v, p)
-            for v, p in (
-                (test, g.test),
-                (writer, g.writer),
-                (reader, g.reader),
-                (case, g.case),
-                (str(fv), g.fv),
-            )
-        ):
-            return expect_gap(g.reason, g.match, flaky=g.flaky)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, test=test, writer=writer, reader=reader, case=case, fv=fv))
 
 
 # =========================================================================== SQL helpers
@@ -799,7 +782,8 @@ def _nested_pg_lake(adapter, namespace: str, table: str) -> None:
     """
     ns_q = f'"{namespace}"'
     st = f"{ns_q}.ne_{table[-6:]}"  # composite type of column s, one per table (ALTER TYPE)
-    for key, val in (("text", "real"), ("text", "float8")):
+    # map_type.create names the type after the canonical type name (real -> float4).
+    for key, val in (("text", "float4"), ("text", "float8")):
         exists = adapter.execute(
             "SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
             f"WHERE n.nspname = 'map_type' AND t.typname = 'key_{key}_val_{val}'"
@@ -811,12 +795,12 @@ def _nested_pg_lake(adapter, namespace: str, table: str) -> None:
     adapter.create_owned_table(
         namespace,
         table,
-        f"id bigint, s {st}, m map_type.key_text_val_real, tags integer[], r integer NOT NULL",
+        f"id bigint, s {st}, m map_type.key_text_val_float4, tags integer[], r integer NOT NULL",
     )
     fq = adapter.fq(namespace, table)
     adapter.execute(
         f"INSERT INTO {fq} VALUES (1, ROW(1, 'x')::{st}, "
-        "ARRAY[('k', 1.5)]::map_type.key_text_val_real, ARRAY[1, 2], 10)"
+        "ARRAY[('k', 1.5)]::map_type.key_text_val_float4, ARRAY[1, 2], 10)"
     )
     for stmt in (
         f"ALTER TYPE {st} ADD ATTRIBUTE c bigint CASCADE",

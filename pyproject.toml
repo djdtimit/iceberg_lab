@@ -7,6 +7,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "pyiceberg[pyarrow,pandas,s3fs,pyiceberg-core]>=0.12",
     "boto3>=1.35",
+    "pydantic>=2.10",  # gap register, reference rows, run manifest (iceberg_lab.lab.models)
     "requests>=2.32",
 ]
 
@@ -15,6 +16,7 @@ dev = [
     "minio>=7.2.20",
     "pytest>=8.3",
     "pytest-timeout>=2.3",
+    "pyyaml>=6.0",  # selftest: checks the run manifest's compose parser
     "ruff>=0.8",
     "sqlalchemy>=2.1.8",
 ]

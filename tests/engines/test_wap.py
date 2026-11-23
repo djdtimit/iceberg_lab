@@ -17,7 +17,6 @@ fast_forward``; PyIceberg ``manage_snapshots().create_branch`` + ``append(branch
 
 from __future__ import annotations
 
-import fnmatch
 import uuid
 
 import pytest
@@ -25,7 +24,7 @@ import test_operations as base
 
 from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require
+from conftest import ENGINES, engine_param, expect, find_gap, gap_table, require
 
 WAREHOUSE = base.WAREHOUSE
 ROW = (4, "d", 4.0)
@@ -98,11 +97,11 @@ def _rows_at(ctx, snapshot_id):
 
 # Filled from observed failures only: (engine, fv, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    *((e, "3", base.NO_V3_MSG, base.PYICEBERG_NO_V3) for e in ("pyiceberg",)),
-    ("trino", "*", r"mismatched input 'CREATE'", "Trino 484 has no SQL to create a branch, so it cannot write-audit-publish"),
-    ("flink", "*", r"flink SQL has no statement to publish a branch", "Flink writes and reads branches (OPTIONS('branch')) but has no SQL to publish one to main"),
-]
+KNOWN_GAPS = gap_table(("engine", "fv"), [
+    ("pyiceberg", "3", base.NO_V3_MSG, "pyiceberg-v3-data-write"),
+    ("trino", "*", r"mismatched input 'CREATE'", "trino-no-create-branch"),
+    ("flink", "*", r"flink SQL has no statement to publish a branch", "flink-no-publish-branch"),
+])
 # fmt: on
 
 
@@ -116,10 +115,7 @@ def _gap(engine, fv):
     Returns:
         The context manager.
     """
-    for e, f, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(engine, e) and fnmatch.fnmatch(str(fv), f):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, fv=fv))
 
 
 @pytest.mark.slow

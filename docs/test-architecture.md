@@ -9,7 +9,7 @@ There are two layers for this.
 
 ## 1. Base tests (feed the comparison)
 
-The base tests are identical on both levels, and **all four catalogs and all eight engines take
+The base tests are identical on both levels, and **all five catalogs and all eight engines take
 part**: every base case runs for every combination. Exceptions exist only as a result, never as a
 missing row.
 
@@ -95,7 +95,8 @@ Five mechanisms make a new engine or catalog version visible instead of letting 
 
 Checklist for a version PR: `RECORD_INVENTORY=1 pytest tests/selftest/test_engine_inventory.py`,
 classify new names, re-check the claims and update `VERIFIED`, `scripts/iceberg_spec.py` for an
-Iceberg release, run the engine's tests and update KNOWN_GAPS, `docs/findings.md`, CHANGELOG.
+Iceberg release, run the engine's tests, update the `KNOWN_GAPS` tables and `docs/gaps.toml`
+(`scripts/gap_register.py confirm`, then `findings`), CHANGELOG.
 
 ### A "not testable" case belongs to the step that failed
 

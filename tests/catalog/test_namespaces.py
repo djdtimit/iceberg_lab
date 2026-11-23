@@ -14,7 +14,6 @@ pg_lake's schemas are local Postgres objects.
 
 from __future__ import annotations
 
-import fnmatch
 import uuid
 
 import pyarrow as pa
@@ -23,7 +22,15 @@ import pytest
 from iceberg_lab.config import PROFILE, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, drop_namespace_tree, engine_param, expect_gap, not_offered
+from conftest import (
+    ENGINES,
+    drop_namespace_tree,
+    engine_param,
+    expect,
+    find_gap,
+    gap_table,
+    not_offered,
+)
 
 WAREHOUSE = WAREHOUSE_STS
 #: How engines word "namespace still contains tables" (observed messages).
@@ -195,18 +202,18 @@ NS_CLASSES = {
 
 # Filled from observed failures only: (engine, task, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
+KNOWN_GAPS = gap_table(("engine", "task"), [
     # Lakekeeper only: Polaris sends the field and PyIceberg works there.
-    *([("pyiceberg", "properties", r"UpdateNamespacePropertiesResponse\s+missing\s+Field required", "Lakekeeper's update-namespace-properties response lacks the field 'missing' that PyIceberg 0.12 requires (Polaris sends it)")]
+    *([("pyiceberg", "properties", r"UpdateNamespacePropertiesResponse\s+missing\s+Field required", "lakekeeper-ns-properties-missing-field")]
       if PROFILE.name == "lakekeeper" else []),
-    *([("[!f]*", "nested", r"Nested namespaces are not supported: nst_\w+\.child|Invalid schema full name: lab\.nst_\w+\.child|Failed to check namespace 'nst_\w+\.child'|BadRequestException: Malformed request: Bad Request\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$NamespaceErrorHandler", "Unity Catalog has a fixed catalog.schema.table hierarchy: no nested namespaces (400)")]
+    *([("[!f]*", "nested", r"Nested namespaces are not supported: nst_\w+\.child|Invalid schema full name: lab\.nst_\w+\.child|Failed to check namespace 'nst_\w+\.child'|BadRequestException: Malformed request: Bad Request\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$NamespaceErrorHandler", "unity-no-nested-namespaces")]
       if PROFILE.name == "unity" else []),
     # Behind the gaps only (DuckDB cannot attach RustFS otherwise): the nested namespace's
     # path contains the separator %1F; RustFS refuses DuckDB's SigV4-signed request.
-    *([("duckdb", "nested", r"HEAD request to endpoint '\S+/namespaces/nst_duckdb_nested_\w+%1Fchild' returned an error response \(HTTP 403\)", "RustFS refuses DuckDB's SigV4-signed request for a nested namespace (separator %1F in the path) with 403 - PyIceberg's signed requests for the same path work")]
+    *([("duckdb", "nested", r"HEAD request to endpoint '\S+/namespaces/nst_duckdb_nested_\w+%1Fchild' returned an error response \(HTTP 403\)", "rustfs-duckdb-nested-namespace-403")]
       if PROFILE.name == "rustfs" else []),
-    ("flink", "nested", r"create database identifier format error", "Flink catalogs have single-level databases: no nested Iceberg namespaces"),
-]
+    ("flink", "nested", r"create database identifier format error", "flink-no-nested-namespaces"),
+])
 # fmt: on
 
 
@@ -220,10 +227,7 @@ def _gap(engine, task):
     Returns:
         The context manager.
     """
-    for e, t, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(engine, e) and fnmatch.fnmatch(task, t):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, task=task))
 
 
 @pytest.fixture(autouse=True)

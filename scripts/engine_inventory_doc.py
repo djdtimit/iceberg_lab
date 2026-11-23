@@ -1,5 +1,5 @@
 """docs/engine-inventory.md: what each engine offers (live baselines of tests/selftest/test_engine_inventory.py)
-and how its base tests went on the four catalogs (last results). Nothing is entered by hand.
+and how its base tests went on the five catalogs (last results). Nothing is entered by hand.
 
     uv run python scripts/engine_inventory_doc.py
 """
@@ -13,13 +13,14 @@ from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "tests"), str(ROOT / "tests" / "lab")]
-from reporting import DIMENSIONS, ENGINE_ORDER, NOT_COMPARED, flat_rows
+from iceberg_lab.lab.reporting import DIMENSIONS, ENGINE_ORDER, NOT_COMPARED, flat_rows
 
 SOURCES = {
     "Lakekeeper": ROOT / "reports/results.json",
     "Polaris": ROOT / "reports/polaris/results.json",
     "RustFS": ROOT / "reports/rustfs/results.json",
     "Unity": ROOT / "reports/unity/results.json",
+    "Reference": ROOT / "reports/reference/results.json",
 }
 
 
@@ -65,7 +66,7 @@ def main() -> None:
     areas = [name for name, _ in DIMENSIONS if name not in NOT_COMPARED]
     lines += [
         "",
-        "## How the base tests went per engine (all four catalogs together)",
+        "## How the base tests went per engine (all five catalogs together)",
         "",
         "Per cell: passed / checked (checked = passed + known gap + new failure);",
         '"—" not offered or not testable. Details and reasons: dashboard and `reports/`.',

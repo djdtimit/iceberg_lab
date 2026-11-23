@@ -790,6 +790,15 @@ class DuckDBEngine(Engine):
         else:
             # AUTHORIZATION_TYPE 'none': Lakekeeper runs without authentication in this lab.
             auth = "AUTHORIZATION_TYPE 'none'"
+            if not PROFILE.vended_credentials:
+                # Nothing is vended (reference fixture): DuckDB's own keys serve the data files.
+                self.con.execute(f"""
+                    CREATE SECRET IF NOT EXISTS {self.alias}_s3 (
+                        TYPE s3, KEY_ID '{s.s3_access_key}', SECRET '{s.s3_secret_key}',
+                        ENDPOINT '{s.s3_host_port}', URL_STYLE 'path', USE_SSL false,
+                        REGION '{s.s3_region}'
+                    )""")
+                mode = "none"
         if PROFILE.client_s3_endpoint:
             # The catalog vends keys without an endpoint (Unity assumes AWS): point DuckDB's
             # S3 client at RustFS, the vended per-table secrets bring only the keys.
@@ -1386,21 +1395,20 @@ class PgLakeEngine(Engine):
         )
 
     def insert_case(self, namespace, table, case):
-        # Type-matrix tables are created by PyIceberg, so pg_lake could only attach them
-        # read-only - it can never be a *writer* in that matrix.
-        """Not possible: pg_lake writes only tables it created.
+        """Insert the case's rows.
 
-        Raises:
-            NotImplementedError: always.
+        A table pg_lake did not create is attached first and the INSERT is still tried: pg_lake
+        answers itself (today "foreign table ... does not allow inserts", see
+        test_pglake.py::test_attached_table_is_read_only) - no decision before the attempt.
 
         Args:
             namespace: Namespace of the table.
             table: Table name (without namespace).
             case: Type case of the type matrix (``iceberg_lab.datatypes.TypeCase``).
         """
-        raise NotImplementedError(
-            "pg_lake only writes tables it created itself (not PyIceberg-created)"
-        )
+        if (namespace, table) not in self.owned:
+            self._attach(namespace, table)
+        super().insert_case(namespace, table, case)
 
     def select(self, namespace, table, case=None):
         """Attach the table and select ``(id, v)``.

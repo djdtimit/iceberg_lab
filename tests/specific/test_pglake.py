@@ -9,7 +9,8 @@ matters for it:
     refuse writes;
   - an Iceberg table joins with a regular Postgres heap table;
   - an INSERT pg_lake reports as successful is really committed in the catalog (Unity: writes
-    silently lost - documented), and a CREATE the catalog refuses fails in pg_lake too.
+    silently lost - documented), and a CREATE the catalog refuses fails in pg_lake too;
+  - ``lake_iceberg.catalog_stats()`` (new in 3.7) counts pg_lake's REST catalog requests.
 """
 
 # Moved to the base matrices: visibility -> test_interop; DML -> test_operations;
@@ -24,7 +25,8 @@ import pytest
 
 from iceberg_lab.engines import SCHEMA, PgLakeEngine, PyIcebergEngine
 
-from conftest import expect_gap, require_engine, warehouse_params
+from conftest import expect, require_engine, warehouse_params
+from conftest import gap as gap_of
 
 
 @pytest.fixture(autouse=True)
@@ -155,7 +157,6 @@ def test_insert_commits_to_catalog(pg, namespace):
         pg: pg_lake adapter, once per warehouse.
         namespace: Fresh namespace of the test session.
     """
-    from iceberg_lab.config import PROFILE
     from iceberg_lab.engines import pyiceberg_catalog
 
     table = f"pgc_{uuid.uuid4().hex[:8]}"
@@ -165,15 +166,14 @@ def test_insert_commits_to_catalog(pg, namespace):
     pg.owned.add((namespace, table))
     pg.execute_raw(f'INSERT INTO "{namespace}"."{table}" VALUES (1), (2)')
     assert pg.execute_raw(f'SELECT count(*) FROM "{namespace}"."{table}"') == [(2,)]
-    reason = (
+    # Without /transactions/commit (Unity) pg_lake's INSERT reports success and pg_lake reads
+    # its rows, but the catalog never gets the snapshot.
+    gap = (
         None
         if pg.tx_commit
-        else (
-            f"pg_lake ignores the 404 of /transactions/commit on {PROFILE.name}: the INSERT reports "
-            "success and pg_lake reads its rows, but the catalog never gets the snapshot"
-        )
+        else gap_of("pglake-ignores-refused-commit", r"no snapshot in the catalog")
     )
-    with expect_gap(reason, r"no snapshot in the catalog" if reason else None):
+    with expect(gap):
         t = pyiceberg_catalog(pg.warehouse).load_table(f"{namespace}.{table}")
         assert t.current_snapshot() is not None, "INSERT succeeded, but no snapshot in the catalog"
         assert t.scan().to_arrow().num_rows == 2
@@ -195,15 +195,15 @@ def test_create_refused_by_catalog_is_an_error(pg, namespace):
 
     table = f"pgr_{uuid.uuid4().hex[:8]}"
     pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{namespace}"')
-    reason = (
-        "pg_lake ignores the catalog's 400 on CREATE TABLE (Unity refuses TIME): it reports "
-        "success, the table exists only in Postgres"
+    gap = (
+        gap_of(
+            "pglake-ignores-refused-create",
+            r"pg_lake reported success, but the table is not in the catalog",
+        )
         if PROFILE.name == "unity"
         else None
     )
-    with expect_gap(
-        reason, r"pg_lake reported success, but the table is not in the catalog" if reason else None
-    ):
+    with expect(gap):
         try:
             pg.execute(f"""CREATE TABLE "{namespace}"."{table}" (id bigint, v time)
                            USING iceberg WITH (catalog = '{pg.server}')""")
@@ -215,3 +215,45 @@ def test_create_refused_by_catalog_is_an_error(pg, namespace):
         assert pyiceberg_catalog(pg.warehouse).table_exists(f"{namespace}.{table}"), (
             "pg_lake reported success, but the table is not in the catalog"
         )
+
+
+def _catalog_requests(pg) -> dict[tuple[str, str], int]:
+    """pg_lake's REST catalog request counters (``lake_iceberg.catalog_stats``).
+
+    Args:
+        pg: pg_lake adapter.
+
+    Returns:
+        ``(operation, result) -> requests`` summed over pg_lake's catalog groups.
+    """
+    rows = pg.execute(
+        "SELECT operation, result, sum(value)::bigint FROM lake_iceberg.catalog_stats() "
+        "WHERE metric = 'requests' GROUP BY operation, result"
+    )
+    return {(op, res): n for op, res, n in rows}
+
+
+def test_catalog_stats_count_the_requests(pg, namespace):
+    """``lake_iceberg.catalog_stats()`` (pg_lake 3.7) counts the REST catalog requests a
+    CREATE TABLE and an INSERT make.
+
+    Checks:
+        * ``create_table`` and ``publish_commit`` requests with result ``ok`` each grow by at
+          least one;
+        * the counters never decrease.
+
+    Args:
+        pg: pg_lake adapter, once per warehouse.
+        namespace: Fresh namespace of the test session.
+    """
+    before = _catalog_requests(pg)
+    table = f"cs_{uuid.uuid4().hex[:8]}"
+    pg.create_owned_table(namespace, table, "id bigint")
+    pg.execute(f"INSERT INTO {pg.fq(namespace, table)} VALUES (1)")
+    after = _catalog_requests(pg)
+    for op in ("create_table", "publish_commit"):
+        assert after.get((op, "ok"), 0) > before.get((op, "ok"), 0), (
+            f"no new {op} request counted: {before.get((op, 'ok'))} -> {after.get((op, 'ok'))}"
+        )
+    shrunk = {k: (v, after.get(k, 0)) for k, v in before.items() if after.get(k, 0) < v}
+    assert not shrunk, f"counters went down: {shrunk}"

@@ -37,8 +37,10 @@ from iceberg_lab.engines import pyiceberg_catalog
 from conftest import (
     ENGINES,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
     fresh,
+    gap_table,
     offers,
     require,
     skip_if_not_produced,
@@ -85,8 +87,8 @@ LITERALS = {
     },
 }
 
-#: Known gaps: (writer, reader, kind, zone) globs -> (regex, reason). Empty until a run shows one.
-KNOWN_GAPS: list[tuple[str, str, str, str, str, str]] = []
+#: Known gaps: (writer, reader, kind, zone) globs, regex, cause. Empty until a run shows one.
+KNOWN_GAPS = gap_table(("writer", "reader", "kind", "zone"), [])
 
 
 @pytest.fixture(scope="module")
@@ -133,12 +135,7 @@ def _gap(writer: str, reader: str, kind: str, zone: str):
     Returns:
         The context manager.
     """
-    import fnmatch
-
-    for w, r, k, z, match, reason in KNOWN_GAPS:
-        if all(fnmatch.fnmatch(a, b) for a, b in ((writer, w), (reader, r), (kind, k), (zone, z))):
-            return expect_gap(reason, match)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, writer=writer, reader=reader, kind=kind, zone=zone))
 
 
 def _write(writer: str, kind: str, zone: str, namespace: str, engine_pool) -> tuple[str, str]:

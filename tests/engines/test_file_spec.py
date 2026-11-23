@@ -33,7 +33,15 @@ import test_operations as base
 
 from iceberg_lab.config import SETTINGS
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine, require_format
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    find_gap,
+    gap_table,
+    require_engine,
+    require_format,
+)
 
 WAREHOUSE = base.WAREHOUSE
 FV = pytest.mark.parametrize("fv", [2, 3], ids=lambda v: f"v{v}")
@@ -48,12 +56,12 @@ REQUIRED = {
 
 # Filled from observed results only: (test, engine, fv glob "2"/"3"/"*", regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str, str]] = [
-    *((t, e, "3", base.NO_V3_MSG, f"{e}: " + base.PYICEBERG_NO_V3)
+KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
+    *((t, e, "3", base.NO_V3_MSG, "pyiceberg-v3-data-write")
       for t in ("manifest_metadata", "manifest_schema_id", "parquet_field_ids") for e in ("pyiceberg", "polars", "daft")),
-    *(("manifest_schema_id", e, "*", r"manifest without schema-id", f"{e} writes manifests without the 'schema-id' key-value metadata the spec requires from v2 on (Iceberg Java, the reference implementation, does not write it either)")
+    *(("manifest_schema_id", e, "*", r"manifest without schema-id", "engines-manifest-without-schema-id")
       for e in ("pyiceberg", "polars", "daft", "spark", "trino", "flink")),
-]
+])
 # fmt: on
 
 
@@ -68,10 +76,7 @@ def _gap(test: str, engine: str, fv: int):
     Returns:
         The context manager.
     """
-    for t, e, f, regex, reason in KNOWN_GAPS:
-        if t == test and e == engine and f in ("*", str(fv)):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, test=test, engine=engine, fv=fv))
 
 
 def _s3():

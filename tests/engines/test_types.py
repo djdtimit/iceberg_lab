@@ -41,11 +41,9 @@ Runtime: ~10-15 min with all engines.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import re
 import uuid
-from typing import NamedTuple
 
 import pytest
 
@@ -62,118 +60,103 @@ from iceberg_lab.datatypes import (
 )
 from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh
+from conftest import (
+    ENGINES,
+    Gap,
+    engine_param,
+    expect,
+    expect_cause,
+    find_gap,
+    fresh,
+    gap_table,
+    matching,
+)
 
 #: All type tables live in demo-sts: every engine can use catalog-vended access there.
 WAREHOUSE = WAREHOUSE_STS
 
 
-class Gap(NamedTuple):
-    """A known gap: where it applies (shell-style globs) and how exactly it fails.
-
-    Attributes:
-        op: ``"write"`` or ``"read"``.
-        engine: For writes the writer (``"duckdb"``); for reads ``"<writer>><reader>"``
-            (``"duckdb>daft"``, ``"*>spark"``), because some read failures depend on who wrote.
-        fv: Format version as string (``"2"``, ``"3"``, ``"*"``).
-        case: Type case name (``"list_*"``).
-        match: Regex the error (``"<Type>: <message>"``) must contain. A failure with any
-            other error is reported as a real failure, so a gap cannot hide new bugs.
-        reason: Shown after "[known gap]" in the failure message.
-    """
-
-    op: str
-    engine: str
-    fv: str
-    case: str
-    match: str
-    reason: str
-
-
 # PyIceberg 0.12 supports v3 only partly: creating, reading and metadata-only changes work,
 # but write_manifest()/write_manifest_list() implement only format v1 and v2.
-PYICEBERG_NO_V3 = (
-    "PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: "
-    "'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work"
-)
 NO_V3_MSG = r"Cannot write manifest for table version: 3"
-DUCKDB_NESTED = (
-    "Daft cannot read DuckDB's nested Parquet lists ('list type must have a single child')"
-)
 NULL_LIST = r"\(2, \[\]\)"  # assertion shows row 2 as (2, []) instead of (2, None)
 
 # Every known gap of the matrix, one per line so it reads like a table. FIRST MATCH WINS, so
 # specific entries (one type) must come before broad ones (whole engine) - otherwise a broad
 # entry claims failures that have a different cause (the error regex then reports them).
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
+KNOWN_GAPS = gap_table(("op", "engine", "fv", "case"), [
     # ---- writes: catalog (table creation already fails, for every writer) -------------------------
     # Unity Catalog OSS 0.7 refuses these types when the table is created (400).
-    *([Gap("write", "pg_lake", "2", "time", r"NoSuchTableException: Table not found: lab\.\w+\.t_pg_lake_v2_time_\w+", "Unity refuses TIME, but pg_lake ignores the 400 on CREATE TABLE and reports success - the table exists only in Postgres (tests/specific/test_pglake.py::test_create_refused_by_catalog_is_an_error)")]
-      + [Gap("write", "*", "*", c, rf"BadRequestException: (Malformed request: )?Iceberg type {c.upper()}(\([^)]*\))? is not supported by Unity Catalog", f"Unity Catalog OSS 0.7 does not support Iceberg type {c} (400 on CREATE TABLE)")
+    *([("write", "pg_lake", "2", "time", r"NoSuchTableException: Table not found: lab\.\w+\.t_pg_lake_v2_time_\w+", "pglake-ignores-refused-create")]
+      + [("write", "*", "*", c, rf"BadRequestException: (Malformed request: )?Iceberg type {c.upper()}(\([^)]*\))? is not supported by Unity Catalog", "unity-no-v3-types")
          for c in ("time", "timestamp_ns", "timestamptz_ns", "unknown", "geometry", "geography")]
       if PROFILE.name == "unity" else []),
     # Catalog-specific: Lakekeeper refuses geo types already when the table is created.
-    *([Gap("write", "*", "3", "geo*", r"(RESTError 422: |\(code: 422, ).*untagged enum SchemaEnum", "Lakekeeper v0.15 rejects geometry/geography in table schemas (422)")]
+    *([("write", "*", "3", "geo*", r"(RESTError 422: |\(code: 422, ).*untagged enum SchemaEnum", "lakekeeper-rejects-geo")]
       if PROFILE.name == "lakekeeper" else []),
     # Visible where the catalog accepts geo types (Polaris). Iceberg 1.12 writes the CRS without
     # quotes ("geometry(OGC:CRS84)", as in the spec); PyIceberg 0.12's parser only accepts
     # quoted CRS, so the lab client cannot even load the table (docs/bug-reports/09).
     # Behind it (seen with Polaris 1.7): PyIceberg writes geo columns as binary -> schema mismatch.
-    *([Gap("write", "*", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "PyIceberg 0.12 cannot parse the spec form geometry(OGC:CRS84) / geography(OGC:CRS84, spherical) that Iceberg 1.12 writes (it expects the CRS in quotes) - the table cannot be loaded")]
-      if PROFILE.name == "polaris" else []),
+    *([("write", "*", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse")]
+      if PROFILE.name in ("polaris", "reference") else []),
     # ---- writes: single types ---------------------------------------------------------------------
-    Gap("write", "polars", "*", "time", r"time64\[ns\]", "Polars Time is time64[ns]; Iceberg time is microseconds"),
-    Gap("write", "polars", "*", "uuid", r"Mismatch in fields", "Polars has no UUID type (becomes binary -> schema mismatch)"),
-    Gap("write", "polars", "*", "fixed_4", r"Mismatch in fields", "Polars has no fixed-size binary (binary -> schema mismatch)"),
-    Gap("write", "trino", "3", "unknown", r"Writing to Iceberg tables with unknown type columns is not supported", "Trino 484 reads Iceberg 'unknown' columns but cannot write them"),
-    Gap("write", "flink", "3", "variant", r"No assign rules for VARIANT defined", "Flink cannot INSERT a VARIANT value into an Iceberg variant column"),
-    Gap("write", "flink", "3", "unknown", r"Illegal use of 'NULL'", "Flink maps Iceberg unknown to its NULL type, which cannot be a column value"),
+    ("write", "polars", "*", "time", r"time64\[ns\]", "polars-time-ns"),
+    ("write", "polars", "*", "uuid", r"Mismatch in fields", "polars-no-uuid"),
+    ("write", "polars", "*", "fixed_4", r"Mismatch in fields", "polars-no-fixed"),
+    ("write", "trino", "3", "unknown", r"Writing to Iceberg tables with unknown type columns is not supported", "trino-no-unknown-write"),
+    ("write", "flink", "3", "variant", r"No assign rules for VARIANT defined", "flink-no-variant-insert"),
+    ("write", "flink", "3", "unknown", r"Illegal use of 'NULL'", "flink-unknown-type"),
+    ("write", "flink", "*", "float_nan", r"NumberFormatException: Infinite or NaN", "flink-float-nan"),
     # ---- writes: whole engines on v3 (AFTER the specific entries above: first match wins) -----
-    Gap("write", "pyiceberg", "3", "*", NO_V3_MSG, PYICEBERG_NO_V3),
-    Gap("write", "polars", "3", "*", NO_V3_MSG, "Polars writes through PyIceberg: " + PYICEBERG_NO_V3),
-    Gap("write", "daft", "3", "*", NO_V3_MSG, "Daft writes through PyIceberg: " + PYICEBERG_NO_V3),
+    ("write", "pyiceberg", "3", "*", NO_V3_MSG, "pyiceberg-v3-data-write"),
+    ("write", "polars", "3", "*", NO_V3_MSG, "pyiceberg-v3-data-write"),
+    ("write", "daft", "3", "*", NO_V3_MSG, "pyiceberg-v3-data-write"),
     # ---- reads: reader cannot represent the type --------------------------------------------------
-    Gap("read", "*>spark", "*", "time", r"does not support time", "Spark has no TIME type"),
-    Gap("read", "*>spark", "3", "timestamp*_ns", r"unsupported type to Spark: timestamp(tz)?_ns", "Spark has no nanosecond timestamps"),
-    Gap("read", "*>pyiceberg", "3", "variant", r"ValidationError.*TableResponse", "PyIceberg 0.12 cannot parse a schema with variant"),
-    Gap("read", "*>polars", "3", "variant", r"ValidationError.*TableResponse", "Polars loads tables via PyIceberg (no variant)"),
-    Gap("read", "*>daft", "3", "variant", r"ValidationError.*TableResponse", "Daft loads tables via PyIceberg (no variant)"),
-    Gap("read", "*>pg_lake", "3", "unknown", r"iceberg type unknown is not supported", "pg_lake does not support Iceberg type 'unknown'"),
-    Gap("read", "*>pg_lake", "3", "variant", r"iceberg type variant is not supported", "pg_lake does not support Iceberg type 'variant'"),
-    Gap("read", "*>pg_lake", "3", "timestamptz_ns", r"Type with name timestamptz_ns does not exist", "pg_lake/pgduck cannot read timestamptz_ns"),
-    Gap("read", "*>pg_lake", "3", "timestamp_ns", r"30\.123456'\) != \(1, '2026-11-13T13:45:30\.123456789'", "DATA LOSS: pg_lake truncates timestamp_ns to microseconds (Postgres timestamps have microsecond precision)"),
-    Gap("read", "*>flink", "3", "unknown", r"null type is reserved for representing untyped NULL", "Flink cannot read a column of Iceberg type unknown"),
-    Gap("read", "*>flink", "3", "variant", r"Could not map response to JSON", "Flink SQL Gateway cannot serialize VARIANT (and VARIANT cannot be cast to STRING)"),
+    # Checked 2026-11-23: CAST('-0.0' AS DOUBLE) and CAST(-0.0E0 AS DOUBLE) give +0.0 in Flink
+    # (1/x = +Infinity); -CAST(0.0 AS DOUBLE) gives -0.0. Every reader sees the stored +0.0.
+    ("read", "flink>*", "*", "double_neg_zero", r"\(1, 0\.0\)", "flink-neg-zero-literal"),
+    ("read", "*>spark", "*", "time", r"does not support time", "spark-no-time"),
+    ("read", "*>spark", "3", "timestamp*_ns", r"unsupported type to Spark: timestamp(tz)?_ns", "spark-no-timestamp-ns"),
+    ("read", "*>pyiceberg", "3", "variant", r"ValidationError.*TableResponse", "pyiceberg-no-variant"),
+    ("read", "*>polars", "3", "variant", r"ValidationError.*TableResponse", "pyiceberg-no-variant"),
+    ("read", "*>daft", "3", "variant", r"ValidationError.*TableResponse", "pyiceberg-no-variant"),
+    ("read", "*>pg_lake", "3", "unknown", r"iceberg type unknown is not supported", "pglake-no-unknown"),
+    ("read", "*>pg_lake", "3", "variant", r"iceberg type variant is not supported", "pglake-no-variant"),
+    ("read", "*>pg_lake", "3", "timestamptz_ns", r"Type with name timestamptz_ns does not exist", "pglake-no-timestamptz-ns"),
+    ("read", "*>pg_lake", "3", "timestamp_ns", r"30\.123456'\) != \(1, '2026-11-13T13:45:30\.123456789'", "pglake-timestamp-ns-truncated"),
+    ("read", "*>flink", "3", "unknown", r"null type is reserved for representing untyped NULL", "flink-unknown-type"),
+    ("read", "*>flink", "3", "variant", r"Could not map response to JSON", "flink-variant-gateway"),
     # Flink's TIME has second precision at runtime (even CAST(TIME '..123' AS STRING) drops it).
-    Gap("read", "flink>*", "*", "time", r"time\(13, 45, 30\)\) != \(1, datetime\.time\(13, 45, 30, 123456\)", "DATA LOSS: Flink truncates TIME to seconds when writing"),
-    Gap("read", "*>flink", "*", "time", r"time\(13, 45, 30, 123000\)\) != \(1, datetime\.time\(13, 45, 30, 123456\)", "WRONG RESULT: Flink 2.3 reads TIME with millisecond precision only (Iceberg time has microseconds)"),
+    ("read", "flink>*", "*", "time", r"time\(13, 45, 30\)\) != \(1, datetime\.time\(13, 45, 30, 123456\)", "flink-time-seconds-write"),
+    ("read", "*>flink", "*", "time", r"time\(13, 45, 30, 123000\)\) != \(1, datetime\.time\(13, 45, 30, 123456\)", "flink-time-millis-read"),
     # ---- reads: geometry/geography (only where the catalog accepts them, e.g. Polaris) ----------
     # Spec form geometry(OGC:CRS84) (written by Iceberg 1.12, e.g. the neutral source): PyIceberg 0.12
     # cannot parse it, so it and the engines loading tables through it cannot even load the table
     # (docs/bug-reports/09). Visible where the catalog accepts geo types (Polaris).
-    Gap("read", "*>pyiceberg", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "PyIceberg 0.12 cannot parse the spec form geometry(OGC:CRS84) / geography(OGC:CRS84, spherical) - the table cannot be loaded"),
-    Gap("read", "*>polars", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "Polars loads tables via PyIceberg, which cannot parse the spec form geometry(OGC:CRS84)"),
-    Gap("read", "*>daft", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "Daft loads tables via PyIceberg, which cannot parse the spec form geometry(OGC:CRS84)"),
-    Gap("read", "*>duckdb", "3", "geography", r"Not implemented Error: Geography support", "DuckDB 2.0 reads Iceberg geometry but not geography"),
-    Gap("read", "*>pyiceberg", "3", "geo*", r"Cannot promote an binary to geo", "PyIceberg 0.12 cannot read geometry/geography columns"),
-    Gap("read", "*>polars", "3", "geo*", r"LogicalType union has no variant set", "Polars' Parquet reader does not know the GEOMETRY/GEOGRAPHY logical type"),
-    Gap("read", "*>pg_lake", "3", "geo*", r"iceberg type geo\w+(\([^)]*\))? is not supported", "pg_lake 3.6 does not support geometry/geography"),
-    Gap("read", "*>flink", "3", "geo*", r"Cannot convert unknown type to Flink: geo", "Flink has no geometry/geography type"),
+    ("read", "*>pyiceberg", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    ("read", "*>polars", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    ("read", "*>daft", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    ("read", "*>duckdb", "3", "geography", r"Not implemented Error: (Geography support|Reading geography column)", "duckdb-no-geography-read"),
+    ("read", "*>pyiceberg", "3", "geo*", r"Cannot promote an binary to geo", "pyiceberg-no-geo-read"),
+    ("read", "*>polars", "3", "geo*", r"LogicalType union has no variant set", "polars-no-geo-parquet"),
+    ("read", "*>pg_lake", "3", "geo*", r"iceberg type geo\w+(\([^)]*\))? is not supported", "pglake-no-geo"),
+    ("read", "*>flink", "3", "geo*", r"Cannot convert unknown type to Flink: geo", "flink-no-geo"),
     # ---- reads: writer produced files other engines reject ----------------------------------------
     # DuckDB has no fixed-size binary and writes BLOB into the fixed[4] column.
-    Gap("read", "duckdb>pyiceberg", "*", "fixed_4", r"Cannot promote an binary to fixed", "DuckDB writes fixed[4] as variable-length binary"),
-    Gap("read", "duckdb>spark", "*", "fixed_4", r"FixedSizeBinaryVector cannot be cast", "DuckDB writes fixed[4] as variable-length binary"),
-    Gap("read", "duckdb>daft", "*", "list_*", r"list type must have a single child", DUCKDB_NESTED),
-    Gap("read", "duckdb>daft", "*", "map_*", r"Map field must have exactly one key_value child", "Daft cannot read DuckDB's Parquet maps ('Map field must have exactly one key_value child')"),
+    ("read", "duckdb>pyiceberg", "*", "fixed_4", r"Cannot promote an binary to fixed", "duckdb-fixed-as-binary"),
+    ("read", "duckdb>spark", "*", "fixed_4", r"FixedSizeBinaryVector cannot be cast", "duckdb-fixed-as-binary"),
+    ("read", "duckdb>daft", "*", "list_*", r"list type must have a single child", "daft-duckdb-nested-lists"),
+    ("read", "duckdb>daft", "*", "map_*", r"Map field must have exactly one key_value child", "daft-duckdb-maps"),
     # pg_lake writes its Parquet files through pgduck_server (= DuckDB): same Daft problem.
-    Gap("read", "pg_lake>daft", "*", "list_*", r"list type must have a single child", "pg_lake writes via DuckDB (pgduck_server): " + DUCKDB_NESTED),
-    Gap("read", "pg_lake>daft", "*", "map_*", r"Map field must have exactly one key_value child", "pg_lake writes via DuckDB (pgduck_server): Daft cannot read its Parquet maps"),
+    ("read", "pg_lake>daft", "*", "list_*", r"list type must have a single child", "daft-duckdb-nested-lists"),
+    ("read", "pg_lake>daft", "*", "map_*", r"Map field must have exactly one key_value child", "daft-duckdb-maps"),
     # ---- reads: NULL list<struct> becomes [] (PyIceberg write path AND read path) -----------------
-    Gap("read", "pyiceberg>*", "*", "list_of_struct", NULL_LIST, "DATA LOSS: PyIceberg writes a NULL list<struct> as []"),
-    Gap("read", "polars>*", "*", "list_of_struct", NULL_LIST, "DATA LOSS: Polars writes via PyIceberg: NULL list<struct> -> []"),
-    Gap("read", "*>pyiceberg", "*", "list_of_struct", NULL_LIST, "WRONG RESULT: PyIceberg reads a NULL list<struct> as []"),
-]
+    ("read", "pyiceberg>*", "*", "list_of_struct", NULL_LIST, "pyiceberg-null-list-struct-write"),
+    ("read", "polars>*", "*", "list_of_struct", NULL_LIST, "pyiceberg-null-list-struct-write"),
+    ("read", "*>pyiceberg", "*", "list_of_struct", NULL_LIST, "pyiceberg-null-list-struct-read"),
+])
 # fmt: on
 
 
@@ -189,15 +172,7 @@ def known_gap(op: str, engine: str, fv: int, case: str) -> Gap | None:
     Returns:
         The gap, or None.
     """
-    for g in KNOWN_GAPS:
-        if (
-            fnmatch.fnmatch(op, g.op)
-            and fnmatch.fnmatch(engine, g.engine)
-            and fnmatch.fnmatch(str(fv), g.fv)
-            and fnmatch.fnmatch(case, g.case)
-        ):
-            return g
-    return None
+    return find_gap(KNOWN_GAPS, op=op, engine=engine, fv=fv, case=case)
 
 
 def type_params():
@@ -405,8 +380,7 @@ def _gap(op, engine, fv, case):
     Returns:
         The context manager.
     """
-    g = known_gap(op, engine, fv, case.name)
-    return expect_gap(g.reason if g else None, g.match if g else None)
+    return expect(known_gap(op, engine, fv, case.name))
 
 
 # =========================================================================== tests
@@ -626,22 +600,22 @@ TYPE_SOURCE_WRITERS = {
 # Type-fidelity gaps: the reader reads the value but reports a weaker/other type.
 # Matched against "<reader> reports '<engine type>' (<family>) for Iceberg <expected>".
 # fmt: off
-TYPE_GAPS: list[Gap] = [
-    Gap("type", "spark", "*", "uuid", r"spark reports 'string' \(string\) for Iceberg uuid", "Spark represents Iceberg uuid as string"),
-    Gap("type", "spark", "*", "fixed_4", r"spark reports 'binary' \(binary\) for Iceberg fixed\(4\)", "Spark represents fixed(4) as variable-length binary"),
-    Gap("type", "polars", "*", "uuid", r"polars reports 'Binary' \(binary\) for Iceberg uuid", "Polars has no UUID type: reads uuid as Binary"),
-    Gap("type", "polars", "*", "fixed_4", r"polars reports 'Binary' \(binary\) for Iceberg fixed\(4\)", "Polars has no fixed-size binary: reads fixed(4) as Binary"),
-    Gap("type", "trino", "*", "fixed_4", r"trino reports 'varbinary' \(binary\) for Iceberg fixed\(4\)", "Trino represents fixed(4) as varbinary"),
-    Gap("type", "pg_lake", "*", "fixed_4", r"pg_lake reports 'bytea' \(binary\) for Iceberg fixed\(4\)", "pg_lake represents fixed(4) as bytea"),
-    Gap("type", "pg_lake", "3", "timestamp_ns", r"pg_lake reports 'timestamp without time zone' \(timestamp\) for Iceberg timestamp_ns", "pg_lake maps timestamp_ns to microsecond timestamp"),
-    Gap("type", "flink", "*", "uuid", r"flink reports 'BINARY\(16\)' \(fixed\(16\)\) for Iceberg uuid", "Flink has no UUID type: reads uuid as BINARY(16)"),
+TYPE_GAPS = gap_table(("op", "engine", "fv", "case"), [
+    ("type", "spark", "*", "uuid", r"spark reports 'string' \(string\) for Iceberg uuid", "spark-uuid-as-string"),
+    ("type", "spark", "*", "fixed_4", r"spark reports 'binary' \(binary\) for Iceberg fixed\(4\)", "spark-fixed-as-binary"),
+    ("type", "polars", "*", "uuid", r"polars reports 'Binary' \(binary\) for Iceberg uuid", "polars-no-uuid"),
+    ("type", "polars", "*", "fixed_4", r"polars reports 'Binary' \(binary\) for Iceberg fixed\(4\)", "polars-no-fixed"),
+    ("type", "trino", "*", "fixed_4", r"trino reports 'varbinary' \(binary\) for Iceberg fixed\(4\)", "trino-fixed-as-varbinary"),
+    ("type", "pg_lake", "*", "fixed_4", r"pg_lake reports 'bytea' \(binary\) for Iceberg fixed\(4\)", "pglake-fixed-as-bytea"),
+    ("type", "pg_lake", "3", "timestamp_ns", r"pg_lake reports 'timestamp without time zone' \(timestamp\) for Iceberg timestamp_ns", "pglake-timestamp-ns-truncated"),
+    ("type", "flink", "*", "uuid", r"flink reports 'BINARY\(16\)' \(fixed\(16\)\) for Iceberg uuid", "flink-uuid-as-binary"),
     # geometry/geography (only where the catalog accepts them, e.g. Polaris)
-    Gap("type", "pyiceberg", "3", "geo*", r"Cannot promote an binary to geo", "PyIceberg 0.12 cannot read geometry/geography columns"),
-    Gap("type", "polars", "3", "geo*", r"polars reports 'Binary' \(binary\) for Iceberg geo", "Polars has no geometry type: reads geometry as Binary"),
-    Gap("type", "daft", "3", "geo*", r"daft reports 'Binary' \(binary\) for Iceberg geo", "Daft has no geometry type: reads geometry as Binary"),
-    Gap("type", "pg_lake", "3", "geo*", r"iceberg type geo\w+ is not supported", "pg_lake 3.6 does not support geometry/geography"),
-    Gap("type", "flink", "3", "geo*", r"Cannot convert unknown type to Flink: geo", "Flink has no geometry/geography type"),
-]
+    ("type", "pyiceberg", "3", "geo*", r"Cannot promote an binary to geo", "pyiceberg-no-geo-read"),
+    ("type", "polars", "3", "geo*", r"polars reports 'Binary' \(binary\) for Iceberg geo", "polars-geo-as-binary"),
+    ("type", "daft", "3", "geo*", r"daft reports 'Binary' \(binary\) for Iceberg geo", "daft-geo-as-binary"),
+    ("type", "pg_lake", "3", "geo*", r"iceberg type geo\w+ is not supported", "pglake-no-geo"),
+    ("type", "flink", "3", "geo*", r"Cannot convert unknown type to Flink: geo", "flink-no-geo"),
+])
 # fmt: on
 
 
@@ -689,25 +663,16 @@ def test_reader_type(reader, fv, case, namespace, engine_pool, written):
     try:
         name = fresh(engine, ns, table).type_of(ns, table)  # refresh may already fail to load
     except Exception as exc:
-        text = f"{type(exc).__name__}: {exc}"
-        if read_gap and re.search(read_gap.match, text, re.IGNORECASE | re.DOTALL):
-            with expect_gap(read_gap.reason, read_gap.match):
+        hit = matching(read_gap, exc)
+        if hit:
+            with expect(hit):
                 raise
         raise
 
     # 2) The reported type must belong to the same family as the Iceberg type.
-    type_gap = next(
-        (
-            g
-            for g in TYPE_GAPS
-            if fnmatch.fnmatch(reader, g.engine)
-            and fnmatch.fnmatch(str(fv), g.fv)
-            and fnmatch.fnmatch(case.name, g.case)
-        ),
-        None,
-    )
+    type_gap = find_gap(TYPE_GAPS, op="type", engine=reader, fv=fv, case=case.name)
     family = type_family(reader, name)
-    with expect_gap(type_gap.reason if type_gap else None, type_gap.match if type_gap else None):
+    with expect(type_gap):
         assert same_family(expected, family), (
             f"{reader} reports '{name}' ({family}) for Iceberg {expected}"
         )
@@ -812,20 +777,24 @@ def test_v3_types_rejected_on_v2_tables(case, namespace):
     """
     from pyiceberg.exceptions import BadRequestError
 
-    # Polaris refuses too, but answers HTTP 500 (IllegalStateException) instead of 400.
-    # Polaris and Unity refuse too, but answer HTTP 500 instead of 400.
+    # Polaris, Unity and the REST fixture refuse too, but answer HTTP 500 instead of 400.
     gap = {
-        "polaris": expect_gap(
-            "Polaris rejects a v3 type in a v2 table with HTTP 500 instead of 400 (Bad Request)",
-            r"IllegalStateException: Invalid schema for v2",
+        "polaris": expect_cause(
+            "polaris-v3-type-in-v2-500", r"IllegalStateException: Invalid schema for v2"
         ),
-        "unity": expect_gap(
-            "Unity Catalog rejects a v3 type in a v2 table with HTTP 500 (ServiceFailureException) instead of 400 (Bad Request)",
+        "reference": expect_cause(
+            "reference-v3-type-in-v2-500",
+            r"ServerError: IllegalStateException: Invalid schema for v2:\s+- Invalid type for v: "
+            + re.escape(case.name)
+            + " is not supported until v3",
+        ),
+        "unity": expect_cause(
+            "unity-v3-type-in-v2-500",
             r"ServiceFailureException: Invalid schema for v2:\s+- Invalid type for v: "
             + re.escape(case.name)
             + " is not supported until v3",
         ),
-    }.get(PROFILE.name, expect_gap(None, None))
+    }.get(PROFILE.name, expect(None))
     # The refusal must be a 400 (BadRequestError); the wording differs per catalog.
     message = {
         "rustfs": r"schema contains unsupported primitive type " + re.escape(case.name),

@@ -28,14 +28,14 @@ from storage_proxy import StorageProxy
 
 from iceberg_lab.config import PROFILE
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 PORT = 19100
 CLIENTS = ["pyiceberg", "spark"]
 
-# Filled from observed results only: (client, case, regex, reason).
+# Filled from observed results only: (client, case, regex, cause).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = []
+KNOWN_GAPS = gap_table(("client", "case"), [])
 # fmt: on
 
 
@@ -49,10 +49,7 @@ def _gap(client: str, case: str):
     Returns:
         The context manager.
     """
-    for c, k, regex, reason in KNOWN_GAPS:
-        if (c, k) == (client, case):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, client=client, case=case))
 
 
 @pytest.fixture(scope="module")

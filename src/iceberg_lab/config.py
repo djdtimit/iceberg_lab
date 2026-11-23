@@ -1,7 +1,7 @@
 """Central connection settings for the lab.
 
 ``CATALOG`` selects one of the catalog profiles (:data:`PROFILES`: lakekeeper, polaris,
-rustfs, unity) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
+rustfs, unity, reference) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
 and storage location. Every other value can be overridden with an environment variable;
 inside the devcontainer they are set in ``.devcontainer/docker-compose.yml`` (service
 ``dev``) and the defaults below match them.
@@ -127,6 +127,20 @@ PROFILES = {
         client_s3_endpoint=True,
         location="s3://unitylab/lab",
         views_catalog="usts",
+    ),
+    # The Apache Iceberg REST fixture (compose profile reference): Iceberg Java's own
+    # CatalogHandlers on a JDBC/SQLite catalog - no authentication, no credential vending, one
+    # warehouse (it ignores the warehouse name), no management API. The baseline: a gap that
+    # also shows here comes from the engine or from Iceberg itself, not from a catalog.
+    "reference": CatalogProfile(
+        name="reference",
+        base_url=os.getenv("REFERENCE_URL", "http://reference:8181"),
+        path="",
+        warehouse_sts="reference",
+        trino_prefix="ref",
+        vended_credentials=False,
+        location="s3://reference/wh",
+        views_catalog="refsts",
     ),
 }
 CATALOG = os.getenv("CATALOG", "lakekeeper")
@@ -288,10 +302,12 @@ WAREHOUSES = (WAREHOUSE_SIGNING, WAREHOUSE_STS) if REMOTE_SIGNING else (WAREHOUS
 def catalog_auth_props(s: Settings | None = None) -> dict[str, str]:
     """Iceberg REST client properties for the catalog's authentication (Java and PyIceberg).
 
-    Empty for an open catalog (Lakekeeper here). With OAuth2: client credentials, scope,
-    token endpoint and the request for vended credentials (Polaris vends only on request).
-    With SigV4 (RustFS): signing on, the RustFS keys for signing (Java ``rest.*``, PyIceberg
-    ``client.*``) and - since nothing is vended - the same keys for the data files (``s3.*``).
+    Empty for an open catalog that vends credentials (Lakekeeper here); an open catalog without
+    vending (the reference fixture) gets the RustFS keys for the data files (``s3.*``). With
+    OAuth2: client credentials, scope, token endpoint and the request for vended credentials
+    (Polaris vends only on request). With SigV4 (RustFS): signing on, the RustFS keys for signing
+    (Java ``rest.*``, PyIceberg ``client.*``) and - since nothing is vended - the same keys for
+    the data files (``s3.*``).
 
     Args:
         s: Connection settings (default: the lab's).
@@ -330,7 +346,16 @@ def catalog_auth_props(s: Settings | None = None) -> dict[str, str]:
             }
         return props
     if not PROFILE.oauth_credential:
-        return {}
+        if PROFILE.vended_credentials:
+            return {}
+        return {
+            "s3.endpoint": s.s3_endpoint,
+            "s3.access-key-id": s.s3_access_key,
+            "s3.secret-access-key": s.s3_secret_key,
+            "s3.region": s.s3_region,
+            "s3.path-style-access": "true",
+            "client.region": s.s3_region,
+        }
     base = s.catalog_base.rstrip("/")
     return {
         "credential": PROFILE.oauth_credential,
@@ -421,3 +446,43 @@ def catalog_headers(s: Settings | None = None) -> dict[str, str]:
     )
     r.raise_for_status()
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def rest_prefix_path(cfg: dict) -> str:
+    """The prefix part of REST paths, from a ``/v1/config`` answer.
+
+    The prefix is optional in the REST spec: without one (the Iceberg REST fixture) the paths
+    are ``/v1/namespaces/...``, as PyIceberg builds them.
+
+    Args:
+        cfg: The JSON body of ``/v1/config``.
+
+    Returns:
+        ``"/<prefix>"`` or ``""``.
+    """
+    prefix = cfg.get("overrides", {}).get("prefix") or cfg.get("defaults", {}).get("prefix")
+    return f"/{prefix}" if prefix else ""
+
+
+def rest_base(warehouse: str, s: Settings | None = None) -> str:
+    """Base URL of a warehouse's REST paths: ``<catalog>/v1[/<prefix>]``.
+
+    Args:
+        warehouse: Warehouse name (sent as ``?warehouse=`` to ``/v1/config``).
+        s: Connection settings (default: the lab's).
+
+    Returns:
+        The URL without trailing slash.
+    """
+    import requests
+
+    s = s or SETTINGS
+    r = requests.get(
+        f"{s.catalog_uri}/v1/config",
+        params={"warehouse": warehouse},
+        headers=catalog_headers(s),
+        auth=catalog_auth(s),
+        timeout=10,
+    )
+    r.raise_for_status()
+    return f"{s.catalog_uri.rstrip('/')}/v1{rest_prefix_path(r.json())}"

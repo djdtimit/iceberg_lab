@@ -118,8 +118,16 @@ Every failure shows as **FAILED**. At the end of every run there is a section
 `iceberg lab: failure overview` with two lists:
 
 - **NEW / unexpected failures** – everything that is not documented: new bugs, a broken setup.
-- **known gaps reproduced** – documented gaps (`KNOWN_GAPS` tables in the test files), grouped by
-  cause with a count. The error message reads `[known gap] <cause>`.
+- **known gaps reproduced** – documented gaps, grouped by cause with a count. The error message
+  reads `[known gap] <cause>`.
+
+**Where gaps are documented.** Every cause is described once in the gap register
+[`docs/gaps.toml`](gaps.toml): what goes wrong, its severity, the versions it was last reproduced
+with (`seen_at`), bug report and upstream issue. The test files keep only *where* a cause applies:
+their `KNOWN_GAPS` tables list selectors (engine, operation, format version, ...), the exact error
+regex and the cause id (`gap_table`, `find_gap`, `expect` in `iceberg_lab.lab.gap_register`).
+pydantic validates both when they are loaded. `docs/findings.md` ends with the list generated from
+the register (`uv run python scripts/gap_register.py findings`).
 
 A known gap only counts if **exactly the documented error** occurs (a regex on the error message).
 If the same test fails differently, it shows up as a new failure – a gap therefore cannot hide
@@ -127,10 +135,16 @@ another bug.
 
 **Fixed gaps stand out:** if a documented gap no longer occurs (e.g. after an engine upgrade), the
 test is **FAILED** with `[gap fixed] … remove the KNOWN_GAPS entry` and listed in the section
-**FIXED gaps** – in both modes. Then delete the entry from the test file's `KNOWN_GAPS` table; from
-then on the case is tested normally. Exception: intermittent gaps (`flaky=True`, e.g. the signing
-403) – a run without them does not mean "fixed"; they are only listed under "intermittent gaps not
-reproduced this run".
+**FIXED gaps** – in both modes. Then delete the entry from the test file's `KNOWN_GAPS` table (and
+the cause from the register once no test refers to it - a self-test says so); from then on the case
+is tested normally. Exception: intermittent gaps (`flaky = true` in the register, or per test, e.g.
+the signing 403) – a run without them does not mean "fixed"; they are only listed under
+"intermittent gaps not reproduced this run".
+
+**After a version change** the self-test `test_causes_seen_with_current_versions` lists every
+cause last seen with the old version: run the tests (or a full run with `scripts/run_all.sh`),
+then `uv run python scripts/gap_register.py confirm` moves `seen_at` forward for the causes that
+reproduced; the others were reported as fixed.
 
 | Result | Meaning |
 |---|---|

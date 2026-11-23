@@ -79,6 +79,8 @@ def recorded() -> tuple[str, list[str]]:
     Returns:
         ``(image line, privileges)``.
     """
+    if PROFILE.name not in SERVICES:
+        pytest.skip(f"catalog {PROFILE.name} has no API for privileges")
     lines = (ROOT / "docs" / "api" / f"privileges-{PROFILE.name}.txt").read_text().splitlines()
     return lines[0], [ln for ln in lines[1:] if ln.strip()]
 
@@ -208,6 +210,8 @@ def test_privilege_inventory_matches_the_image():
           file runs for the catalog - else re-run scripts/privilege_inventory.py (a new
           version's added or removed privileges then show in the diff).
     """
+    if PROFILE.name not in SERVICES:
+        pytest.skip(f"catalog {PROFILE.name} has no API for privileges")
     head, privileges = recorded()
     compose = (ROOT / ".devcontainer" / "docker-compose.yml").read_text()
     block = compose.split(f"\n  {SERVICES[PROFILE.name]}:\n", 1)[1]

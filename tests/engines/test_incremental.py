@@ -24,7 +24,6 @@ instead of hiding behind the skip.
 
 from __future__ import annotations
 
-import fnmatch
 import time
 import uuid
 
@@ -39,17 +38,25 @@ from iceberg_lab.engines import (
     pyiceberg_catalog,
 )
 
-from conftest import ENGINES, engine_param, expect_gap, require, require_engine
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    find_gap,
+    gap_table,
+    require,
+    require_engine,
+)
 
 WAREHOUSE = base.WAREHOUSE
 
 
 # Filled from observed failures only: (engine, test, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    ("polars", "streaming_write", r"expected several streaming commits", "Polars 2.1 sink_iceberg(engine='streaming') writes all 500 rows in one commit at the end - a batch write through the streaming engine, no incremental commits"),
-    ("trino", "changelog", r"\(1, 'delete'\)", "Trino table_changes reports copy-on-write carry-over rows as delete + insert (no net changes)"),
-]
+KNOWN_GAPS = gap_table(("engine", "test"), [
+    ("polars", "streaming_write", r"expected several streaming commits", "polars-streaming-one-commit"),
+    ("trino", "changelog", r"\(1, 'delete'\)", "trino-changelog-carry-over"),
+])
 # fmt: on
 
 
@@ -63,10 +70,7 @@ def _gap(engine, test):
     Returns:
         The context manager.
     """
-    for e, t, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(engine, e) and t == test:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, test=test))
 
 
 @pytest.fixture(scope="module")

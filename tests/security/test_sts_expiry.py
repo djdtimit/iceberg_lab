@@ -31,7 +31,9 @@ from conftest import (
     AVAILABILITY,
     ENGINES,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
+    gap_table,
     require,
     require_vended_credentials,
 )
@@ -43,27 +45,17 @@ VALIDITY = 900
 # Polaris and Unity vend 1 h keys: the shared fixture waits ~62 min (global timeout: 30 min).
 pytestmark = [pytest.mark.slow, pytest.mark.long, pytest.mark.timeout(5400)]
 
-# Filled from observed failures only: engine -> (regex, reason).
 #: How RustFS refuses expired STS keys - observed both: 403 AccessDenied and 400 ExpiredToken.
 EXPIRED = (
     r"after expiry: .*(ACCESS_DENIED|ExpiredToken|HTTP status 400|lacked the necessary privileges)"
 )
 
-KNOWN_GAPS: dict[str, tuple[str, str]] = {
-    "pyiceberg": (
-        EXPIRED,
-        "PyIceberg 0.12: a loaded table keeps its vended keys - no refresh via client.refresh-credentials-endpoint after expiry",
-    ),
-    # Polars and Daft read the PyIceberg table object (and its keys) they were given.
-    "polars": (
-        EXPIRED,
-        "Polars reading a held PyIceberg table object: expired vended keys are not refreshed",
-    ),
-    "daft": (
-        EXPIRED,
-        "Daft reading a held PyIceberg table object: expired vended keys are not refreshed",
-    ),
-}
+# Filled from observed failures only. Polars and Daft read the PyIceberg table object (and
+# its keys) they were given.
+KNOWN_GAPS = gap_table(
+    ("engine",),
+    [(e, EXPIRED, "pyiceberg-no-credential-refresh") for e in ("pyiceberg", "polars", "daft")],
+)
 
 
 def ensure_warehouse():
@@ -199,8 +191,7 @@ def test_read_after_credentials_expired(engine, after_expiry, engine_pool):
     """
     require(engine, "vended credentials", engine_pool)
     res = after_expiry[engine]
-    gap = KNOWN_GAPS.get(engine)
-    with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
+    with expect(find_gap(KNOWN_GAPS, engine=engine)):
         for phase in ("before", "after"):
             v = res.get(phase)
             if isinstance(v, Exception):

@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
 from pathlib import Path
+
+from iceberg_lab.lab.models import ResultRow, RunManifest
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "results"
@@ -51,7 +54,7 @@ def export(rows: list[dict], name: str, manifest: dict | None, out: Path = OUT) 
     out.mkdir(parents=True, exist_ok=True)
     lines = sorted(
         json.dumps(
-            {"test": r["test"], "status": r["status"], "detail": r.get("detail", "")},
+            ResultRow(test=r["test"], status=r["status"], detail=r.get("detail", "")).model_dump(),
             ensure_ascii=False,
         )
         for r in rows
@@ -60,10 +63,32 @@ def export(rows: list[dict], name: str, manifest: dict | None, out: Path = OUT) 
     path = out / f"{name}.jsonl"
     path.write_text("\n".join(lines) + "\n")
     if manifest is not None:
+        manifest = RunManifest.model_validate(manifest).model_dump()
         (out / f"{name}.manifest.json").write_text(
             json.dumps(manifest, indent=1, sort_keys=True) + "\n"
         )
     return path
+
+
+def main_manifest(report_dir: Path, rows: list[dict]) -> dict | None:
+    """The manifest of the run that produced most of the report's rows.
+
+    ``manifest.json`` is the latest pytest process - after re-running a few tests that is not
+    the full run the reference stems from; ``runs.json`` keeps every run's manifest.
+
+    Args:
+        report_dir: The report directory.
+        rows: The report's rows (each names its run).
+
+    Returns:
+        The manifest, or None.
+    """
+    runs_path, latest = report_dir / "runs.json", report_dir / "manifest.json"
+    runs = json.loads(runs_path.read_text()) if runs_path.exists() else {}
+    counts = Counter(r.get("run", "") for r in rows if r.get("run", "") in runs)
+    if counts:
+        return runs[counts.most_common(1)[0][0]]
+    return json.loads(latest.read_text()) if latest.exists() else None
 
 
 def main(report_dir: Path) -> None:
@@ -73,9 +98,7 @@ def main(report_dir: Path) -> None:
         report_dir: The report directory.
     """
     rows = json.loads((report_dir / "comparison_rows.json").read_text())
-    mpath = report_dir / "manifest.json"
-    manifest = json.loads(mpath.read_text()) if mpath.exists() else None
-    path = export(rows, name_of(report_dir), manifest)
+    path = export(rows, name_of(report_dir), main_manifest(report_dir, rows))
     print(f"{path.relative_to(ROOT)}: {len(rows)} tests - `git diff results/` shows the changes")
 
 

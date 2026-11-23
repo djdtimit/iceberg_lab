@@ -36,14 +36,14 @@ from test_authz import DENIED
 
 from iceberg_lab.config import PROFILE
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
-# Filled from observed results only: (catalog, case) -> (regex, reason).
+# Filled from observed results only: (catalog, case, regex, cause).
 # fmt: off
-KNOWN_GAPS: dict[tuple[str, str], tuple[str, str]] = {
-    ("lakekeeper", "idp_role"): (r"the identity provider's role does not open its table: .*(NoSuch\w+|does not exist|403|Forbidden)", "Lakekeeper 0.15 with OpenFGA ignores roles from the token: LAKEKEEPER__OPENID_ROLES_CLAIM is used only by the Cedar authorizer (docs: 'The default OpenFGA implementation does not use token roles') - membership must be granted in Lakekeeper"),
-    ("polaris", "idp_role"): (r"the identity provider's role does not open its table: .*activated PrincipalRoles '\[\]'", "Polaris activates a role from the token (principal-roles-mapper) only if the principal is ALSO assigned that role in Polaris: the identity provider can narrow the roles, not grant them (apache/polaris#2373)"),
-}
+KNOWN_GAPS = gap_table(("catalog", "case"), [
+    ("lakekeeper", "idp_role", r"the identity provider's role does not open its table: .*(NoSuch\w+|does not exist|403|Forbidden)", "lakekeeper-openfga-ignores-token-roles"),
+    ("polaris", "idp_role", r"the identity provider's role does not open its table: .*activated PrincipalRoles '\[\]'", "polaris-idp-roles-narrow-only"),
+])
 # fmt: on
 
 
@@ -56,8 +56,7 @@ def _gap(case: str):
     Returns:
         The context manager.
     """
-    entry = KNOWN_GAPS.get((PROFILE.name, case))
-    return expect_gap(entry[1], entry[0]) if entry else expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, case=case))
 
 
 @pytest.fixture(scope="module")
@@ -265,6 +264,12 @@ def test_idp_role_is_a_catalog_role(rb):
     b, a, _, _ = rb
     if reason := b.roles_not_offered():
         pytest.skip(reason)
+    # The token-role clients are not in the realm import (authz/keycloak/realm.json): create
+    # them here, so the test does not depend on test_security having run first on a fresh
+    # Keycloak (idempotent).
+    from iceberg_lab import keycloak as kc
+
+    kc.ensure_service_scopes()
     try:
         with _gap("idp_role"):
             b.idp_role_grant(a, "t1")

@@ -5,7 +5,13 @@ from __future__ import annotations
 
 import requests
 
-from iceberg_lab.config import SETTINGS, WAREHOUSE_STS, catalog_auth, catalog_headers
+from iceberg_lab.config import (
+    SETTINGS,
+    WAREHOUSE_STS,
+    catalog_auth,
+    catalog_headers,
+    rest_prefix_path,
+)
 
 
 class Rest:
@@ -30,12 +36,15 @@ class Rest:
         r.raise_for_status()
         self.config = r.json()
         merged = self.config.get("defaults", {}) | self.config.get("overrides", {})
-        self.prefix = merged["prefix"]
+        #: The catalog's prefix (Lakekeeper: the warehouse id), None without one.
+        self.prefix = merged.get("prefix")
+        #: "/<prefix>" or "" - the prefix is optional (Iceberg REST fixture: none).
+        self.prefix_path = rest_prefix_path(self.config)
         self.properties = merged
         self.endpoints = set(self.config.get("endpoints") or [])
 
     def url(self, path: str) -> str:
-        """Full URL of a path below ``/v1/<prefix>/``.
+        """Full URL of a path below ``/v1[/<prefix>]/``.
 
         Args:
             path: Path below the prefix.
@@ -43,7 +52,7 @@ class Rest:
         Returns:
             The URL.
         """
-        return f"{self.base}/v1/{self.prefix}/{path.lstrip('/')}"
+        return f"{self.base}/v1{self.prefix_path}/{path.lstrip('/')}"
 
     def call(self, method: str, path: str, **kw) -> requests.Response:
         """Raw catalog call with the catalog's authentication.

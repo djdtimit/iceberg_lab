@@ -16,7 +16,6 @@ externally set table property is part of the result.
 
 from __future__ import annotations
 
-import fnmatch
 import random
 import uuid
 
@@ -34,7 +33,7 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from iceberg_lab.config import SETTINGS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap
+from conftest import ENGINES, engine_param, expect, find_gap, gap_table
 
 WAREHOUSE = base.WAREHOUSE
 SCHEMA = Schema(
@@ -47,11 +46,12 @@ TARGET = 1024 * 1024
 
 # Filled from observed failures only: (engine, test, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    *((e, "sort", r"is not sorted by name", f"{e} ignores the table's sort order when writing")
-      for e in ("pyiceberg", "polars", "daft", "pg_lake", "flink")),
-    ("pg_lake", "file_size", r"1 file\(s\) of", "pg_lake ignores write.target-file-size-bytes (uses its own pg_lake_table.target_file_size_mb, default 512 MB)"),
-]
+KNOWN_GAPS = gap_table(("engine", "test"), [
+    *((e, "sort", r"is not sorted by name", "pyiceberg-ignores-sort-order") for e in ("pyiceberg", "polars", "daft")),
+    ("pg_lake", "sort", r"is not sorted by name", "pglake-ignores-sort-order"),
+    ("flink", "sort", r"is not sorted by name", "flink-ignores-sort-order"),
+    ("pg_lake", "file_size", r"1 file\(s\) of", "pglake-ignores-target-file-size"),
+])
 # fmt: on
 
 
@@ -65,10 +65,7 @@ def _gap(engine, test):
     Returns:
         The context manager.
     """
-    for e, t, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(engine, e) and t == test:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, test=test))
 
 
 def _s3fs():

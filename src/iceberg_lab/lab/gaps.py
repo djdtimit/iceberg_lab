@@ -5,6 +5,8 @@ if it would also match a generic error) into a known gap and reports a gap that 
 occurs as fixed. A reason that sounds like a defect must carry a severity prefix
 (``SEVERITIES``). Gaps of a whole catalog or of intermittent problems are central rules
 (``CATALOG_GAPS``, ``FLAKY_GAPS``), applied by ``central_gap`` from conftest's report hook.
+Tests do not call ``expect_gap`` themselves: they name a cause of the gap register
+(``gap_register.expect``), which supplies reason and severity.
 
 The hit lists below are the run's state; conftest's hooks read them through this module (the
 lab self-tests replace them per test).
@@ -195,119 +197,43 @@ def expect_gap(reason: str | None, match: str | None, flaky: bool = False):
 
 #: Failures that can hit ANY test on the signing warehouse, recognised centrally instead of wrapping
 #: every such test in expect_gap. Entry: (nodeid substring, exception regex, frames that
-#: must appear in the traceback, reason). Requiring a PyIceberg frame plus s3fs (the only
-#: path that showed the problem; Spark's signer never did) keeps an authorization error from
-#: anywhere else on demo-signing reported as a new failure. The PyIceberg frame is generic
-#: because manifest writes reach s3fs via pyiceberg/avro/file.py, not pyiceberg/io/fsspec.py.
+#: must appear in the traceback, cause id in docs/gaps.toml). Requiring a PyIceberg frame plus
+#: s3fs (the only path that showed the problem; Spark's signer never did) keeps an authorization
+#: error from anywhere else on demo-signing reported as a new failure. The PyIceberg frame is
+#: generic because manifest writes reach s3fs via pyiceberg/avro/file.py, not pyiceberg/io/fsspec.py.
+# fmt: off
 FLAKY_GAPS = [
-    (
-        "signing",
-        r"^PermissionError: (Forbidden|Access Denied)",
-        ("site-packages/pyiceberg/", "s3fs/core.py"),
-        "PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)",
-    ),
+    ("signing", r"^PermissionError: (Forbidden|Access Denied)", ("site-packages/pyiceberg/", "s3fs/core.py"), "pyiceberg-signer-race"),
 ]
-
 
 #: Gaps of one catalog that hit EVERY test touching the affected engine (the engine cannot
 #: even connect, or the catalog lacks a whole feature), recognised centrally like FLAKY_GAPS:
 #: (catalog ("a|b" = either), nodeid substring, exception regex, frames that must appear in
-#: the traceback, reason). The nodeid part names the engines/files the gap belongs to
+#: the traceback, cause id). The nodeid part names the engines/files the gap belongs to
 #: ("a|b" = either), so an engine's failure in shared setup cannot be booked as a gap of
 #: ANOTHER engine's test (that hid 258 type checks once). Exact messages only - anything else
 #: on that catalog is still a new failure.
 CATALOG_GAPS = [
-    (
-        "unity",
-        "spark|flink",
-        # Spark/Flink resolve "ns.table.snapshots" by first trying table "snapshots" in
-        # namespace "ns.table"; they fall back to the metadata table only on NoSuchTable.
-        r"NoSuchNamespaceException: Schema not found: lab\.test_\w+\.\w+",
-        (),
-        (
-            "Unity answers a lookup of table 'ns.t.<x>' with NoSuchNamespace instead of "
-            "NoSuchTable - Spark and Flink then do not fall back to metadata tables, branches "
-            "or tags (t.snapshots, t.branch_x, t.changes)"
-        ),
-    ),
-    (
-        "unity",
-        "pg_lake|pglake",
-        r"pg_lake commits writes through POST /v1/\{prefix\}/transactions/commit",
-        (),
-        (
-            "DATA LOSS: pg_lake commits every write via /transactions/commit; Unity Catalog does not "
-            "offer "
-            "it (404), pg_lake ignores that and reports success - writes are silently lost"
-        ),
-    ),
-    (
-        "rustfs",
-        "pyiceberg|polars|daft|dataframes",
-        r"missing header: x-amz-content-sha256",
-        # Only without help (LAB_NO_HELP=1, test_stock_connection): the lab's workaround
-        # (engines._add_content_sha256) is off while PyIceberg/Polars/Daft is under test.
-        ("pyiceberg/catalog/rest",),
-        (
-            "PyIceberg's SigV4 adapter sends x-amz-content-sha256 only for empty bodies; the "
-            "RustFS catalog rejects every signed POST without it (AWS S3 Tables does not)"
-        ),
-    ),
-    (
-        "rustfs",
-        "duckdb",
-        r"Could not parse AWS service from host",
-        (),
-        (
-            "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other "
-            "hosts (RustFS) cannot be attached"
-        ),
-    ),
-    (
-        "rustfs",
-        "v3",  # -v3 parameters and test_v3_* tests
-        r"unsupported Iceberg table format-version: 3",
-        (),
-        "RustFS catalog does not support format v3 (406 UnsupportedOperationException)",
-    ),
-    (
-        "rustfs",
-        "v3",  # -v3 parameters and test_v3_* tests
-        r"Failed to create transaction",
-        (),
-        (
-            "RustFS catalog does not support format v3 (Trino only reports 'Failed to create "
-            "transaction'; the catalog answers 406 unsupported format-version: 3)"
-        ),
-    ),
-    (
-        "rustfs",
-        "flink|drop_table",  # drop_table: first seen behind the PyIceberg header gap
-        r"purgeRequested=true is not supported",
-        (),
-        "RustFS catalog rejects DROP with purge (purgeRequested=true -> 406)",
-    ),
-    (
-        "rustfs",
-        "drop_table",
-        r"Failed to drop table|S3Exception: Forbidden \(Service: S3, Status Code: 403",
-        (),
-        (
-            "DROP on the RustFS catalog: purge requests are rejected (406) and clients may not "
-            "delete table files themselves (403) - Spark/Trino DROP fails"
-        ),
-    ),
-    (
-        "rustfs",
-        "flink",
-        r"row-level snapshot operation requires a parent snapshot",
-        (),
-        (
-            "RustFS catalog rejects a row-level commit (equality deletes) on a table without "
-            "snapshot - Flink's first upsert into a new table"
-        ),
-    ),
+    # Spark/Flink resolve "ns.table.snapshots" by first trying table "snapshots" in namespace
+    # "ns.table"; they fall back to the metadata table only on NoSuchTable.
+    ("unity", "spark|flink", r"NoSuchNamespaceException: Schema not found: lab\.test_\w+\.\w+", (), "unity-nosuchnamespace-for-metadata-tables"),
+    ("unity", "pg_lake|pglake", r"pg_lake commits writes through POST /v1/\{prefix\}/transactions/commit", (), "pglake-ignores-refused-commit"),
+    # Only without help (LAB_NO_HELP=1, test_stock_connection): the lab's workaround
+    # (engines._add_content_sha256) is off while PyIceberg/Polars/Daft is under test.
+    ("rustfs", "pyiceberg|polars|daft|dataframes", r"missing header: x-amz-content-sha256", ("pyiceberg/catalog/rest",), "pyiceberg-sigv4-content-sha256"),
+    ("rustfs", "duckdb", r"Could not parse AWS service from host", (), "duckdb-sigv4-aws-host"),
+    # No option to leave the prefix out (catalog_name must not be empty): pg_lake cannot
+    # connect at all.
+    ("reference", "pg_lake|pglake", r"No route for request: [A-Z]+ v1/postgres/", (), "pglake-requires-rest-prefix"),
+    # node "v3": -v3 parameters and test_v3_* tests
+    ("rustfs", "v3", r"unsupported Iceberg table format-version: 3", (), "rustfs-no-v3"),
+    ("rustfs", "v3", r"Failed to create transaction", (), "rustfs-no-v3"),
+    # drop_table: first seen behind the PyIceberg header gap
+    ("rustfs", "flink|drop_table", r"purgeRequested=true is not supported", (), "rustfs-drop-purge-refused"),
+    ("rustfs", "drop_table", r"Failed to drop table|S3Exception: Forbidden \(Service: S3, Status Code: 403", (), "rustfs-drop-purge-refused"),
+    ("rustfs", "flink", r"row-level snapshot operation requires a parent snapshot", (), "rustfs-row-level-needs-parent"),
 ]
+# fmt: on
 
 
 def _traceback_files(excinfo) -> list[str]:
@@ -351,11 +277,14 @@ def central_gap(nodeid: str, excinfo, catalog: str) -> str | None:
     text = f"{excinfo.type.__name__}: {excinfo.value}"
     files = _traceback_files(excinfo)
     entries = list(FLAKY_GAPS) + [
-        (node, regex, frames, reason)
-        for cat, node, regex, frames, reason in CATALOG_GAPS
+        (node, regex, frames, cid)
+        for cat, node, regex, frames, cid in CATALOG_GAPS
         if catalog in cat.split("|")
     ]
-    for node_part, regex, frames, reason in entries:
+    from iceberg_lab.lab.gap_register import cause
+
+    for node_part, regex, frames, cid in entries:
+        reason = cause(cid).reason
         if (
             any(alt in nodeid for alt in node_part.split("|"))
             and re.search(regex, text)

@@ -41,10 +41,8 @@ Format v3 natively (no upgrade trick); pg_lake reads v3 tables too.
 
 from __future__ import annotations
 
-import fnmatch
 import time
 import uuid
-from typing import NamedTuple
 
 import pytest
 import test_evolution as ev
@@ -53,7 +51,7 @@ import test_operations as base
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from reference_writer import ReferenceWriter
 
-from conftest import ENGINES, engine_param, expect_gap, fresh
+from conftest import ENGINES, engine_param, expect, find_gap, fresh, gap_table
 
 WAREHOUSE = base.WAREHOUSE
 SEED = base.SEED
@@ -71,29 +69,18 @@ DELETE_KINDS = {
 }  # fmt: skip
 
 
-class Gap(NamedTuple):
-    """``test``/``reader``/``state``/``fv`` globs + regex the error must contain."""
-
-    test: str
-    reader: str
-    state: str
-    fv: str
-    match: str
-    reason: str
-    flaky: bool = False
-
-
-# Filled from observed failures only; first match wins.
+# Filled from observed failures only. Rows that apply to a case are alternatives: the first
+# whose regex matches the error names the cause (gap_register.find_gap).
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
-    *(Gap("read_operation", r, "merge", "*", r"PyIceberg does not yet support equality deletes", f"{r}: PyIceberg cannot apply equality deletes (apache/iceberg#6568) - tables with Flink upserts or other equality-delete writers are unreadable")
+KNOWN_GAPS = gap_table(("test", "reader", "state", "fv"), [
+    *(("read_operation", r, "merge", "*", r"PyIceberg does not yet support equality deletes", "pyiceberg-no-equality-deletes")
       for r in ("pyiceberg", "polars", "daft")),
-    *(Gap("read_operation", "daft", op, "3", r"\.puffin is not a valid parquet file", "Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet)")
+    *(("read_operation", "daft", op, "3", r"\.puffin is not a valid parquet file", "daft-dv-as-parquet")
       for op in ("delete_merge_on_read", "update")),
-    *(Gap("read_operation", "pg_lake", op, "3", r"deletion vectors are not supported", "pg_lake 3.6 cannot read v3 deletion vectors")
+    *(("read_operation", "pg_lake", op, "3", r"deletion vectors are not supported", "pglake-no-dv-read")
       for op in ("delete_merge_on_read", "update")),
-    Gap("read_maintained", "pg_lake", "compact_delete_files", "3", r"deletion vectors are not supported", "pg_lake rejects v3 tables whose manifests still list a removed (status DELETED) deletion vector, although no live DV exists - also when the reference implementation wrote the table"),
-]
+    ("read_maintained", "pg_lake", "compact_delete_files", "3", r"deletion vectors are not supported", "pglake-rejects-deleted-dv"),
+])
 # fmt: on
 
 
@@ -109,13 +96,7 @@ def _gap(test: str, reader: str, state: str, fv: int):
     Returns:
         The context manager.
     """
-    for g in KNOWN_GAPS:
-        if all(
-            fnmatch.fnmatch(v, p)
-            for v, p in ((test, g.test), (reader, g.reader), (state, g.state), (str(fv), g.fv))
-        ):
-            return expect_gap(g.reason, g.match, flaky=g.flaky)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, test=test, reader=reader, state=state, fv=fv))
 
 
 # =========================================================================== sources

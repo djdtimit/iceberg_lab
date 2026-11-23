@@ -40,25 +40,35 @@ import pyarrow as pa
 import pytest
 import requests
 
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, catalog_auth, catalog_headers
+from iceberg_lab.config import (
+    PROFILE,
+    SETTINGS,
+    WAREHOUSE_STS,
+    catalog_auth,
+    catalog_headers,
+    rest_base,
+)
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 SCHEMA = pa.schema([("id", pa.int64()), ("name", pa.string()), ("gone", pa.int64())])
 
-# Filled from observed results only: (catalog, case, regex, reason[, flaky]).
+# Filled from observed results only: (catalog, case, regex, cause[, flaky]).
 # fmt: off
-KNOWN_GAPS: list[tuple] = [
-    *((cat, case, r"invalid commit answered 200", f"{cat.capitalize()} accepts a schema change incompatible with the existing data files (no server-side check - the REST spec leaves it to the client); every read fails afterwards: 'Cannot promote long to string'")
-      for cat in ("lakekeeper", "polaris", "unity") for case in ("incompatible_type", "reuse_field_id")),
+KNOWN_GAPS = gap_table(("catalog", "case"), [
+    *((cat, case, r"invalid commit answered 200", "catalogs-no-schema-compat-check")
+      for cat in ("lakekeeper", "polaris", "unity", "reference") for case in ("incompatible_type", "reuse_field_id")),
     # Intermittent (about 1 run in 3): one of 8 concurrent updates confirmed and lost - the race
     # Lakekeeper fixed in 0.15.1.
-    ("unity", "lost_namespace_property", r"confirmed but lost", "DATA LOSS: Unity intermittently loses a concurrent namespace property update (confirmed, then gone)", True),
-    ("rustfs", "metadata_log", r"metadata-log lists \d+ files?, missing: \d+", "INCONSISTENT: RustFS deletes every previous metadata file on commit although write.metadata.delete-after-commit.enabled is off - the table's metadata-log points to missing files (a client holding older metadata fails, e.g. DuckDB's compaction during appends)"),
-    *(("unity", case, r"invalid commit answered 500: .*ValidationException", "Unity refuses this invalid commit, but with 500 (ValidationException) instead of 400")
+    ("unity", "lost_namespace_property", r"confirmed but lost", "unity-loses-namespace-property"),
+    # The server retries a conflicting transaction itself, finds "Nothing to commit" and
+    # answers 204: the client's changes are dropped (table endpoint: correct 409).
+    ("reference", "lost_transaction_commit", r"confirmed but lost: writers", "reference-tx-commit-loses-updates"),
+    ("rustfs", "metadata_log", r"metadata-log lists \d+ files?, missing: \d+", "rustfs-deletes-metadata-log"),
+    *(("unity", case, r"invalid commit answered 500: .*ValidationException", "unity-invalid-commit-500")
       for case in ("spec_missing_field", "unknown_snapshot")),
-]
+])
 # fmt: on
 
 
@@ -71,30 +81,16 @@ def _gap(case):
     Returns:
         The context manager.
     """
-    for cat, c, regex, reason, *flaky in KNOWN_GAPS:
-        if cat == PROFILE.name and c == case:
-            return expect_gap(reason, regex, flaky=bool(flaky and flaky[0]))
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, case=case))
 
 
-def _prefix() -> str:
-    """The catalog's URL prefix of the STS warehouse.
+def _base() -> str:
+    """REST base URL of the STS warehouse: ``<catalog>/v1[/<prefix>]`` (``config.rest_base``).
 
     Returns:
-        The prefix.
+        The URL.
     """
-    cfg = requests.get(
-        f"{SETTINGS.catalog_uri}/v1/config",
-        params={"warehouse": WAREHOUSE_STS},
-        headers=catalog_headers(),
-        auth=catalog_auth(),
-        timeout=10,
-    ).json()
-    return (
-        cfg.get("overrides", {}).get("prefix")
-        or cfg.get("defaults", {}).get("prefix")
-        or WAREHOUSE_STS
-    )
+    return rest_base(WAREHOUSE_STS)
 
 
 def _url(ns, table=None) -> str:
@@ -107,7 +103,7 @@ def _url(ns, table=None) -> str:
     Returns:
         The URL.
     """
-    base = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{ns}"
+    base = f"{_base()}/namespaces/{ns}"
     return f"{base}/tables/{table}" if table else base
 
 
@@ -278,6 +274,51 @@ def test_invalid_commit_is_refused(case, table):
 WRITERS = 8
 
 
+def _parallel_property_writers(ns, name, commit) -> list[int]:
+    """8 clients set their own table property at the same time, retrying on 409.
+
+    Args:
+        ns: Namespace.
+        name: Table name.
+        commit: ``(requirements, updates) -> response`` - the endpoint under test.
+
+    Returns:
+        The writers whose commit the catalog confirmed (2xx).
+    """
+    confirmed, barrier = [], threading.Barrier(WRITERS)
+
+    def writer(i):
+        """Set this writer's property, retrying on 409 with fresh metadata.
+
+        Args:
+            i: Writer number.
+        """
+        barrier.wait()
+        for _ in range(20):  # optimistic concurrency: reload and retry on conflict
+            md = _load(ns, name)["metadata"]
+            r = commit(
+                [
+                    {"type": "assert-table-uuid", "uuid": md["table-uuid"]},
+                    {
+                        "type": "assert-ref-snapshot-id",
+                        "ref": "main",
+                        "snapshot-id": md.get("current-snapshot-id"),
+                    },
+                ],
+                [{"action": "set-properties", "updates": {f"writer-{i}": "x", "last": str(i)}}],
+            )
+            if r.status_code in (200, 204):
+                confirmed.append(i)
+                return
+            if r.status_code != 409:
+                return
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(WRITERS)]
+    [t.start() for t in threads]
+    [t.join(120) for t in threads]
+    return confirmed
+
+
 def test_parallel_table_commits_are_not_lost(table):
     """8 clients set their own table property at the same time - no confirmed update is lost.
 
@@ -292,42 +333,59 @@ def test_parallel_table_commits_are_not_lost(table):
             snapshot, after which column ``gone`` (field id 3) was dropped.
     """
     ns, name = table
-    confirmed, barrier = [], threading.Barrier(WRITERS)
-
-    def writer(i):
-        """Set this writer's property, retrying on 409 with fresh metadata.
-
-        Args:
-            i: Writer number.
-        """
-        barrier.wait()
-        for _ in range(20):  # optimistic concurrency: reload and retry on conflict
-            md = _load(ns, name)["metadata"]
-            r = _commit(
-                ns,
-                name,
-                [
-                    {"type": "assert-table-uuid", "uuid": md["table-uuid"]},
-                    {
-                        "type": "assert-ref-snapshot-id",
-                        "ref": "main",
-                        "snapshot-id": md.get("current-snapshot-id"),
-                    },
-                ],
-                [{"action": "set-properties", "updates": {f"writer-{i}": "x", "last": str(i)}}],
-            )
-            if r.status_code == 200:
-                confirmed.append(i)
-                return
-            if r.status_code != 409:
-                return
-
-    threads = [threading.Thread(target=writer, args=(i,)) for i in range(WRITERS)]
-    [t.start() for t in threads]
-    [t.join(120) for t in threads]
+    confirmed = _parallel_property_writers(ns, name, lambda req, upd: _commit(ns, name, req, upd))
     props = _load(ns, name)["metadata"].get("properties", {})
     lost = [i for i in confirmed if f"writer-{i}" not in props]
     with _gap("lost_table_commit"):
+        assert confirmed, "no commit succeeded at all"
+        assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
+
+
+def test_parallel_transaction_commits_are_not_lost(table):
+    """The same race through ``POST /transactions/commit`` (multi-table commit, used by DuckDB).
+
+    Checks:
+        * the catalog advertises the endpoint (else: no API);
+        * at least one commit succeeded;
+        * every property whose commit the catalog confirmed (204) is in the table afterwards.
+
+    Args:
+        table: ``(namespace, name)`` of a table with one snapshot (see the test above).
+    """
+    ns, name = table
+    cfg = requests.get(
+        f"{SETTINGS.catalog_uri}/v1/config",
+        params={"warehouse": WAREHOUSE_STS},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=10,
+    ).json()
+    if "POST /v1/{prefix}/transactions/commit" not in (cfg.get("endpoints") or []):
+        pytest.skip(f"catalog {PROFILE.name} has no API for multi-table commits (not advertised)")
+    ident = {"namespace": [ns], "name": name}
+
+    def commit(req, upd):
+        """Commit one table change through ``POST /transactions/commit``.
+
+        Args:
+            req: Requirements of the change.
+            upd: Updates of the change.
+
+        Returns:
+            The HTTP response.
+        """
+        return requests.post(
+            f"{_base()}/transactions/commit",
+            json={"table-changes": [{"identifier": ident, "requirements": req, "updates": upd}]},
+            headers=catalog_headers(),
+            auth=catalog_auth(),
+            timeout=30,
+        )
+
+    confirmed = _parallel_property_writers(ns, name, commit)
+    props = _load(ns, name)["metadata"].get("properties", {})
+    lost = [i for i in confirmed if f"writer-{i}" not in props]
+    with _gap("lost_transaction_commit"):
         assert confirmed, "no commit succeeded at all"
         assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
 
@@ -346,7 +404,7 @@ def test_parallel_namespace_property_updates_are_not_lost(namespace):
     """
     ns = f"{namespace}_props"
     requests.post(
-        f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces",
+        f"{_base()}/namespaces",
         json={"namespace": [ns]},
         headers=catalog_headers(),
         auth=catalog_auth(),
@@ -433,7 +491,7 @@ def test_recreate_at_dropped_location(how, namespace):
     if how == "explicit_location":
         body["location"] = location
     r = requests.post(
-        f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{namespace}/tables",
+        f"{_base()}/namespaces/{namespace}/tables",
         json=body,
         headers=catalog_headers(),
         auth=catalog_auth(),

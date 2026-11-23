@@ -36,7 +36,7 @@ from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
 from iceberg_lab.lab.capabilities import OFFERED
 
-from conftest import ENGINES, engine_param, expect_gap, require, require_engine
+from conftest import ENGINES, engine_param, expect, expect_cause, require, require_engine
 
 WAREHOUSE = WAREHOUSE_STS
 SCHEMA = Schema(
@@ -141,13 +141,9 @@ def test_compute_table_stats(engine, namespace, engine_pool, stats_tables):
     require(engine, "computing table statistics", engine_pool)
     name = _table(namespace)
     gap = (
-        expect_gap(
-            "pg_lake ANALYZE only collects Postgres planner statistics; nothing is written to "
-            "the Iceberg metadata",
-            r"no statistics in the Iceberg metadata",
-        )
+        expect_cause("pglake-analyze-no-iceberg-stats", r"no statistics in the Iceberg metadata")
         if engine == "pg_lake"
-        else expect_gap(None, None)
+        else expect(None)
     )
     with gap:
         _compute(engine, engine_pool(engine), namespace, name)

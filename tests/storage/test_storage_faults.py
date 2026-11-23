@@ -40,15 +40,15 @@ from storage_proxy import StorageProxy
 from iceberg_lab.config import PROFILE, SETTINGS, catalog_headers
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 PROXY = "http://dev:19000"
 SCENARIOS = ["commit_503", "commit_down", "commit_slow", "load_down", "vend_down"]
 SCHEMA = pa.schema([("id", pa.int64())])
 LIMIT = 120  # seconds an operation may take under a fault
 
-# Filled from observed results only: (catalog, scenario, regex on the outcome, reason).
-KNOWN_GAPS: list[tuple[str, str, str, str]] = []
+# Filled from observed results only: (catalog, scenario, regex on the outcome, cause).
+KNOWN_GAPS = gap_table(("catalog", "scenario"), [])
 
 
 def _gap(scenario):
@@ -60,10 +60,7 @@ def _gap(scenario):
     Returns:
         The context manager.
     """
-    for cat, sc, regex, reason in KNOWN_GAPS:
-        if cat == PROFILE.name and sc == scenario:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, scenario=scenario))
 
 
 def _lakekeeper_warehouse() -> str:

@@ -5,7 +5,7 @@ Runs every example notebook on the chosen catalog and checks the expected output
 
 | File | Content | Test functions |
 |---|---|---|
-| [`test_notebooks.py`](test_notebooks.py) | Execute every example notebook top to bottom on the catalog under test (all four catalogs). | 1 |
+| [`test_notebooks.py`](test_notebooks.py) | Execute every example notebook top to bottom on the catalog under test (all five catalogs). | 1 |
 
 ## Running
 

@@ -46,7 +46,7 @@ from iceberg_lab import engines
 from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require_engine
+from conftest import ENGINES, engine_param, expect, find_gap, gap_table, require_engine
 
 WAREHOUSE = WAREHOUSE_STS
 PORT = 18181
@@ -365,13 +365,13 @@ def direct_rows(ns, table):
     return sorted(base.arrow_rows(t.scan().to_arrow()))
 
 
-# Filled from observed failures only: (engine, scenario, regex, reason, flaky).
+# Filled from observed failures only: (engine, scenario, regex, cause).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str, bool]] = [
+KNOWN_GAPS = gap_table(("engine", "scenario"), [
     # Reproduced 3/3: DuckDB treats the unknown commit outcome as a failure and deletes the
     # commit's files - but Lakekeeper had applied the commit, so the table points at them.
-    ("duckdb", "lost_response", r"TABLE CORRUPTED: manifest list of the current snapshot is missing", "DATA CORRUPTION: after a lost commit response DuckDB deletes the files of the commit Lakekeeper already applied (current snapshot -> missing manifest list)", False),
-]
+    ("duckdb", "lost_response", r"TABLE CORRUPTED: manifest list of the current snapshot is missing", "duckdb-lost-response-corruption"),
+])
 # fmt: on
 
 
@@ -385,10 +385,7 @@ def _gap(engine, scenario):
     Returns:
         The context manager.
     """
-    for e, sc, regex, reason, flaky in KNOWN_GAPS:
-        if e == engine and sc == scenario:
-            return expect_gap(reason, regex, flaky=flaky)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, scenario=scenario))
 
 
 @pytest.mark.slow

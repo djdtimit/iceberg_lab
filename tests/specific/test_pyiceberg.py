@@ -23,7 +23,7 @@ from pyiceberg.types import DoubleType, LongType, NestedField, TimestampType
 from iceberg_lab.config import WAREHOUSES
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect_cause
 
 
 @pytest.fixture(params=WAREHOUSES)
@@ -96,9 +96,6 @@ def test_upsert_after_rename(catalog, namespace, table_name, sample):
     changes = pa.Table.from_pylist(
         [{"id": 2, "name": "beta", "total": 9.0}], schema=t.schema().as_arrow()
     )
-    with expect_gap(
-        "PyIceberg 0.12: upsert compares against pre-rename physical column names",
-        r"field names are not matching",
-    ):
+    with expect_cause("pyiceberg-upsert-renamed-columns", r"field names are not matching"):
         t.upsert(changes, join_cols=["id"])
         assert {r["id"]: r["total"] for r in t.scan().to_arrow().to_pylist()}[2] == 9.0

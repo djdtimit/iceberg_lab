@@ -69,11 +69,11 @@
 
 <div class="ev">
   <header id="header">
-    <h1>Iceberg: four catalogs × eight engines</h1>
+    <h1>Iceberg: five catalogs × eight engines</h1>
     <p class="lede">On <b data-draw="t-cat">—</b>, <b data-draw="t-works" data-source="catalog_kpis" data-field="works">—</b> of <b data-draw="t-offered" data-source="catalog_kpis" data-field="offered">—</b> offered test cases work. Reliability with every theme weighted equally: <b data-draw="t-rel" data-source="catalog_kpis" data-field="themeReliability">—</b>. <b data-draw="t-severe" data-source="catalog_kpis" data-field="severeCauses">—</b> severe gap causes and <b data-draw="t-new" data-source="catalog_kpis" data-field="news">—</b> new failures. Of <b data-draw="t-planned" data-source="catalog_kpis" data-field="planned">—</b> planned cases, <b data-draw="t-notrun" data-source="catalog_kpis" data-field="notRun">—</b> did not run because a step before them failed; they count at that step, not at the engine that would have read.</p>
     <div class="controls" id="filters">
       <label for="catalog-pick">Catalog</label>
-      <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option></select>
+      <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option><option value="reference">Iceberg REST fixture (reference)</option></select>
       <label for="engine-pick">Engine</label>
       <select id="engine-pick" class="dash-select" aria-label="Engine"><option value="">All engines</option><option value="pyiceberg">PyIceberg</option><option value="duckdb">DuckDB</option><option value="polars">Polars</option><option value="daft">Daft</option><option value="spark">Spark</option><option value="trino">Trino</option><option value="pg_lake">pg_lake</option><option value="flink">Flink</option></select>
       <button type="button" class="btn" id="reset">Reset engine and theme</button>
@@ -102,7 +102,7 @@
 
   <section id="first" class="card">
     <h2>Look at these first</h2>
-    <p class="note">Gaps that change data or results or open access wider than intended, grouped by cause, on all four catalogs (narrowed by the engine filter). Below them, failures nobody has documented yet and gaps that no longer occur.</p>
+    <p class="note">Gaps that change data or results or open access wider than intended, grouped by cause, on all five catalogs (narrowed by the engine filter). Below them, failures nobody has documented yet and gaps that no longer occur.</p>
     <div class="scroll"><table data-draw="severe" data-source="severe"></table></div>
     <h3>New failures and fixed gaps</h3>
     <div class="scroll"><table data-draw="news" data-source="news"></table></div>
@@ -181,13 +181,13 @@
   window.EV = {
     engines: ['pyiceberg', 'duckdb', 'polars', 'daft', 'spark', 'trino', 'pg_lake', 'flink'],
     engineNames: { pyiceberg: 'PyIceberg', duckdb: 'DuckDB', polars: 'Polars', daft: 'Daft', spark: 'Spark', trino: 'Trino', pg_lake: 'pg_lake', flink: 'Flink', '': 'catalog' },
-    catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity'],
-    catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', rustfs_nohelp: 'RustFS without help' },
+    catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference'],
+    catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', reference: 'Reference', rustfs_nohelp: 'RustFS without help' },
     // Same order as src/iceberg_lab/lab/reporting.py THEMES.
     themes: ['Read & write data', 'Types', 'Partitions & evolution', 'Table features', 'Maintenance', 'Concurrency & robustness', 'Security & access', 'Catalog functions'],
     sevOrder: ['Data corruption', 'Data loss', 'Inconsistency', 'Wrong result', 'Security'],
     isHelp: (c) => String(c).endsWith('_nohelp'),
-    // Compared rows: the four catalogs (not the runs without help), no special features or demos.
+    // Compared rows: the five catalogs (not the runs without help), no special features or demos.
     compared: (r) => !EV.isHelp(r.catalog) && r.theme !== 'Not compared',
     inColumns: (r) => r.theme !== 'Not compared',
     cat: () => dash.params().catalog || 'lakekeeper',
@@ -292,7 +292,7 @@
 
   dash.calc('severe', {
     title: 'Severe gaps by cause',
-    description: 'Documented gaps with a severity (data loss, corruption, inconsistency, wrong result, security) on all four catalogs, grouped by cause, narrowed by the engine filter.',
+    description: 'Documented gaps with a severity (data loss, corruption, inconsistency, wrong result, security) on all five catalogs, grouped by cause, narrowed by the engine filter.',
     inputs: ['results'],
     fn: (results) => {
       const eng = EV.eng();
@@ -310,7 +310,7 @@
 
   dash.calc('news', {
     title: 'New failures and fixed gaps',
-    description: 'Test cases with an undocumented failure or a documented gap that no longer occurs, on all four catalogs.',
+    description: 'Test cases with an undocumented failure or a documented gap that no longer occurs, on all five catalogs.',
     inputs: ['results'],
     fn: (results) => results.filter((r) => (r.status === 'new' || r.status === 'fixed') && EV.compared(r))
       .map((r) => ({ test: r.test, catalog: EV.catalogNames[r.catalog], engine: r.engine, status: r.status, detail: r.detail })),

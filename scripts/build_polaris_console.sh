@@ -9,5 +9,10 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 git clone --quiet https://github.com/apache/polaris-tools.git "$work/polaris-tools"
 git -C "$work/polaris-tools" checkout --quiet "$COMMIT"
-docker build -q -f "$work/polaris-tools/console/docker/Dockerfile" -t "$TAG" "$work/polaris-tools/console"
+dockerfile="$work/polaris-tools/console/docker/Dockerfile"
+# COPY --chmod needs BuildKit; without buildx the legacy builder refuses it - copy, then chmod.
+if ! docker buildx version >/dev/null 2>&1; then
+  sed -i -E 's|^COPY (--chown=\S+ )?--chmod=([0-7]+) (\S+) (\S+)$|COPY \1\3 \4\nRUN chmod \2 \4|' "$dockerfile"
+fi
+docker build -q -f "$dockerfile" -t "$TAG" "$work/polaris-tools/console"
 echo "$TAG"

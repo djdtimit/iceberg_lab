@@ -27,6 +27,8 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from iceberg_lab.lab.models import RunManifest
+
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = ROOT / ".devcontainer" / "docker-compose.yml"
 STARTED = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -77,7 +79,7 @@ def declared_images(path: Path = COMPOSE) -> dict[str, str]:
     if not path.exists():
         return images
     for line in path.read_text().splitlines():
-        if m := re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line):
+        if m := re.match(r"^  ([A-Za-z0-9_.-]+):\s*(#.*)?$", line):  # key, maybe a comment
             service = m.group(1)
         elif (m := re.match(r"^    image:\s*(\S+)", line)) and service:
             images[service] = m.group(1)
@@ -152,23 +154,23 @@ def build(catalog: str, with_help: bool) -> dict:
         with_help: Whether the lab's helps were on (``LAB_NO_HELP`` unset).
 
     Returns:
-        The manifest.
+        The manifest (validated, :class:`~iceberg_lab.lab.models.RunManifest`).
     """
-    return {
-        "run": RUN_ID,
-        "started": STARTED,
-        "finished": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "catalog": catalog,
-        "with_help": with_help,
-        "git": {
+    return RunManifest(
+        run=RUN_ID,
+        started=STARTED,
+        finished=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        catalog=catalog,
+        with_help=with_help,
+        git={
             "commit": _run(["git", "rev-parse", "HEAD"]),
             "dirty": bool(_run(["git", "status", "--porcelain"])),
         },
-        "packages": packages(),
-        "duckdb_extensions": duckdb_extensions(),
-        "images_declared": declared_images(),
-        "images_running": running_images(),
-    }
+        packages=packages(),
+        duckdb_extensions=duckdb_extensions(),
+        images_declared=declared_images(),
+        images_running=running_images(),
+    ).model_dump()
 
 
 def write(report_dir: Path, catalog: str, with_help: bool) -> dict:

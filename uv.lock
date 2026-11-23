@@ -542,6 +542,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "pydantic" },
     { name = "pyiceberg", extra = ["pandas", "pyarrow", "pyiceberg-core", "s3fs"] },
     { name = "requests" },
 ]
@@ -554,6 +555,7 @@ dev = [
     { name = "minio" },
     { name = "pytest" },
     { name = "pytest-timeout" },
+    { name = "pyyaml" },
     { name = "ruff" },
     { name = "sqlalchemy" },
 ]
@@ -583,6 +585,7 @@ trino = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
+    { name = "pydantic", specifier = ">=2.10" },
     { name = "pyiceberg", extras = ["pyarrow", "pandas", "s3fs", "pyiceberg-core"], specifier = ">=0.12" },
     { name = "requests", specifier = ">=2.32" },
 ]
@@ -593,6 +596,7 @@ dev = [
     { name = "minio", specifier = ">=7.2.20" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.8" },
     { name = "sqlalchemy", specifier = ">=2.1.8" },
 ]

@@ -1,4 +1,4 @@
-"""Execute every example notebook top to bottom on the catalog under test (all four catalogs).
+"""Execute every example notebook top to bottom on the catalog under test (all five catalogs).
 
 The notebooks connect through the catalog profile (``iceberg_lab.notebook``); expected outputs
 may differ per catalog (``expect_<catalog>`` in the cell metadata).
@@ -11,7 +11,7 @@ import pytest
 
 from iceberg_lab.config import PROFILE, WITH_HELP
 
-from conftest import expect_gap, require_engine
+from conftest import expect, expect_cause, require_engine
 
 NOTEBOOKS = sorted((Path(__file__).resolve().parents[2] / "notebooks").glob("*.ipynb"))
 #: Notebooks that need an optional engine. Notebook 08 (interop) skips missing engines itself.
@@ -48,7 +48,7 @@ def test_notebook_runs(path: Path):
     # A notebook the catalog cannot run at all (e.g. DuckDB on RustFS) carries a known gap
     # per catalog in its metadata: {"lab": {"known_gaps": {"<catalog>": {"match", "reason"}}}}.
     known = nb.metadata.get("lab", {}).get("known_gaps", {}).get(PROFILE.name)
-    with expect_gap(known["reason"] if known else None, known["match"] if known else None):
+    with expect_cause(known["cause"], known["match"]) if known else expect(None):
         client.execute()
 
     # Expected-output checks: cells carry {"lab": {"expect": regex, "expect_not": regex}} in

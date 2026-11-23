@@ -39,8 +39,13 @@ RUN git clone --depth 1 --branch "${VCPKG_VERSION}" https://github.com/Microsoft
 ENV VCPKG_TOOLCHAIN_PATH=/build/vcpkg/scripts/buildsystems/vcpkg.cmake
 # pgduck_server links with `pg_config --libs` (-lpgcommon -lpgport -lselinux -lzstd ...).
 # Debian keeps libpgcommon.a/libpgport.a in the pkglibdir (/usr/lib/postgresql/<major>/lib),
-# not in pg_config's libdir - LIBRARY_PATH lets the linker find them. ccache (cache mount
-# below) makes a rebuild skip DuckDB's ~1.5 h compile when only a later step changes.
+# not in pg_config's libdir - LIBRARY_PATH lets the linker find them.
+# The shallow submodule clone has no git tags, so DuckDB would call itself v0.0.1 and
+# pgduck_server would fetch its extensions (httpfs, spatial, ...) from a URL that does not
+# exist ("could not start query engine"): OVERRIDE_GIT_DESCRIBE sets the version pg_lake
+# pins (DUCKDB_VERSION in duckdb_pglake/Makefile; EXT_FLAGS keeps its extension list), and
+# the build fails if libduckdb.so does not carry it. ccache (cache mount below) makes a
+# rebuild skip DuckDB's ~1.5 h compile when only a later step changes.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libselinux1-dev libzstd-dev ccache \
     && rm -rf /var/lib/apt/lists/*
@@ -51,7 +56,19 @@ RUN --mount=type=cache,target=/root/.ccache \
     git clone --depth 1 --branch "${PG_LAKE_REF}" --recurse-submodules --shallow-submodules \
         https://github.com/snowflake-labs/pg_lake.git \
     && cd pg_lake \
-    && make install NCORES="${JOBS}"
+    && duckdb_version=$(sed -n "s/^DUCKDB_VERSION=//p" duckdb_pglake/Makefile) \
+    && test -n "$duckdb_version" \
+    && make install NCORES="${JOBS}" \
+        EXT_FLAGS="-DBUILD_EXTENSIONS='tpch;json;icu' -DOVERRIDE_GIT_DESCRIBE=v${duckdb_version}" \
+    && grep -aq "v${duckdb_version}" "$(pg_config --libdir)/libduckdb.so" \
+    && cd / && rm -rf /build/pg_lake  # ~30 GB build tree; the layer keeps only the install
+# pg_lake installs libavro and libduckdb into the system libdir (pg_config --libdir), not
+# under /usr/lib/postgresql - collect them for the runtime stage (arch-neutral path).
+# libduckdb.so carries debug info (1.2 GB -> 84 MB stripped); only crash stack traces lose
+# their line numbers.
+RUN mkdir /pglake-libs && cp -a "$(pg_config --libdir)"/libavro.so* \
+        "$(pg_config --libdir)"/libduckdb.so /pglake-libs/ \
+    && strip --strip-debug /pglake-libs/libduckdb.so
 
 FROM ${PG_IMAGE}
 # Runtime libraries of pg_lake/pgduck_server (no -dev packages, no compilers).
@@ -59,9 +76,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgeos-c1t64 libproj25 libgdal36 libjson-c5 libprotobuf-c1 libossp-uuid16 \
         liblz4-1 libsnappy1v5 libjansson4 libcurl4t64 libxslt1.1 libnuma1 \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/lib/postgresql /usr/lib/postgresql
 COPY --from=build /usr/share/postgresql /usr/share/postgresql
+COPY --from=build /pglake-libs/ /usr/local/lib/
+RUN ldconfig
 # Fail the build if a pg_lake library or pgduck_server misses a shared library.
 RUN missing=$(for f in /usr/lib/postgresql/${PG_MAJOR}/lib/*.so /usr/lib/postgresql/${PG_MAJOR}/bin/pgduck_server; do \
         ldd "$f" | grep "not found" | sed "s|^|$f: |"; done); \

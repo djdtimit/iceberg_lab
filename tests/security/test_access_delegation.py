@@ -34,32 +34,28 @@ from iceberg_lab.engines import PyIcebergEngine, rows
 from conftest import (
     ENGINES,
     engine_param,
-    expect_gap,
+    expect,
+    expect_cause,
+    find_gap,
+    gap_table,
     require,
     require_remote_signing,
     require_vended_credentials,
     warehouse_params,
 )
 
-NO_SIGNING = "{engine} does not support Iceberg REST remote signing"
-#: What "no signing support" looks like per engine (observed messages): S3 rejects the
-#: request sent without valid credentials, or the client hangs on the EC2 metadata endpoint
-#: looking for credentials. Deliberately specific, so a 403 for another reason is not hidden.
-NO_SIGNING_ERROR = {
-    "duckdb": r"HTTPException: HTTP Error: HTTP (GET|PUT) error .*\(HTTP 403 Forbidden\)",
-    "daft": r"(DaftCoreException: .*AccessDenied|OSError: .*ACCESS_DENIED during \w+)",
-    "polars": r"169\.254\.169\.254",
-}
-
-#: Known gaps: (engine, warehouse, "read"|"write") -> reason; checked with expect_gap.
-UNSUPPORTED = {
-    ("duckdb", WAREHOUSE_SIGNING, "read"): NO_SIGNING,
-    ("duckdb", WAREHOUSE_SIGNING, "write"): NO_SIGNING,
-    ("daft", WAREHOUSE_SIGNING, "read"): NO_SIGNING,
-    ("daft", WAREHOUSE_SIGNING, "write"): NO_SIGNING,
+#: Known gaps: engines without remote signing, on the signing warehouse. What "no signing
+#: support" looks like per engine (observed messages): S3 rejects the request sent without
+#: valid credentials, or the client hangs on the EC2 metadata endpoint looking for credentials.
+#: Deliberately specific, so a 403 for another reason is not hidden.
+# fmt: off
+UNSUPPORTED = gap_table(("engine", "warehouse", "op"), [
+    ("duckdb", WAREHOUSE_SIGNING, "*", r"HTTPException: HTTP Error: HTTP (GET|PUT) error .*\(HTTP 403 Forbidden\)", "engines-no-remote-signing"),
+    ("daft", WAREHOUSE_SIGNING, "*", r"(DaftCoreException: .*AccessDenied|OSError: .*ACCESS_DENIED during \w+)", "engines-no-remote-signing"),
     # Polars writes through PyIceberg (works), but reads with its own object_store reader.
-    ("polars", WAREHOUSE_SIGNING, "read"): NO_SIGNING + " in its native reader",
-}
+    ("polars", WAREHOUSE_SIGNING, "read", r"169\.254\.169\.254", "engines-no-remote-signing"),
+])
+# fmt: on
 
 #: Per warehouse: the capability an engine needs to be configured with catalog-only access
 #: (``iceberg_lab.lab.capabilities.OFFERED``). An engine that cannot be configured for it at all
@@ -74,7 +70,7 @@ def _check_applicable(engine, warehouse, op, engine_pool):
     """Skip engines that cannot be configured for the warehouse's mode (:data:`NEEDS`); return the ``expect_gap`` context for this cell.
 
     Known gaps only count as expected if the error looks like missing signing support
-    (:data:`NO_SIGNING_ERROR`); any other error fails the test.
+    (:data:`UNSUPPORTED`); any other error fails the test.
 
     Args:
         engine: Engine name (see ``conftest.ENGINES``).
@@ -87,10 +83,7 @@ def _check_applicable(engine, warehouse, op, engine_pool):
     """
     if warehouse in NEEDS:
         require(engine, NEEDS[warehouse], engine_pool)
-    reason = UNSUPPORTED.get((engine, warehouse, op))
-    return expect_gap(
-        reason.format(engine=engine) if reason else None, NO_SIGNING_ERROR.get(engine)
-    )
+    return expect(find_gap(UNSUPPORTED, engine=engine, warehouse=warehouse, op=op))
 
 
 # =========================================================================== matrix
@@ -345,9 +338,5 @@ def test_remote_signing_is_reliable_under_repeated_commits(namespace, table_name
             t.append(pa.table({"id": [i], "name": ["x"], "amount": [1.0]}, schema=sample.schema))
         except PermissionError as exc:  # s3fs maps 403 to PermissionError
             errors.append(str(exc))
-    with expect_gap(
-        "PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)",
-        r"signed commits got 403",
-        flaky=True,  # intermittent: a clean run does not mean it is fixed
-    ):
+    with expect_cause("pyiceberg-signer-race", r"signed commits got 403"):  # intermittent
         assert not errors, f"{len(errors)}/{attempts} signed commits got 403: {errors[:3]}"

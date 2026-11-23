@@ -1,11 +1,12 @@
-# Iceberg Lab – four REST catalogs × eight engines
+# Iceberg Lab – five REST catalogs × eight engines
 
 A local lab that compares Apache Iceberg **catalogs** and **engines**, with tests as evidence for
 every claim about what works and what does not:
 
 - **Catalogs** (Iceberg REST): **Lakekeeper** 0.15, **Apache Polaris** 1.9, the **RustFS catalog**
-  built into RustFS (Table Buckets) and **Unity Catalog OSS** 0.7. Select with `CATALOG=…`;
-  the default is Lakekeeper.
+  built into RustFS (Table Buckets), **Unity Catalog OSS** 0.7 and the **Apache Iceberg REST
+  fixture** (the reference implementation, `CATALOG=reference`). Select with `CATALOG=…`; the
+  default is Lakekeeper.
 - **Engines**: PyIceberg, DuckDB, Polars, Daft, Spark, Trino, Postgres/pg_lake and Apache Flink.
 - **Storage**: RustFS (S3-compatible) for all catalogs.
 
@@ -19,7 +20,7 @@ Example notebooks show every engine on every catalog. Python environment managed
 
 ## Overview in pictures
 
-**Lab layout** – eight engines talk Iceberg REST to one of the four catalogs; all of them store in
+**Lab layout** – eight engines talk Iceberg REST to one of the five catalogs; all of them store in
 RustFS. The fault proxies run inside the test process and are only put in between for their
 tests.
 
@@ -34,6 +35,7 @@ flowchart LR
     PL[Polaris 1.9]
     UC[Unity Catalog 0.7]
     RC[RustFS catalog<br/>Table Buckets]
+    RF[Iceberg REST fixture<br/>reference implementation]
   end
   subgraph Authz["Authorization instances (test_authz, test_security)"]
     LKA[lakekeeper-authz] --- KC[Keycloak] --- FGA[OpenFGA]
@@ -45,6 +47,7 @@ flowchart LR
   UC -- "AWS host names" --> GW[Envoy gateway] --> RS
   UC -- "AssumeRole" --> STS[unity-sts-shim] --> RS
   RC --- RS
+  RF --> RS
   CP{{Catalog proxy :18181<br/>test_robustness}} -.-> Catalogs
   SPX{{Storage proxy :19000<br/>test_storage_faults}} -.-> RS
 ```
@@ -96,6 +99,7 @@ flowchart LR
    scripts/build_polaris_console.sh                           # once: build the Polaris Console image (none is published)
    docker compose --profile polaris up -d polaris-console     # Polaris Console (web UI), localhost:8184
    docker compose --profile unity  up -d                      # Unity Catalog 0.7 + gateway, shims, authz instance, Unity UI (CATALOG=unity)
+   docker compose --profile reference up -d reference         # Apache Iceberg REST fixture (CATALOG=reference)
    ```
    After a lab restart: Polaris keeps nothing (`CATALOG=polaris uv run python -m
    iceberg_lab.bootstrap`), neither does OpenFGA (run `lakekeeper-authz-migrate` again, then start

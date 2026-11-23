@@ -20,12 +20,12 @@ Lakekeeper 0.15.1, Polaris 1.9.0 and Unity Catalog 0.7.0 keep the files (same la
 ## Steps to reproduce
 
 ```python
-t = catalog.create_table("ns.t", pa.schema([("id", pa.int64())]))   # RustFS REST catalog, SigV4
+t = catalog.create_table("ns.t", pa.schema([("id", pa.int64())]))  # RustFS REST catalog, SigV4
 for i in range(3):
     t.append(pa.table({"id": [i]}))
 t = catalog.load_table("ns.t")
-for e in t.metadata.metadata_log:                    # 3 entries
-    s3.head_object(Bucket=..., Key=...)               # 403 for each; the current file: 200
+for e in t.metadata.metadata_log:  # 3 entries
+    s3.head_object(Bucket=..., Key=...)  # 403 for each; the current file: 200
 ```
 
 ## Expected

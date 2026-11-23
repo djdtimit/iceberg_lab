@@ -1,18 +1,21 @@
 """Engine-specific: DuckDB's three-part schema names (not part of the comparison).
 
 ``CREATE SCHEMA <catalog>."parent"."child"`` must create the nested namespace ``parent.child``
-or fail - observed: DuckDB silently creates a top-level namespace ``child`` instead.
+or fail. DuckDB up to 2.0.0 silently created a top-level namespace ``child`` instead; fixed in
+2.0.1 - the test stays as a regression check.
 """
 
 # Moved to the base matrices: listing -> test_operations list_tables; aggregation ->
 # filter_aggregate; inserts/delete/update (read by every engine) -> insert/delete/update +
 # cross reads. Left here: DuckDB's three-part schema name (a DuckDB-only behaviour).
 
+import contextlib
+
 import pytest
 
 from iceberg_lab.config import WAREHOUSE_STS
 
-from conftest import expect_gap, require_engine
+from conftest import require_engine
 
 
 @pytest.fixture(autouse=True)
@@ -37,8 +40,8 @@ def duck(make_engine):
 def test_three_part_schema_name_creates_the_right_namespace(duck):
     """``CREATE SCHEMA lk."parent"."child"`` must create ``parent.child`` - or fail.
 
-    Observed: DuckDB accepts the statement and silently creates a TOP-LEVEL namespace ``child``
-    (the documented form for nested namespaces is ``lk."parent.child"``).
+    DuckDB up to 2.0.0 accepted the statement and silently created a TOP-LEVEL namespace
+    ``child`` (the documented form for nested namespaces is ``lk."parent.child"``); fixed in 2.0.1.
 
     Checks:
         * either the statement fails,
@@ -55,17 +58,15 @@ def test_three_part_schema_name_creates_the_right_namespace(duck):
     parent, child = f"dk3p_{uuid.uuid4().hex[:6]}", f"dk3c_{uuid.uuid4().hex[:6]}"
     cat.create_namespace((parent,))
     try:
-        with expect_gap(
-            'WRONG RESULT: DuckDB: CREATE SCHEMA lk."a"."b" silently creates top-level namespace b',
-            r"created top-level namespace",
-        ):
-            try:
-                duck.execute(f'CREATE SCHEMA {duck.alias}."{parent}"."{child}"')
-            except Exception:  # noqa: BLE001 - refusing the statement is acceptable
-                return
-            assert (child,) not in cat.list_namespaces(), f"created top-level namespace {child}"
-            assert (parent, child) in cat.list_namespaces((parent,))
+        try:
+            duck.execute(f'CREATE SCHEMA {duck.alias}."{parent}"."{child}"')
+        except Exception:  # noqa: BLE001 - refusing the statement is acceptable
+            return
+        assert (child,) not in cat.list_namespaces(), f"created top-level namespace {child}"
+        assert (parent, child) in cat.list_namespaces((parent,))
     finally:
         for ns in ((parent, child), (child,), (parent,)):
-            if cat.namespace_exists(ns):
-                cat.drop_namespace(ns)
+            # Catalogs without nested namespaces (Unity) refuse the nested lookup with 400.
+            with contextlib.suppress(Exception):
+                if cat.namespace_exists(ns):
+                    cat.drop_namespace(ns)

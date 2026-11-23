@@ -46,7 +46,7 @@ from iceberg_lab.config import (
 )
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import drop_namespace_tree, expect_gap
+from conftest import drop_namespace_tree, expect, find_gap, gap_table
 
 WAREHOUSE = WAREHOUSE_STS
 ROWS = pa.table({"id": pa.array([1, 2, 3], pa.int64())})
@@ -57,102 +57,27 @@ DENIED = (
     r"ACCESS_DENIED|not allowed|does not exist|not found|NoSuch\w+)"
 )
 
-# Filled from observed failures only: test name -> (regex, reason).
-# Key "catalog:test" (one catalog) or "test" (all catalogs).
-KNOWN_GAPS: dict[str, tuple[str, str]] = {
-    "rustfs:register_table": (
-        r"metadata location must be inside the table metadata directory",
-        (
-            "RustFS registers only metadata inside its own table layout (.rustfs-table/...) - "
-            "a table from another catalog cannot be adopted"
-        ),
-    ),
-    "rustfs:drop_namespace_after_rename": (
-        r"-> HTTP 409: .*namespace labtables/feat_\w+_r is not empty.*NamespaceNotEmptyException",
-        (
-            "RustFS keeps a hidden entry for the old name of a renamed table: after dropping "
-            "the table the namespace stays 'not empty' (nothing listed) until the old name is "
-            "re-created and dropped"
-        ),
-    ),
-    "rustfs:table_bucket_lifecycle": (
-        r"disable: 409 .*table bucket contains reserved metadata",
-        (
-            "RustFS keeps hidden catalog metadata of dropped tables: a table bucket that ever held "
-            "a table can neither be disabled (409 'reserved metadata') nor deleted (BucketNotEmpty), "
-            "even after all visible objects are removed (checked)"
-        ),
-    ),
-    "rustfs:rustfs_unknown_bucket": (
-        r"GET of a missing bucket: 200",
-        (
-            "RustFS reports a bucket that does not exist as a disabled table bucket (GET 200, "
-            "enabled=false); DELETE on it answers 500 instead of 404"
-        ),
-    ),
-    "rustfs:external_table_sync": (
-        r"external/sync -> HTTP 400: .*metadata location must be inside the table metadata directory",
-        (
-            "RustFS syncs a metadata pointer only inside its own table layout (.rustfs-table/...) - "
-            "metadata another system wrote in its own location cannot be adopted (same as register)"
-        ),
-    ),
-    "rustfs:rustfs_maintenance_metadata": (
-        r"/maintenance/metadata -> HTTP 501",
-        "RustFS answers GET .../maintenance/metadata with 501 Not Implemented (route exists)",
-    ),
-    "rustfs:rustfs_rollback": (
-        r"/catalog/rollback -> HTTP 400: .*last-sequence-number must not decrease",
-        (
-            "RustFS refuses a rollback to an earlier metadata file ('last-sequence-number must not "
-            "decrease') - the rollback endpoint cannot restore an earlier table state"
-        ),
-    ),
-    "rustfs:rustfs_recovery": (
-        r"/catalog/recovery -> HTTP 501",
-        "RustFS answers GET .../catalog/recovery with 501 Not Implemented (route exists)",
-    ),
-    "rustfs:rustfs_backup": (
-        r"/catalog/backup -> HTTP 501",
-        "RustFS answers GET .../catalog/backup with 501 Not Implemented (route exists)",
-    ),
-    "polaris:remote_signing": (
-        r"/tables/\w+/sign -> HTTP 501",
-        "Polaris 1.9 has the Iceberg signing endpoint in its API but answers 501 Not Implemented (not advertised in /v1/config; no switch to enable S3 remote signing)",
-    ),
-    "lakekeeper:functions": (
-        r"/functions -> HTTP 404",
-        "Lakekeeper 0.15 describes GET .../namespaces/{ns}/functions in its API, but the server answers 404 (not advertised in /v1/config)",
-    ),
-    "lakekeeper:unregister": (
-        r"/unregister -> HTTP 404",
-        "Lakekeeper 0.15 describes POST .../tables/{t}/unregister in its API, but the server answers 404 (not advertised in /v1/config)",
-    ),
-    "polaris:federation_direct": (
-        r"RESTError 500: Received unexpected JSON Payload: \{\"details\":\"Error id",
-        (
-            "Polaris 1.9.0 image: federation asks the remote catalog for brotli, but brotli4j "
-            "has no native library for x86_64 (UnsatisfiedLinkError) - every answer from "
-            "Lakekeeper (Content-Encoding: br) fails with HTTP 500; without compression "
-            "federation works (test_federation)"
-        ),
-    ),
-    "unity:rename_across_namespaces": (
-        r"-> HTTP 501: .*Renaming a table into another namespace is not supported",
-        "Unity Catalog OSS 0.7 renames only within a namespace (501 for a move into another one)",
-    ),
-    "unity:pagination": (
-        r"assert \d+ == 1",
-        "Unity Catalog OSS 0.7 ignores pageSize: all tables in one page, next-page-token null",
-    ),
-    "polaris:rename_across_namespaces": (
-        r"-> HTTP 403: .*Invalid locations .* is not in the list of allowed locations",
-        (
-            "Polaris 1.9 refuses moving a table into another namespace: the table keeps its location "
-            "under the old namespace, which is outside the new namespace's allowed location (1.7 allowed it)"
-        ),
-    ),
-}
+# Filled from observed failures only: (catalog, test, regex, cause).
+# fmt: off
+KNOWN_GAPS = gap_table(("catalog", "test"), [
+    ("rustfs", "register_table", r"metadata location must be inside the table metadata directory", "rustfs-own-layout-only"),
+    ("rustfs", "drop_namespace_after_rename", r"-> HTTP 409: .*namespace labtables/feat_\w+_r is not empty.*NamespaceNotEmptyException", "rustfs-rename-hidden-entry"),
+    ("rustfs", "table_bucket_lifecycle", r"disable: 409 .*table bucket contains reserved metadata", "rustfs-bucket-not-removable"),
+    ("rustfs", "rustfs_unknown_bucket", r"GET of a missing bucket: 200", "rustfs-unknown-bucket-200"),
+    ("rustfs", "external_table_sync", r"external/sync -> HTTP 400: .*metadata location must be inside the table metadata directory", "rustfs-own-layout-only"),
+    ("rustfs", "rustfs_maintenance_metadata", r"/maintenance/metadata -> HTTP 501", "rustfs-routes-501"),
+    ("rustfs", "rustfs_rollback", r"/catalog/rollback -> HTTP 400: .*last-sequence-number must not decrease", "rustfs-rollback-refused"),
+    ("rustfs", "rustfs_recovery", r"/catalog/recovery -> HTTP 501", "rustfs-routes-501"),
+    ("rustfs", "rustfs_backup", r"/catalog/backup -> HTTP 501", "rustfs-routes-501"),
+    ("polaris", "remote_signing", r"/tables/\w+/sign -> HTTP 501", "polaris-signing-501"),
+    ("lakekeeper", "functions", r"/functions -> HTTP 404", "lakekeeper-functions-unregister-404"),
+    ("lakekeeper", "unregister", r"/unregister -> HTTP 404", "lakekeeper-functions-unregister-404"),
+    ("polaris", "federation_direct", r"RESTError 500: Received unexpected JSON Payload: \{\"details\":\"Error id", "polaris-federation-brotli"),
+    ("unity", "rename_across_namespaces", r"-> HTTP 501: .*Renaming a table into another namespace is not supported", "unity-rename-same-namespace-only"),
+    ("unity", "pagination", r"assert \d+ == 1", "unity-ignores-page-size"),
+    ("polaris", "rename_across_namespaces", r"-> HTTP 403: .*Invalid locations .* is not in the list of allowed locations", "polaris-rename-across-namespaces"),
+])
+# fmt: on
 
 
 def offered_by(*catalogs: str, what: str) -> None:
@@ -167,7 +92,7 @@ def offered_by(*catalogs: str, what: str) -> None:
 
 
 def gap(test: str):
-    """``expect_gap`` for a documented gap of the test (catalog-specific key first).
+    """``expect_gap`` for a documented gap of the test on this catalog.
 
     Args:
         test: Gap key.
@@ -175,8 +100,7 @@ def gap(test: str):
     Returns:
         The context manager.
     """
-    entry = KNOWN_GAPS.get(f"{PROFILE.name}:{test}") or KNOWN_GAPS.get(test)
-    return expect_gap(entry[1], entry[0]) if entry else expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, test=test))
 
 
 # ----------------------------------------------------------------------------- helpers

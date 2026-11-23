@@ -1,6 +1,6 @@
 """Build the dashboard's data files from the latest full runs (run in the dev container).
 
-    testergebnisse.json  every comparison row of all four catalogs, with a "catalog" field
+    testergebnisse.json  every comparison row of all five catalogs, with a "catalog" field
                          (reports/comparison_rows.json = Lakekeeper, reports/<cat>/... = others),
                          plus the runs without lab help as catalog ``<cat>_nohelp`` (rows of
                          the helped engines only; shown next to the catalog, never counted).
@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity")
+CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference")
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "tests" / "lab")]
 
 
@@ -182,11 +182,29 @@ def inventory() -> list[dict]:
     return out
 
 
+#: Fields the page only tests for truth: left out when empty, to keep the data file under the
+#: artifact's 16 MB limit (``engine`` stays, the page compares it with "").
+OPTIONAL = ("writer", "blocked_by", "severity", "detail", "run")
+
+
+def compact(rows: list[dict]) -> str:
+    """The rows as JSON without spaces and without empty optional fields.
+
+    Args:
+        rows: Dashboard rows.
+
+    Returns:
+        The JSON text.
+    """
+    slim = [{k: v for k, v in r.items() if v != "" or k not in OPTIONAL} for r in rows]
+    return json.dumps(slim, ensure_ascii=False, separators=(",", ":"))
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     res = results()
-    (out / "testergebnisse.json").write_text(json.dumps(res, ensure_ascii=False))
+    (out / "testergebnisse.json").write_text(compact(res))
     run_rows = runs()
     (out / "runs.json").write_text(json.dumps(run_rows, ensure_ascii=False))
     inv_rows = inventory()

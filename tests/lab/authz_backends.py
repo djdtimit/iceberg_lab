@@ -48,7 +48,7 @@ import pyarrow as pa
 import pytest
 import requests
 
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS
+from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, rest_prefix_path
 
 USERS = ("alice", "bob")
 ROWS = 3
@@ -317,12 +317,24 @@ class Backend:
             s.auth = _SigV4Keys(c.keys)
         cfg = s.get(f"{c.uri}/v1/config", params={"warehouse": c.warehouse}, timeout=10)
         body = cfg.json() if cfg.ok else {}
-        prefix = (
-            body.get("overrides", {}).get("prefix")
-            or body.get("defaults", {}).get("prefix")
-            or c.warehouse
-        )
-        return s, f"{c.uri}/v1/{prefix}"
+        # Without /v1/config (no access to the warehouse) the backend knows the prefix.
+        prefix = rest_prefix_path(body) if body else "/" + self.rest_prefix(c.warehouse)
+        return s, f"{c.uri}/v1{prefix}"
+
+    def rest_prefix(self, warehouse: str) -> str:
+        """REST path prefix of a warehouse when the user may not read ``/v1/config``.
+
+        A user without access to the warehouse gets no config (Lakekeeper hides it with 404);
+        the raw calls must still go to the real path, so the catalog's own answer (refusal)
+        counts - not a 400 for a wrong path.
+
+        Args:
+            warehouse: Warehouse name.
+
+        Returns:
+            The prefix; by default the warehouse name.
+        """
+        return warehouse
 
     def namespace_grant_not_offered(self, ns: str) -> str | None:
         """``None`` if a read grant on a namespace can cover its tables, else the reason.
@@ -561,6 +573,17 @@ class LakekeeperAuthz(Backend):
             self.user_ids[u] = requests.get(
                 f"{self.base}/management/v1/whoami", headers=self._h(u), timeout=10
             ).json()["id"]
+
+    def rest_prefix(self, warehouse: str) -> str:
+        """Lakekeeper's REST prefix is the warehouse id (known from :meth:`ensure`).
+
+        Args:
+            warehouse: Warehouse name.
+
+        Returns:
+            The warehouse id.
+        """
+        return self.warehouse_ids[warehouse]
 
     def _conn(self, client, warehouse=None):
         """Connection of a Keycloak client to a warehouse.
@@ -2021,4 +2044,6 @@ def backend() -> Backend:
     Returns:
         The backend instance.
     """
+    if PROFILE.name not in BACKENDS:  # the reference fixture: no authentication at all
+        pytest.skip(f"catalog {PROFILE.name} has no API for users and permissions")
     return BACKENDS[PROFILE.name]()

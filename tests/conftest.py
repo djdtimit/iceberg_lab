@@ -91,6 +91,15 @@ from iceberg_lab.lab.capabilities import (  # noqa: F401
     require,
     require_format,
 )
+from iceberg_lab.lab.gap_register import (  # noqa: F401
+    Gap,
+    expect,
+    expect_cause,
+    find_gap,
+    gap,
+    gap_table,
+    matching,
+)
 from iceberg_lab.lab.gaps import (  # noqa: F401
     CATALOG_GAPS,
     FLAKY_GAPS,
@@ -528,7 +537,10 @@ def drop_namespace_tree(cat, ns) -> None:
         try:
             cat.purge_table(ident)
         except Exception:  # noqa: BLE001 - fall back to drop if purge fails (RustFS: 406)
-            cat.drop_table(ident)
+            # A purge can fail after the table is gone (REST fixture: 500 for a missing file
+            # of a table a test corrupted on purpose) - then there is nothing left to drop.
+            if cat.table_exists(ident):
+                cat.drop_table(ident)
     try:
         cat.drop_namespace(ns)
     except NamespaceNotEmptyError:

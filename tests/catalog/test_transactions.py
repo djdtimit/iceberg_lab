@@ -25,7 +25,6 @@ seen):
 
 from __future__ import annotations
 
-import fnmatch
 import re
 import uuid
 
@@ -35,7 +34,7 @@ import test_robustness as rb
 from iceberg_lab.config import PROFILE
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require
+from conftest import ENGINES, engine_param, expect, find_gap, gap_table, require
 
 WAREHOUSE = rb.WAREHOUSE
 #: The injected refusal: HTTP 503 "ServiceUnavailable: injected" (or the engine's wrapper).
@@ -146,17 +145,17 @@ def count(ns, table) -> int:
 
 # Filled from observed failures only: (engine, test, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
+KNOWN_GAPS = gap_table(("engine", "test"), [
     # Catalogs without POST /v1/{prefix}/transactions/commit (Unity): DuckDB refuses correctly.
-    *([("duckdb", "*", r"cannot commit this transaction atomically because it would require multiple table commit requests without atomic multi-table commit support", f"{PROFILE.name} has no /transactions/commit - no multi-table transaction (DuckDB refuses the COMMIT)")]
+    *([("duckdb", "*", r"cannot commit this transaction atomically because it would require multiple table commit requests without atomic multi-table commit support", "unity-no-transactions-commit")]
       if PROFILE.name == "unity" else []),
-    ("trino", "*", r"Catalog only supports writes using autocommit", "Trino Iceberg: no writes inside an explicit transaction (autocommit only), so no multi-table transaction"),
-    ("flink", "commit", r"one commit per table instead of one transaction", "Flink STATEMENT SET commits every table separately (no /transactions/commit)"),
-    ("flink", "atomicity", r"NOT ATOMIC: A committed, B not", "INCONSISTENT: Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails"),
+    ("trino", "*", r"Catalog only supports writes using autocommit", "trino-autocommit-only"),
+    ("flink", "commit", r"one commit per table instead of one transaction", "flink-statement-set-per-table"),
+    ("flink", "atomicity", r"NOT ATOMIC: A committed, B not", "flink-statement-set-not-atomic"),
     # Checked by hand: pg_lake shows both rows, the REST catalog (and every other engine)
     # none; no retry, nothing in the Postgres log.
-    ("pg_lake", "atomicity", r"no error although B's commit was refused", "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit: Postgres shows the rows, the catalog and all other engines do not (silent divergence, nothing logged)"),
-]
+    ("pg_lake", "atomicity", r"no error although B's commit was refused", "pglake-ignores-refused-commit"),
+])
 # fmt: on
 
 
@@ -170,10 +169,7 @@ def _gap(engine, test):
     Returns:
         The context manager.
     """
-    for e, t, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(engine, e) and fnmatch.fnmatch(test, t):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, engine=engine, test=test))
 
 
 def _adapter(engine, request):

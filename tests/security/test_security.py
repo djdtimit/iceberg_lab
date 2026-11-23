@@ -77,10 +77,17 @@ import pytest
 import requests
 
 from iceberg_lab import keycloak as kc
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, catalog_auth, catalog_headers
+from iceberg_lab.config import (
+    PROFILE,
+    SETTINGS,
+    WAREHOUSE_STS,
+    catalog_auth,
+    catalog_headers,
+    rest_base,
+)
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 KC = "http://keycloak:8080"
 LAKEKEEPER = "http://lakekeeper-authz:8181"
@@ -100,17 +107,26 @@ TOKEN_CASES = [
 ]
 SIGV4_CASES = ["garbage", "unknown_key", "tampered", "expired"]
 
-# Filled from observed results only: (catalog, case, regex on "<status> <message>", reason).
+# Filled from observed results only: (catalog, case, regex on "<status> <message>", cause).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    ("unity", "alg_none", r"not refused with 401: 409 Unsupported RSA algorithm: none", "Unity refuses a token with alg 'none', but with 409 Conflict ('Unsupported RSA algorithm: none') instead of 401"),
-    ("unity", "alg_confusion", r"not refused with 401: 409 Unsupported RSA algorithm: HS256", "Unity refuses an HS256-signed token (algorithm confusion), but with 409 Conflict ('Unsupported RSA algorithm: HS256') instead of 401"),
-    ("unity", "error_wrong_types", r"internal names in the error: com\.fasterxml\.jackson", "Unity's error message for a malformed request names internal Java classes (com.fasterxml.jackson..., org.apache.iceberg.rest.requests...)"),
-    ("unity", "error_unknown_update", r"server error for a client error: 500 .*Cannot convert metadata update action to json: explode", "Unity answers an unknown table update action with 500 (ServiceFailureException) instead of 400"),
-    ("lakekeeper", "name_table_dotdot", r"cannot be loaded again", "Lakekeeper accepts a table named '..'; HTTP clients must remove '..' path segments (RFC 3986), so the table can only be reached percent-encoded (%2E%2E) - Polaris, RustFS and Unity refuse the name"),
-            ("unity", "token_lifetime", r"catalog token lives 86400 s, the identity token 3600 s", "SECURITY: Unity issues its own tokens for 24 h regardless of the Keycloak token's lifetime (1 h): a user disabled in Keycloak keeps access to Unity for up to a day"),
-    ("rustfs", "write_data_path", r"accepted an overlapping location, no issued keys", "SECURITY: RustFS accepts write.data.path pointing into another table's directory (no overlap check); it issues no keys, so only the writer's own S3 policy keeps the tables apart"),
-]
+KNOWN_GAPS = gap_table(("catalog", "case"), [
+    ("unity", "alg_none", r"not refused with 401: 409 Unsupported RSA algorithm: none", "unity-token-alg-409"),
+    ("unity", "alg_confusion", r"not refused with 401: 409 Unsupported RSA algorithm: HS256", "unity-token-alg-409"),
+    ("unity", "error_wrong_types", r"internal names in the error: com\.fasterxml\.jackson", "unity-error-internal-names"),
+    ("unity", "error_unknown_update", r"server error for a client error: 500 .*Cannot convert metadata update action to json: explode", "unity-unknown-update-500"),
+    ("lakekeeper", "name_table_dotdot", r"cannot be loaded again", "lakekeeper-dotdot-table-name"),
+    ("unity", "token_lifetime", r"catalog token lives 86400 s, the identity token 3600 s", "unity-token-lifetime"),
+    ("rustfs", "write_data_path", r"accepted an overlapping location, no issued keys", "rustfs-write-data-path-overlap"),
+    # The REST fixture checks no location at all (and vends no keys: clients use their own).
+    *(("reference", c, r"accepted an overlapping location, no issued keys", "reference-no-location-checks")
+      for c in ("create_same", "create_inside", "create_parent", "set_location", "register_metadata", "register_outside", "write_data_path")),
+    *(("reference", f"error_{c}", r"internal names in the error: org\.apache\.iceberg\.exceptions\.\w+Exception", "reference-error-stack-traces")
+      for c in ("missing_table", "huge_name")),
+    *(("reference", f"error_{c}", r"server error for a client error: 500 <html>", "reference-client-error-500")
+      for c in ("broken_json", "wrong_types", "unknown_update")),
+    *(("reference", f"name_{n}", r"accepted name .{1,80} cannot be loaded again: (BadRequestError|HTTPError|NoSuchNamespaceError)", "reference-names-unaddressable")
+      for n in ("namespace_traversal", "table_slash", "namespace_slash", "table_backslash", "namespace_backslash", "namespace_newline", "table_percent", "namespace_percent")),
+])
 # fmt: on
 
 
@@ -123,10 +139,7 @@ def _gap(case):
     Returns:
         The context manager.
     """
-    for cat, c, regex, reason in KNOWN_GAPS:
-        if cat == PROFILE.name and c == case:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, case=case))
 
 
 # =========================================================================== JWT helpers
@@ -253,6 +266,8 @@ def keycloak():
     Returns:
         Case -> bad token.
     """
+    if PROFILE.name not in TOKEN_CLIENTS:  # the reference fixture: no authentication
+        pytest.skip(f"catalog {PROFILE.name} has no API for token authentication")
     try:
         admin = _keycloak_admin()
     except requests.RequestException:
@@ -450,9 +465,11 @@ def test_bad_token_is_refused(case, request):
     elif cat == "rustfs":  # Keycloak identity -> temporary keys (AssumeRoleWithWebIdentity)
         _require(KC)
         good, probe = keycloak_token("rustfs-alice"), _rustfs_sts
-    else:  # unity: own tokens at the API, Keycloak tokens at the exchange
+    elif cat == "unity":  # own tokens at the API, Keycloak tokens at the exchange
         _require(f"{UNITY}/api/2.1/unity-catalog/catalogs")
         good, probe, via = _unity_token(), _unity, _unity_exchange
+    else:
+        pytest.skip(f"catalog {cat} has no API for authentication (open catalog)")
     assert probe(good).status_code == 200, f"positive control failed: {_status(probe(good))}"
     if case in ("expired", "other_issuer", "no_audience"):
         bad = request.getfixturevalue("keycloak")[case]
@@ -967,24 +984,13 @@ MANAGEMENT = {
 }
 
 
-def _prefix() -> str:
-    """The catalog's URL prefix of the STS warehouse (from ``/v1/config``).
+def _base() -> str:
+    """REST base URL of the STS warehouse: ``<catalog>/v1[/<prefix>]`` (``config.rest_base``).
 
     Returns:
-        The prefix.
+        The URL.
     """
-    cfg = requests.get(
-        f"{SETTINGS.catalog_uri}/v1/config",
-        params={"warehouse": WAREHOUSE_STS},
-        headers=catalog_headers(),
-        auth=catalog_auth(),
-        timeout=10,
-    ).json()
-    return (
-        cfg.get("overrides", {}).get("prefix")
-        or cfg.get("defaults", {}).get("prefix")
-        or WAREHOUSE_STS
-    )
+    return rest_base(WAREHOUSE_STS)
 
 
 def test_responses_contain_no_secrets(victim):
@@ -997,17 +1003,31 @@ def test_responses_contain_no_secrets(victim):
         victim: ``(catalog, namespace, table A, path of A's data file)``.
     """
     _, ns, a, _ = victim
-    table = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{ns}/tables/{a.name()[-1]}"
+    table = f"{_base()}/namespaces/{ns}/tables/{a.name()[-1]}"
     urls = [
         (f"{SETTINGS.catalog_uri}/v1/config?warehouse={WAREHOUSE_STS}", {}),
         (table, {"X-Iceberg-Access-Delegation": "vended-credentials"}),
         (f"{table}/credentials", {}),
-    ] + [(u.format(lakekeeper=SETTINGS.lakekeeper_url), {}) for u in MANAGEMENT[PROFILE.name]]
+    ] + [
+        (u.format(lakekeeper=SETTINGS.lakekeeper_url), {}) for u in MANAGEMENT.get(PROFILE.name, [])
+    ]
+    cfg = requests.get(
+        f"{SETTINGS.catalog_uri}/v1/config",
+        params={"warehouse": WAREHOUSE_STS},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=10,
+    ).json()
+    has_credentials = "GET /v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials" in (
+        cfg.get("endpoints") or []
+    )
     hits = []
     for url, extra in urls:
         r = requests.get(
             url, headers={**catalog_headers(), **extra}, auth=catalog_auth(), timeout=10
         )
+        if url.endswith("/credentials") and not has_credentials and r.status_code in (400, 404):
+            continue  # not offered (not advertised, refused): nothing to leak
         assert r.status_code == 200, f"{url}: {r.status_code}"
         hits += [f"{url}: {h}" for h in secrets_in(r.json())]
     assert not hits, "\n".join(hits)
@@ -1026,7 +1046,7 @@ def test_view_responses_carry_no_storage_keys(namespace):
     Args:
         namespace: Fresh namespace of the test session.
     """
-    base = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{namespace}/views"
+    base = f"{_base()}/namespaces/{namespace}/views"
     name = f"sec_v_{uuid.uuid4().hex[:6]}"
     body = {
         "name": name,
@@ -1135,7 +1155,7 @@ def test_error_response_is_clean(case):
         pytest.skip(
             "not testable on rustfs: the lab's SigV4 client cannot sign an encoded '../' path"
         )
-    v1 = f"{SETTINGS.catalog_uri}/v1/{_prefix()}"
+    v1 = f"{_base()}"
     missing = f"nope_{uuid.uuid4().hex[:6]}"
     js = {"Content-Type": "application/json"}
     method, url, body, extra = {
@@ -1197,7 +1217,7 @@ def _raw_cleanup(parent: str) -> None:
     from urllib.parse import quote
 
     if PROFILE.name == "lakekeeper":  # Lakekeeper extension: recursive drop
-        url = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces/{parent}"
+        url = f"{_base()}/namespaces/{parent}"
         requests.delete(
             url,
             params={"recursive": "true", "purge": "true"},
@@ -1224,7 +1244,7 @@ def _raw_cleanup(parent: str) -> None:
         r = conn.getresponse()
         return r.status, r.read()
 
-    base = f"/api/catalog/v1/{_prefix()}/namespaces"
+    base = f"/api/catalog{_base().split('/api/catalog', 1)[1]}/namespaces"  # Polaris
     _, body = call("GET", f"{base}?parent={quote(parent)}")
     for child in json.loads(body or b"{}").get("namespaces", []):
         for enc in (quote(child[-1], safe=""), quote(quote(child[-1], safe=""), safe="")):
@@ -1263,7 +1283,7 @@ def _namespace_roundtrip(ident: tuple[str, ...], nested: bool) -> None:
     """
     from urllib.parse import quote
 
-    base = f"{SETTINGS.catalog_uri}/v1/{_prefix()}/namespaces"
+    base = f"{_base()}/namespaces"
     path = "%1F".join(quote(part, safe="") for part in ident)
     kw = {"headers": catalog_headers(), "auth": catalog_auth(), "timeout": 15}
     for method, url, params in (
@@ -1549,6 +1569,8 @@ def test_catalog_token_does_not_outlive_identity_token(request):
     cat = PROFILE.name
     if cat in ("polaris", "rustfs"):
         pytest.skip(f"catalog {cat} has no API for identity-provider tokens (own broker / SigV4)")
+    if cat not in ("lakekeeper", "unity"):
+        pytest.skip(f"catalog {cat} has no API for authentication (open catalog)")
     _require(KC)
     identity = keycloak_token("alice")
     if cat == "lakekeeper":

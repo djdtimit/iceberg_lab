@@ -33,6 +33,7 @@ bodies and internal names in errors (test_security.py).
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -46,7 +47,7 @@ from rest_client import Rest
 from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 WAREHOUSE = WAREHOUSE_STS
 ROWS = pa.table({"id": pa.array([1, 2, 3], pa.int64())})
@@ -58,11 +59,12 @@ SCHEMA = {
 
 # Filled from observed results only: (catalog, case, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    ("lakekeeper", "error_body:unknown_route", r"unknown_route \(HTTP 404\): no Iceberg error document \(None\): ''", "Lakekeeper answers a request to a path it does not have with 404 and an empty body - no Iceberg error document (Iceberg clients cannot parse the error; same as unitycatalog#1835)"),
-    ("lakekeeper", "error_body:unsupported_method", r"unsupported_method \(HTTP 405\): no Iceberg error document \(None\): ''", "Lakekeeper answers a method a path does not support with 405 and an empty body - no Iceberg error document"),
-    ("lakekeeper", "snapshots_value", r"snapshots=some answered 200", "Lakekeeper accepts any value of loadTable's 'snapshots' parameter (spec: all|refs; Unity, Polaris and RustFS answer 400)"),
-]
+KNOWN_GAPS = gap_table(("catalog", "case"), [
+    ("lakekeeper", "error_body:unknown_route", r"unknown_route \(HTTP 404\): no Iceberg error document \(None\): ''", "lakekeeper-error-body-empty"),
+    ("lakekeeper", "error_body:unsupported_method", r"unsupported_method \(HTTP 405\): no Iceberg error document \(None\): ''", "lakekeeper-error-body-empty"),
+    ("reference", "error_body:unsupported_method", r"unsupported_method \(HTTP 501\): no Iceberg error document \(None\): ''", "reference-error-body-empty"),
+    ("lakekeeper", "snapshots_value", r"snapshots=some answered 200", "lakekeeper-snapshots-param"),
+])
 # fmt: on
 
 
@@ -75,10 +77,7 @@ def _gap(case: str):
     Returns:
         The context manager.
     """
-    for cat, c, regex, reason in KNOWN_GAPS:
-        if cat == PROFILE.name and c == case:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, case=case))
 
 
 @pytest.fixture(scope="module")
@@ -599,6 +598,21 @@ def _error_type(r: requests.Response) -> str:
         return ""
 
 
+def _error_message(r: requests.Response) -> str:
+    """``error.message`` of an Iceberg error answer.
+
+    Args:
+        r: HTTP response.
+
+    Returns:
+        The message, or empty.
+    """
+    try:
+        return str(r.json().get("error", {}).get("message", ""))
+    except ValueError:
+        return ""
+
+
 def _no_route(r: requests.Response, ep: Endpoint) -> bool:
     """The answer says "no such endpoint", not "no such object".
 
@@ -609,6 +623,8 @@ def _no_route(r: requests.Response, ep: Endpoint) -> bool:
     Returns:
         Whether it is a plain "no such route".
     """
+    if r.status_code == 400 and re.match(r"No route for request: ", _error_message(r)):
+        return True  # the Iceberg REST fixture's (reference implementation's) "no such route"
     if r.status_code not in NO_ROUTE:
         return False
     kind = _error_type(r)

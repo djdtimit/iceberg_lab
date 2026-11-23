@@ -754,3 +754,20 @@ def test_every_function_documents_its_arguments_and_result():
     for path in files:
         visit(ast.parse(path.read_text()), "", path, True)
     assert not problems, f"{len(problems)} undocumented:\n" + "\n".join(problems[:60])
+
+
+def test_manifest_reads_every_compose_image():
+    """The run manifest's compose parser (no YAML library at run time) finds the image of every
+    service exactly as a YAML parser does.
+
+    Checks:
+        * ``manifest.declared_images()`` equals ``{service: image}`` from PyYAML - a service key
+          with a trailing comment once made the next service's image overwrite pg-lake's.
+    """
+    import yaml
+
+    from iceberg_lab.lab.manifest import COMPOSE, declared_images
+
+    services = yaml.safe_load(COMPOSE.read_text())["services"]
+    expected = {name: s["image"] for name, s in services.items() if "image" in s}
+    assert declared_images() == expected

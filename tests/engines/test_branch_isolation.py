@@ -23,7 +23,16 @@ import test_operations as base
 
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh, require, require_engine
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    find_gap,
+    fresh,
+    gap_table,
+    require,
+    require_engine,
+)
 
 WAREHOUSE = base.WAREHOUSE
 MAIN = [(1, "a", 1.0), (2, "b", 2.0)]
@@ -31,7 +40,7 @@ ON_BRANCH = (9, "branch", 9.0)
 
 # Filled from observed results only: (test, engine, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = []
+KNOWN_GAPS = gap_table(("test", "engine"), [])
 # fmt: on
 
 
@@ -45,10 +54,7 @@ def _gap(test: str, engine: str):
     Returns:
         The context manager.
     """
-    for t, e, regex, reason in KNOWN_GAPS:
-        if t == test and e == engine:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, test=test, engine=engine))
 
 
 def _branched_table(namespace: str) -> str:

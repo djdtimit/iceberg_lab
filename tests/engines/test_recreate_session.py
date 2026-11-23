@@ -26,7 +26,15 @@ import test_operations as base
 
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require, require_engine
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    find_gap,
+    gap_table,
+    require,
+    require_engine,
+)
 
 WAREHOUSE = base.WAREHOUSE
 OLD = [(1, "old", 1.0)]
@@ -34,12 +42,12 @@ NEW = [(2, "new", 2.0)]
 
 # Filled from observed results only: (test, engine, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    ("reads_the_recreated_table", "spark", r"spark read \[\(1, 'old', 1\.0\)\] after the re-create|Location does not exist: s3://\S+\.avro", "WRONG RESULT: Spark's catalog cache (cache-enabled, 30 s) still holds the dropped table after a re-create under the same name: Spark reads its old rows, or fails on its deleted files once they are purged"),
-    ("writes_the_recreated_table", "spark", r"Table UUID does not match: current=\S+ != refreshed=", "Spark refuses to write to a table re-created under the same name while its catalog cache holds the dropped one ('Table UUID does not match') - safe, but the new table is not writable until the cache expires (30 s)"),
-    *((t, "flink", r"Table UUID does not match: current=\S+ != refreshed=", f"Flink refuses to {w} a table re-created under the same name while its catalog cache holds the dropped one ('Table UUID does not match') - safe, but not usable until the cache expires")
-      for t, w in (("reads_the_recreated_table", "read"), ("writes_the_recreated_table", "write"))),
-]
+KNOWN_GAPS = gap_table(("test", "engine"), [
+    ("reads_the_recreated_table", "spark", r"spark read \[\(1, 'old', 1\.0\)\] after the re-create|Location does not exist: s3://\S+\.avro", "spark-cache-recreated-table"),
+    ("writes_the_recreated_table", "spark", r"Table UUID does not match: current=\S+ != refreshed=", "engines-cache-recreated-uuid-mismatch"),
+    *((t, "flink", r"Table UUID does not match: current=\S+ != refreshed=", "engines-cache-recreated-uuid-mismatch")
+      for t in ("reads_the_recreated_table", "writes_the_recreated_table")),
+])
 # fmt: on
 
 
@@ -53,10 +61,7 @@ def _gap(test: str, engine: str):
     Returns:
         The context manager.
     """
-    for t, e, regex, reason in KNOWN_GAPS:
-        if t == test and e == engine:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, test=test, engine=engine))
 
 
 def _drop(cat, ident: str) -> None:

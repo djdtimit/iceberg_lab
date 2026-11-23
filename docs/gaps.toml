@@ -1,0 +1,767 @@
+# Gap register: one entry per cause of a known gap (src/iceberg_lab/lab/gap_register.py).
+# Tests point here by id. Fields: summary, severity (DATA LOSS | DATA CORRUPTION |
+# INCONSISTENT | WRONG RESULT | SECURITY), seen_at (component -> version last reproduced),
+# flaky, bug_report (docs/bug-reports/), upstream. The id starts with the owning component
+# (pglake- for pg_lake) or catalogs-/engines- for a cause shared by several.
+# `uv run python scripts/gap_register.py confirm` moves seen_at forward after a full run.
+
+# ============================== lakekeeper
+
+[lakekeeper-dotdot-table-name]
+summary = "Lakekeeper accepts a table named '..'; HTTP clients must remove '..' path segments (RFC 3986), so the table can only be reached percent-encoded (%2E%2E) - Polaris, RustFS and Unity refuse the name"
+seen_at = { lakekeeper = "0.15.1" }
+
+[lakekeeper-error-body-empty]
+summary = "Lakekeeper answers a path it does not have (404) or a method a path does not support (405) with an empty body - no Iceberg error document (Iceberg clients cannot parse the error; same as unitycatalog#1835)"
+seen_at = { lakekeeper = "0.15.1" }
+bug_report = "13-lakekeeper-error-bodies-and-snapshots-param.md"
+
+[lakekeeper-functions-unregister-404]
+summary = "Lakekeeper 0.15 describes GET .../namespaces/{ns}/functions and POST .../tables/{t}/unregister in its API, but the server answers 404 (not advertised in /v1/config)"
+seen_at = { lakekeeper = "0.15.1" }
+
+[lakekeeper-hard-delete-race]
+summary = "Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException)"
+seen_at = { lakekeeper = "0.15.1", spark = "4.1.4+iceberg1.12.0" }
+flaky = true
+
+[lakekeeper-ns-properties-missing-field]
+summary = "Lakekeeper's update-namespace-properties response lacks the field 'missing' that PyIceberg 0.12 requires (Polaris sends it)"
+seen_at = { lakekeeper = "0.15.1", pyiceberg = "0.12.0" }
+
+[lakekeeper-openfga-ignores-token-roles]
+summary = "Lakekeeper 0.15 with OpenFGA ignores roles from the token: LAKEKEEPER__OPENID_ROLES_CLAIM is used only by the Cedar authorizer (docs: 'The default OpenFGA implementation does not use token roles') - membership must be granted in Lakekeeper"
+seen_at = { lakekeeper = "0.15.1", openfga = "1.23.0" }
+
+[lakekeeper-rejects-geo]
+summary = "Lakekeeper v0.15 rejects geometry/geography in table schemas (422)"
+seen_at = { lakekeeper = "0.15.1" }
+
+[lakekeeper-signer-refuses-purge]
+summary = "Spark PURGE after drop: Lakekeeper's signer refuses deletes for the dropped table"
+seen_at = { lakekeeper = "0.15.1", spark = "4.1.4+iceberg1.12.0" }
+
+[lakekeeper-snapshots-param]
+summary = "Lakekeeper accepts any value of loadTable's 'snapshots' parameter (spec: all|refs; Unity, Polaris and RustFS answer 400)"
+seen_at = { lakekeeper = "0.15.1" }
+bug_report = "13-lakekeeper-error-bodies-and-snapshots-param.md"
+
+# ============================== polaris
+
+[polaris-federation-brotli]
+summary = "Polaris 1.9.0 image: federation asks the remote catalog for brotli, but brotli4j has no native library for x86_64 (UnsatisfiedLinkError) - every answer from Lakekeeper (Content-Encoding: br) fails with HTTP 500; without compression federation works (test_federation)"
+seen_at = { polaris = "1.9.0" }
+bug_report = "07-polaris-federation-brotli.md"
+
+[polaris-idp-roles-narrow-only]
+summary = "Polaris activates a role from the token (principal-roles-mapper) only if the principal is ALSO assigned that role in Polaris: the identity provider can narrow the roles, not grant them"
+seen_at = { polaris = "1.9.0", keycloak = "26.8.2" }
+upstream = "apache/polaris#2373"
+
+[polaris-rename-across-namespaces]
+summary = "Polaris 1.9 refuses moving a table into another namespace: the table keeps its location under the old namespace, which is outside the new namespace's allowed location (1.7 allowed it)"
+seen_at = { polaris = "1.9.0" }
+
+[polaris-signing-501]
+summary = "Polaris 1.9 has the Iceberg signing endpoint in its API but answers 501 Not Implemented (not advertised in /v1/config; no switch to enable S3 remote signing)"
+seen_at = { polaris = "1.9.0" }
+
+[polaris-tx-commit-full-metadata]
+summary = "Polaris requires TABLE_FULL_METADATA for /transactions/commit (TABLE_WRITE_DATA suffices for a normal commit) - DuckDB always commits that way, so a write grant does not let it write"
+seen_at = { polaris = "1.9.0", duckdb = "2.0.1" }
+
+[polaris-v3-type-in-v2-500]
+summary = "Polaris rejects a v3 type in a v2 table with HTTP 500 instead of 400 (Bad Request)"
+seen_at = { polaris = "1.9.0" }
+
+# ============================== unity
+
+[unity-authz-lookup-500]
+summary = "Unity's authz stack once answered pg_lake's namespace lookup for a user without grants with HTTP 500 instead of 403 (1 of 7 runs; no trace in the server logs)"
+seen_at = { unity = "0.7.0", pg_lake = "3.7.0-pg19" }
+flaky = true
+
+[unity-delayed-file-cleanup]
+summary = "Unity Catalog OSS 0.7 deletes the files of a dropped managed table only later (server.storage-cleanup.initial-delay, default P7D = 7 days), purgeRequested=true does not delete them at once"
+seen_at = { unity = "0.7.0" }
+
+[unity-error-internal-names]
+summary = "Unity's error message for a malformed request names internal Java classes (com.fasterxml.jackson..., org.apache.iceberg.rest.requests...)"
+seen_at = { unity = "0.7.0" }
+
+[unity-ignores-page-size]
+summary = "Unity Catalog OSS 0.7 ignores pageSize: all tables in one page, next-page-token null"
+seen_at = { unity = "0.7.0" }
+
+[unity-invalid-commit-500]
+summary = "Unity refuses this invalid commit, but with 500 (ValidationException) instead of 400"
+seen_at = { unity = "0.7.0" }
+
+[unity-loses-namespace-property]
+summary = "Unity intermittently loses a concurrent namespace property update (confirmed, then gone)"
+severity = "DATA LOSS"
+seen_at = { unity = "0.7.0" }
+flaky = true
+
+[unity-no-nested-namespaces]
+summary = "Unity Catalog has a fixed catalog.schema.table hierarchy: no nested namespaces (400)"
+seen_at = { unity = "0.7.0" }
+
+[unity-no-transactions-commit]
+summary = "Unity Catalog has no /transactions/commit - no multi-table transaction (DuckDB refuses the COMMIT)"
+seen_at = { unity = "0.7.0", duckdb = "2.0.1" }
+
+[unity-no-v3-types]
+summary = "Unity Catalog OSS 0.7 does not support the Iceberg types time, timestamp_ns, timestamptz_ns, unknown, geometry and geography (400 on CREATE TABLE)"
+seen_at = { unity = "0.7.0" }
+
+[unity-nosuchnamespace-for-metadata-tables]
+summary = "Unity answers a lookup of table 'ns.t.<x>' with NoSuchNamespace instead of NoSuchTable - Spark and Flink then do not fall back to metadata tables, branches or tags (t.snapshots, t.branch_x, t.changes)"
+seen_at = { unity = "0.7.0", spark = "4.1.4+iceberg1.12.0", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[unity-rename-same-namespace-only]
+summary = "Unity Catalog OSS 0.7 renames only within a namespace (501 for a move into another one)"
+seen_at = { unity = "0.7.0" }
+
+[unity-scim-delete-deactivates]
+summary = "Unity's SCIM DELETE only deactivates a user (active=false); it stays listed and retrievable"
+seen_at = { unity = "0.7.0" }
+
+[unity-token-alg-409]
+summary = "Unity refuses a token with alg 'none' or an HS256-signed token (algorithm confusion), but with 409 Conflict ('Unsupported RSA algorithm') instead of 401"
+seen_at = { unity = "0.7.0" }
+
+[unity-token-lifetime]
+summary = "Unity issues its own tokens for 24 h regardless of the Keycloak token's lifetime (1 h): a user disabled in Keycloak keeps access to Unity for up to a day"
+severity = "SECURITY"
+seen_at = { unity = "0.7.0", keycloak = "26.8.2" }
+
+[unity-unknown-update-500]
+summary = "Unity answers an unknown table update action with 500 (ServiceFailureException) instead of 400"
+seen_at = { unity = "0.7.0" }
+
+[unity-v3-type-in-v2-500]
+summary = "Unity Catalog rejects a v3 type in a v2 table with HTTP 500 (ServiceFailureException) instead of 400 (Bad Request)"
+seen_at = { unity = "0.7.0" }
+
+[unity-views-read-only]
+summary = "Unity Catalog OSS 0.7 offers only GET for views (no create/replace/drop endpoints) - no engine can create an Iceberg view"
+seen_at = { unity = "0.7.0" }
+
+# ============================== rustfs
+
+[rustfs-bucket-not-removable]
+summary = "RustFS keeps hidden catalog metadata of dropped tables: a table bucket that ever held a table can neither be disabled (409 'reserved metadata') nor deleted (BucketNotEmpty), even after all visible objects are removed (checked)"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-deletes-metadata-log]
+summary = "RustFS deletes every previous metadata file on commit although write.metadata.delete-after-commit.enabled is off - the table's metadata-log points to missing files (a client holding older metadata fails, e.g. DuckDB's compaction during appends: 403, RustFS's answer for a missing key)"
+severity = "INCONSISTENT"
+seen_at = { rustfs = "1.0.6" }
+bug_report = "15-rustfs-deletes-previous-metadata-files.md"
+
+[rustfs-drop-purge-refused]
+summary = "RustFS catalog rejects DROP with purge (purgeRequested=true -> 406), and clients may not delete table files themselves (403) - Spark, Trino and Flink DROP fails"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-duckdb-nested-namespace-403]
+summary = "RustFS refuses DuckDB's SigV4-signed request for a nested namespace (separator %1F in the path) with 403 - PyIceberg's signed requests for the same path work"
+seen_at = { rustfs = "1.0.6", duckdb = "2.0.1" }
+
+[rustfs-list-buckets-501]
+summary = "RustFS cannot list table buckets (GET /iceberg/v1/buckets answers 501 Not Implemented)"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-no-v3]
+summary = "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-own-layout-only]
+summary = "RustFS registers or syncs only metadata inside its own table layout (.rustfs-table/...) - a table another catalog or system wrote cannot be adopted"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-rename-hidden-entry]
+summary = "RustFS keeps a hidden entry for the old name of a renamed table: after dropping the table the namespace stays 'not empty' (nothing listed) until the old name is re-created and dropped"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-rollback-refused]
+summary = "RustFS refuses a rollback to an earlier metadata file ('last-sequence-number must not decrease') - the rollback endpoint cannot restore an earlier table state"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-routes-501]
+summary = "RustFS answers routes it has with 501 Not Implemented: GET .../maintenance/metadata, .../catalog/recovery, .../catalog/backup"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-row-level-needs-parent]
+summary = "RustFS catalog rejects a row-level commit (equality deletes) on a table without snapshot - Flink's first upsert into a new table"
+seen_at = { rustfs = "1.0.6", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[rustfs-sts-duration]
+summary = "RustFS STS silently raises DurationSeconds=60 to 900 s instead of refusing it (AWS: 400 below the minimum) - a client asking for 1-minute keys gets 15-minute keys"
+severity = "SECURITY"
+seen_at = { rustfs = "1.0.6" }
+bug_report = "14-rustfs-sts-duration-and-policy-wildcards.md"
+
+[rustfs-sts-policy-wildcards]
+summary = "RustFS refuses wildcards in the actions of an STS session policy ('s3:Get*': invalid action) - AWS allows them; Unity's session policies use them (the lab's STS shim expands them)"
+seen_at = { rustfs = "1.0.6" }
+bug_report = "14-rustfs-sts-duration-and-policy-wildcards.md"
+
+[rustfs-table-level-rights]
+summary = "RustFS catalog rights can be scoped per bucket only, not per table: a user who may read one table also loads the metadata (schema, storage location) of every other table in the warehouse - only reading the data is refused by the S3 policy"
+severity = "SECURITY"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-unknown-bucket-200]
+summary = "RustFS reports a bucket that does not exist as a disabled table bucket (GET 200, enabled=false); DELETE on it answers 500 instead of 404"
+seen_at = { rustfs = "1.0.6" }
+
+[rustfs-view-field-id-0]
+summary = "RustFS catalog rejects the view schema of Spark and Flink (field id 0) - Lakekeeper and Polaris accept it"
+seen_at = { rustfs = "1.0.6", spark = "4.1.4+iceberg1.12.0", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[rustfs-write-data-path-overlap]
+summary = "RustFS accepts write.data.path pointing into another table's directory (no overlap check); it issues no keys, so only the writer's own S3 policy keeps the tables apart"
+severity = "SECURITY"
+seen_at = { rustfs = "1.0.6" }
+
+# ============================== reference
+
+[reference-client-error-500]
+summary = "The Iceberg REST fixture answers a malformed request (broken JSON, wrong types, an unknown update) with 500 and an HTML error page instead of 400 and an Iceberg error document"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+[reference-error-body-empty]
+summary = "The Iceberg REST fixture answers an unsupported method (PATCH) with 501 and an empty body instead of an Iceberg error document"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+[reference-error-stack-traces]
+summary = "The Iceberg REST fixture puts the Java exception class and its stack trace ('stack') into every error answer"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+[reference-names-unaddressable]
+summary = "The Iceberg REST fixture accepts names it cannot serve afterwards: Jetty refuses an encoded '/', '\\', newline or '%' in the path (400 'Ambiguous URI path separator'), and the JDBC store splits namespace names at '.' ('../../x' is listed as ''): such objects can be neither loaded nor dropped"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+[reference-no-location-checks]
+summary = "The Iceberg REST fixture accepts every table location: inside, equal to or above another table's directory, set later, registered from foreign metadata or as write.data.path"
+severity = "SECURITY"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+[reference-tx-commit-loses-updates]
+summary = "The Iceberg REST fixture answers concurrent POST /transactions/commit with 204 although it kept only one of them: it retries a conflicting commit on the server, finds 'Nothing to commit' and reports success (8 writers: 8 x 204, 1 change kept; the table endpoint answers 409 correctly) - DuckDB, which commits through this endpoint, loses appends"
+severity = "DATA LOSS"
+seen_at = { reference = "sha256:009f9f6897cc", duckdb = "2.0.1" }
+bug_report = "16-iceberg-rest-fixture-transaction-commit-drops-changes.md"
+
+[reference-v3-type-in-v2-500]
+summary = "The Iceberg REST fixture refuses a v3 type in a v2 table with HTTP 500 (IllegalStateException) instead of 400 (Bad Request)"
+seen_at = { reference = "sha256:009f9f6897cc" }
+
+# ============================== catalogs
+
+[catalogs-no-scan-planning]
+summary = "The catalog does not implement server-side scan planning"
+seen_at = { lakekeeper = "0.15.1", polaris = "1.9.0", unity = "0.7.0", rustfs = "1.0.6" }
+
+[catalogs-no-schema-compat-check]
+summary = "The catalog accepts a schema change incompatible with the existing data files (no server-side check - the REST spec leaves it to the client); every read fails afterwards: 'Cannot promote long to string'"
+seen_at = { lakekeeper = "0.15.1", polaris = "1.9.0", unity = "0.7.0", reference = "sha256:009f9f6897cc" }
+
+# ============================== pyiceberg
+
+[pyiceberg-commit-retries-exhausted]
+summary = "PyIceberg gives up after its 4 default commit retries while 7 other engines commit (Unity: 409 'branch main has changed' or 'Metadata location changed concurrently') - Polars and Daft commit through it"
+seen_at = { pyiceberg = "0.12.0", unity = "0.7.0" }
+flaky = true
+
+[pyiceberg-concurrent-upsert-duplicates]
+summary = "PyIceberg 0.12: two concurrent upserts of the same new key both succeed - the loser's retry re-appends its row without checking for concurrent inserts (0.11.1 raised CommitFailedException)"
+severity = "WRONG RESULT"
+seen_at = { pyiceberg = "0.12.0" }
+upstream = "apache/iceberg-python#4194"
+
+[pyiceberg-delete-copy-on-write-only]
+summary = "PyIceberg 0.12 deletes only copy-on-write (rewrites the data file) and ignores write.delete.mode=merge-on-read"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-expire-keeps-files]
+summary = "PyIceberg 0.12 expire_snapshots only removes snapshots from the metadata; data files, manifests and manifest lists stay in storage"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-geo-crs-parse]
+summary = "PyIceberg 0.12 cannot parse the spec form geometry(OGC:CRS84) / geography(OGC:CRS84, spherical) that Iceberg 1.12 writes (it expects the CRS in quotes) - the table cannot be loaded (also by Polars and Daft)"
+seen_at = { pyiceberg = "0.12.0" }
+bug_report = "09-pyiceberg-unquoted-geometry-crs.md"
+
+[pyiceberg-ignores-sort-order]
+summary = "PyIceberg ignores the table's sort order when writing (Polars and Daft write through it)"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-no-avro-read]
+summary = "PyIceberg 0.12 cannot read Avro data files (ORC works) - Polars plans through it"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-no-credential-refresh]
+summary = "PyIceberg 0.12: a loaded table keeps its vended keys - no refresh via client.refresh-credentials-endpoint after expiry (Polars and Daft read held PyIceberg table objects)"
+seen_at = { pyiceberg = "0.12.0" }
+bug_report = "05-pyiceberg-vended-credentials-refresh.md"
+
+[pyiceberg-no-equality-deletes]
+summary = "PyIceberg cannot apply equality deletes - tables with Flink upserts or other equality-delete writers are unreadable (also for Polars and Daft)"
+seen_at = { pyiceberg = "0.12.0" }
+upstream = "apache/iceberg#6568"
+
+[pyiceberg-no-geo-read]
+summary = "PyIceberg 0.12 cannot read geometry/geography columns"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-no-variant]
+summary = "PyIceberg 0.12 cannot parse a schema with variant (Polars and Daft load tables through it)"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-null-list-struct-read]
+summary = "PyIceberg reads a NULL list<struct> as []"
+severity = "WRONG RESULT"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-null-list-struct-write]
+summary = "PyIceberg writes a NULL list<struct> as [] (Polars writes through it)"
+severity = "DATA LOSS"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-parquet-only-write]
+summary = "PyIceberg 0.12 writes only Parquet data files (refuses ORC/Avro) - Polars writes through it"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-signer-race]
+summary = "PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)"
+seen_at = { pyiceberg = "0.12.0" }
+flaky = true
+
+[pyiceberg-sigv4-content-sha256]
+summary = "PyIceberg's SigV4 adapter sends x-amz-content-sha256 only for empty bodies; the RustFS catalog rejects every signed POST without it (AWS S3 Tables does not)"
+seen_at = { pyiceberg = "0.12.0", rustfs = "1.0.6" }
+
+[pyiceberg-upsert-renamed-columns]
+summary = "PyIceberg 0.12: upsert compares against pre-rename physical column names"
+seen_at = { pyiceberg = "0.12.0" }
+
+[pyiceberg-v3-data-write]
+summary = "PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: 'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work - Polars and Daft write through it"
+seen_at = { pyiceberg = "0.12.0" }
+
+# ============================== pyarrow
+
+[pyarrow-trino-delta-length-byte-array]
+summary = "PyArrow cannot decode Trino's position-delete files (DELTA_LENGTH_BYTE_ARRAY)"
+seen_at = { pyarrow = "25.0.1", trino = "484" }
+
+# ============================== polars
+
+[polars-geo-as-binary]
+summary = "Polars has no geometry type: reads geometry as Binary"
+seen_at = { polars = "2.1.0" }
+
+[polars-no-fixed]
+summary = "Polars has no fixed-size binary: writes it as binary (schema mismatch) and reads fixed(4) as Binary"
+seen_at = { polars = "2.1.0" }
+
+[polars-no-geo-parquet]
+summary = "Polars' Parquet reader does not know the GEOMETRY/GEOGRAPHY logical type"
+seen_at = { polars = "2.1.0" }
+
+[polars-no-uuid]
+summary = "Polars has no UUID type: writes it as binary (schema mismatch) and reads uuid as Binary"
+seen_at = { polars = "2.1.0" }
+
+[polars-streaming-one-commit]
+summary = "Polars 2.1 sink_iceberg(engine='streaming') writes all 500 rows in one commit at the end - a batch write through the streaming engine, no incremental commits"
+seen_at = { polars = "2.1.0" }
+
+[polars-time-ns]
+summary = "Polars Time is time64[ns]; Iceberg time is microseconds"
+seen_at = { polars = "2.1.0" }
+
+# ============================== daft
+
+[daft-duckdb-maps]
+summary = "Daft cannot read DuckDB's Parquet maps ('Map field must have exactly one key_value child') - also pg_lake's, which writes through DuckDB"
+seen_at = { daft = "0.7.26", duckdb = "2.0.1" }
+
+[daft-duckdb-nested-lists]
+summary = "Daft cannot read DuckDB's nested Parquet lists ('list type must have a single child') - also pg_lake's, which writes through DuckDB"
+seen_at = { daft = "0.7.26", duckdb = "2.0.1" }
+
+[daft-dv-as-parquet]
+summary = "Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet)"
+seen_at = { daft = "0.7.26" }
+
+[daft-geo-as-binary]
+summary = "Daft has no geometry type: reads geometry as Binary"
+seen_at = { daft = "0.7.26" }
+
+[daft-ignores-initial-default]
+summary = "Daft ignores initial-default and returns NULL for the added column"
+severity = "WRONG RESULT"
+seen_at = { daft = "0.7.26" }
+
+[daft-ignores-write-format]
+summary = "Daft ignores write.format.default and writes Parquet instead"
+seen_at = { daft = "0.7.26" }
+
+[daft-parquet-only-read]
+summary = "Daft reads only Parquet data files"
+seen_at = { daft = "0.7.26" }
+
+# ============================== duckdb
+
+[duckdb-drop-no-purge]
+summary = "DuckDB DROP TABLE does not request a purge (purgeRequested=false), so Lakekeeper keeps the data files"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-expire-keeps-files]
+summary = "DuckDB 2.0.1 iceberg_expire_snapshots only removes snapshots from the metadata; data files and manifest lists stay in storage"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-fixed-as-binary]
+summary = "DuckDB writes fixed[4] as variable-length binary"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-lost-response-corruption]
+summary = "After a lost commit response DuckDB deletes the files of the commit Lakekeeper already applied (current snapshot -> missing manifest list)"
+severity = "DATA CORRUPTION"
+seen_at = { duckdb = "2.0.1", lakekeeper = "0.15.1" }
+bug_report = "01-duckdb-lost-commit-response-corruption.md"
+
+[duckdb-no-geography-read]
+summary = "DuckDB 2.0 reads Iceberg geometry but not geography"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-no-primary-key]
+summary = "DuckDB: no PRIMARY KEY / identifier fields on Iceberg tables (only NOT NULL)"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-no-retry-on-conflict]
+summary = "DuckDB does not retry a commit after a conflict (409): its write or compaction fails while other engines commit"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-no-v3-rewrite]
+summary = "DuckDB 2.0: iceberg_rewrite_data_files does not support v3 tables - no compaction, and a data file cannot be taken out of a v3 table (a full DELETE only adds deletion vectors)"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-parquet-only-read]
+summary = "DuckDB reads only Parquet data files"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-parquet-only-write]
+summary = "DuckDB 2.0.1 writes only Parquet data files (refuses ORC/Avro; 2.0.0 wrote Parquet instead of the requested format)"
+seen_at = { duckdb = "2.0.1" }
+
+[duckdb-sigv4-aws-host]
+summary = "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"
+seen_at = { duckdb = "2.0.1", rustfs = "1.0.6" }
+
+[duckdb-v3-null-partition-summaries]
+summary = "The 'manifests' metadata table of Spark and Trino crashes on DuckDB-written v3 manifests (null partition summaries)"
+seen_at = { duckdb = "2.0.1", trino = "484", spark = "4.1.4+iceberg1.12.0" }
+
+[duckdb-view-dialect]
+summary = "DuckDB only runs views that have a 'duckdb' SQL representation"
+seen_at = { duckdb = "2.0.1" }
+
+# ============================== spark
+
+[spark-cache-recreated-table]
+summary = "Spark's catalog cache (cache-enabled, 30 s) still holds the dropped table after a re-create under the same name: Spark reads its old rows, or fails on its deleted files once they are purged"
+severity = "WRONG RESULT"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-catalog-cache]
+summary = "Spark's Iceberg catalog caches loaded tables (cache-enabled defaults to true, 30 s expiry): a commit, a renamed column or a new partition spec by another client stays invisible in the same session until the cache expires or REFRESH TABLE"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-fixed-as-binary]
+summary = "Spark represents fixed(4) as variable-length binary"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-no-time]
+summary = "Spark has no TIME type"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-no-timestamp-ns]
+summary = "Spark has no nanosecond timestamps"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-uuid-as-string]
+summary = "Spark represents Iceberg uuid as string"
+seen_at = { spark = "4.1.4+iceberg1.12.0" }
+
+[spark-view-default-catalog]
+summary = "Iceberg views store the creator's catalog name (default-catalog); Spark cannot resolve a view created in Trino catalog 'lk_sts'/'pol_sts'"
+seen_at = { spark = "4.1.4+iceberg1.12.0", trino = "484" }
+
+# ============================== trino
+
+[trino-autocommit-only]
+summary = "Trino Iceberg writes only in autocommit: no multi-statement transactions, so no atomic overwrite and no multi-table transaction"
+seen_at = { trino = "484" }
+
+[trino-changelog-carry-over]
+summary = "Trino table_changes reports copy-on-write carry-over rows as delete + insert (no net changes)"
+seen_at = { trino = "484" }
+
+[trino-fixed-as-varbinary]
+summary = "Trino represents fixed(4) as varbinary"
+seen_at = { trino = "484" }
+
+[trino-hides-load-refusal]
+summary = "Trino reports a refused table load (403) only as 'Failed to load table' / 'Failed to load view' / 'Cannot obtain metadata' - the refusal is not shown"
+seen_at = { trino = "484" }
+
+[trino-hides-write-refusal]
+summary = "Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown"
+seen_at = { trino = "484" }
+
+[trino-no-create-branch]
+summary = "Trino 484 cannot create branches ('This connector does not support creating branches'; no SQL for it) - so no write-audit-publish"
+seen_at = { trino = "484" }
+
+[trino-no-unknown-write]
+summary = "Trino 484 reads Iceberg 'unknown' columns but cannot write them"
+seen_at = { trino = "484" }
+
+[trino-null-partition-pruning]
+summary = "Trino returns the ts=NULL row for 'ts < <day boundary>' on a day(ts)-partitioned table without null_value_counts (pg_lake writes none)"
+severity = "WRONG RESULT"
+seen_at = { trino = "484", pg_lake = "3.7.0-pg19" }
+bug_report = "03-trino-null-partition-wrong-result.md"
+
+[trino-view-dialect]
+summary = "Trino only runs views that have a 'trino' SQL representation"
+seen_at = { trino = "484" }
+
+# ============================== flink
+
+[flink-float-nan]
+summary = "Flink 2.3 SQL cannot produce a FLOAT NaN/Infinity: CAST('NaN' AS FLOAT) and even CAST(CAST('NaN' AS DOUBLE) AS FLOAT) fail (the cast goes through BigDecimal); DOUBLE NaN works"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-ignores-initial-default]
+summary = "Flink (Iceberg 1.12) ignores initial-default and returns NULL"
+severity = "WRONG RESULT"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-ignores-sort-order]
+summary = "Flink ignores the table's sort order when writing"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-neg-zero-literal]
+summary = "Flink 2.3 parses the literal CAST('-0.0' AS DOUBLE) as +0.0 and stores that (-CAST(0.0 AS DOUBLE) keeps the sign)"
+severity = "WRONG RESULT"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-create-tag]
+summary = "Flink SQL writes/reads branches (OPTIONS('branch')) but cannot create tags"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-delete]
+summary = "Iceberg's Flink sink does not support DELETE (no SupportsRowLevelDelete) - so Flink cannot create or compact delete files"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-geo]
+summary = "Flink has no geometry/geography type"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-nested-namespaces]
+summary = "Flink catalogs have single-level databases: no nested Iceberg namespaces"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-procedures]
+summary = "Flink SQL has no procedures (FlinkCatalog: getProcedure is not implemented) - no compaction, maintenance or rollback in SQL, only the Java TableMaintenance API"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-publish-branch]
+summary = "Flink writes and reads branches (OPTIONS('branch')) but has no SQL to publish one to main"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-update]
+summary = "Iceberg's Flink sink does not support UPDATE (no SupportsRowLevelUpdate)"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-no-variant-insert]
+summary = "Flink cannot INSERT a VARIANT value into an Iceberg variant column"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-statement-set-not-atomic]
+summary = "Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails"
+severity = "INCONSISTENT"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-statement-set-per-table]
+summary = "Flink STATEMENT SET commits every table separately (no /transactions/commit)"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-time-millis-read]
+summary = "Flink 2.3 reads TIME with millisecond precision only (Iceberg time has microseconds)"
+severity = "WRONG RESULT"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-time-seconds-write]
+summary = "Flink truncates TIME to seconds when writing"
+severity = "DATA LOSS"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-unknown-type]
+summary = "Flink maps Iceberg unknown to its NULL type: such a column can neither be written nor read"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-uuid-as-binary]
+summary = "Flink has no UUID type: reads uuid as BINARY(16)"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[flink-variant-gateway]
+summary = "Flink SQL Gateway cannot serialize VARIANT (and VARIANT cannot be cast to STRING)"
+seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+# ============================== pg_lake
+
+[pglake-analyze-no-iceberg-stats]
+summary = "pg_lake ANALYZE only collects Postgres planner statistics; nothing is written to the Iceberg metadata"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-delete-copy-on-write]
+summary = "pg_lake ignores write.delete.mode=merge-on-read: deleting 1 of 3 rows rewrites the data file (with 1 of 97 rows it writes a position delete file - test_maintenance)"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-deletion-queue-duplicate]
+summary = "pg_lake 3.7: after VACUUM expired snapshots, its own next INSERT into the table fails - the same manifest path is put into lake_engine.deletion_queue twice"
+seen_at = { pg_lake = "3.7.0-pg19" }
+flaky = true
+
+[pglake-drop-no-purge]
+summary = "pg_lake DROP TABLE does not request a purge (no purgeRequested) - files stay on catalogs that only delete on purge (Polaris; Lakekeeper's hard delete hides it)"
+seen_at = { pg_lake = "3.7.0-pg19", polaris = "1.9.0" }
+
+[pglake-expiry-unreliable]
+summary = "pg_lake VACUUM expiry is unreliable: the old snapshot stays, or it is removed but its data file stays in storage"
+seen_at = { pg_lake = "3.7.0-pg19" }
+flaky = true
+
+[pglake-fixed-as-bytea]
+summary = "pg_lake represents fixed(4) as bytea"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-ignores-config-404]
+summary = "pg_lake ignores a refused /v1/config (Lakekeeper hides the warehouse with 404) and sends its next request with a wrong prefix - the refusal shows as HTTP 400 'WarehouseIdIsNotUUID' instead of a permission error"
+seen_at = { pg_lake = "3.7.0-pg19", lakekeeper = "0.15.1" }
+bug_report = "06-pg_lake-ignores-config-404.md"
+
+[pglake-ignores-refused-commit]
+summary = "pg_lake reports COMMIT success although the REST catalog refused the commit (e.g. Unity has no /transactions/commit: 404): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged"
+severity = "DATA LOSS"
+seen_at = { pg_lake = "3.7.0-pg19" }
+bug_report = "02-pg_lake-silent-commit-divergence.md"
+
+[pglake-ignores-refused-create]
+summary = "pg_lake ignores the catalog's 400 on CREATE TABLE (Unity refuses TIME): it reports success, the table exists only in Postgres"
+seen_at = { pg_lake = "3.7.0-pg19", unity = "0.7.0" }
+
+[pglake-ignores-sort-order]
+summary = "pg_lake ignores the table's sort order when writing"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-ignores-target-file-size]
+summary = "pg_lake ignores write.target-file-size-bytes (uses its own pg_lake_table.target_file_size_mb, default 512 MB)"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-dv-read]
+summary = "pg_lake 3.7 cannot read v3 deletion vectors"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-external-commits]
+summary = "pg_lake does not see commits by other clients to a table it created (keeps its own metadata pointer; attached tables do follow - test_pglake.py)"
+severity = "WRONG RESULT"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-foreign-orphans]
+summary = "pg_lake VACUUM only deletes files it tracked itself (deletion queue), not foreign orphan files"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-geo]
+summary = "pg_lake 3.7 does not support geometry/geography"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-initial-default]
+summary = "pg_lake 3.7 refuses tables whose columns declare an initial-default"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-merge]
+summary = "pg_lake 3.7 does not support MERGE on Iceberg tables"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-primary-key]
+summary = "pg_lake: no PRIMARY KEY on Iceberg tables (foreign tables)"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-rename]
+summary = "pg_lake 3.7 cannot rename Iceberg tables in a REST catalog"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-struct-evolution]
+summary = "pg_lake cannot evolve a struct column: ALTER TYPE (add/rename/drop attribute) on a composite type used by an Iceberg table is refused"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-timestamptz-ns]
+summary = "pg_lake/pgduck cannot read timestamptz_ns"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-unknown]
+summary = "pg_lake does not support Iceberg type 'unknown'"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-no-variant]
+summary = "pg_lake does not support Iceberg type 'variant'"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-partition-source-ids]
+summary = "pg_lake sends partition fields with both 'source-id' and 'source-ids'; Lakekeeper 0.15 rejects that (HTTP 422) and pg_lake ignores the error - partitioned tables and partition evolution fail"
+seen_at = { pg_lake = "3.7.0-pg19", lakekeeper = "0.15.1" }
+bug_report = "08-pg_lake-partition-field-source-id-and-source-ids.md"
+
+[pglake-reads-all-as-parquet]
+summary = "pg_lake reads every data file as Parquet: ORC/Avro fail with a misleading 'No magic bytes found'"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-rejects-deleted-dv]
+summary = "pg_lake rejects v3 tables whose manifests still list a removed (status DELETED) deletion vector, although no live DV exists - also when the reference implementation wrote the table"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-requires-rest-prefix]
+summary = "pg_lake always puts a prefix segment into REST paths (/v1/<catalog_name>/...); a catalog whose /v1/config sets no prefix (optional in the REST spec - the Iceberg REST fixture) gets requests for paths it does not have, pg_lake cannot use it at all"
+seen_at = { pg_lake = "3.7.0-pg19", reference = "sha256:009f9f6897cc" }
+bug_report = "17-pg_lake-requires-rest-prefix.md"
+
+[pglake-struct-by-name]
+summary = "pg_lake resolves struct fields by name, not by field id - a renamed struct field reads as NULL; with no field name in common the read fails ('STRUCT to STRUCT cast must have at least one matching member')"
+severity = "WRONG RESULT"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+[pglake-timestamp-ns-truncated]
+summary = "pg_lake truncates timestamp_ns to microseconds and maps the type to a microsecond timestamp (Postgres timestamps have microsecond precision)"
+severity = "DATA LOSS"
+seen_at = { pg_lake = "3.7.0-pg19" }
+
+# ============================== engines
+
+[engines-cache-recreated-uuid-mismatch]
+summary = "Spark and Flink refuse a table re-created under the same name while their catalog cache holds the dropped one ('Table UUID does not match') - safe, but the new table is not usable until the cache expires"
+seen_at = { spark = "4.1.4+iceberg1.12.0", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[engines-manifest-without-schema-id]
+summary = "Manifests are written without the 'schema-id' key-value metadata the spec requires from v2 on: PyIceberg (also for Polars and Daft) and Iceberg Java, the reference implementation (Spark, Trino, Flink)"
+seen_at = { pyiceberg = "0.12.0", spark = "4.1.4+iceberg1.12.0", trino = "484", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+
+[engines-no-remote-signing]
+summary = "DuckDB, Daft and Polars' native reader do not support Iceberg REST remote signing"
+seen_at = { duckdb = "2.0.1", daft = "0.7.26", polars = "2.1.0" }

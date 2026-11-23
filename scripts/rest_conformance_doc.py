@@ -15,12 +15,13 @@ SOURCES = {
     "Polaris": ROOT / "reports/polaris/results.json",
     "RustFS": ROOT / "reports/rustfs/results.json",
     "Unity": ROOT / "reports/unity/results.json",
+    "Reference": ROOT / "reports/reference/results.json",
 }
 SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "—", "blocked": "·"}
 
 
 def main() -> None:
-    """Write docs/rest-conformance.md from the four catalogs' results."""
+    """Write docs/rest-conformance.md from the five catalogs' results."""
     cells: dict[str, dict[str, tuple[str, str]]] = {}
     for cat, path in SOURCES.items():
         for r in json.loads(path.read_text()):

@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 
 import boto3
 import requests
-from pyiceberg.exceptions import NamespaceNotEmptyError
+from pyiceberg.exceptions import NamespaceNotEmptyError, RESTError
 
 from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSES, catalog_headers
 from iceberg_lab.engines import pyiceberg_catalog
@@ -206,7 +206,18 @@ def main() -> int:
     log(f"cleanup {PROFILE.name}{mode}")
 
     # Phase 1: leftover test namespaces
-    cats = {w: pyiceberg_catalog(w) for w in WAREHOUSES}
+    cats = {}
+    missing = []
+    for w in WAREHOUSES:
+        try:
+            cats[w] = pyiceberg_catalog(w)
+        except RESTError as e:
+            # Lakekeeper/Polaris: NotFoundException; Unity: "Catalog not found".
+            if not any(t in str(e) for t in ("NotFoundException", "Catalog not found")):
+                raise
+            # A fresh stack: the tests create this warehouse themselves (e.g. polaris_sts).
+            missing.append(w)
+            log(f"  {w}: warehouse not created yet")
     for w, cat in cats.items():
         left = [ns for ns in cat.list_namespaces() if TEST_NS.match(ns[-1])]
         log(f"  {w}: {len(left)} leftover test namespaces")
@@ -217,6 +228,9 @@ def main() -> int:
                 log(f"  {'.'.join(ns)}: not dropped ({type(e).__name__}: {str(e)[:120]})")
 
     # Phase 2: orphans in storage
+    if missing:
+        log("  storage sweep skipped - not every warehouse exists yet")
+        return 0
     prefixes: set[str] = set()
     files: set[str] = set()
     try:

@@ -92,13 +92,22 @@ def offered(engine: str, engine_pool) -> list[str]:
         import daft
 
         return _iceberg_names("daft", daft) + _iceberg_names("DataFrame", daft.DataFrame)
-    adapter = engine_pool(engine)
     if engine == "duckdb":
-        rows = adapter.execute(
-            "SELECT DISTINCT function_name FROM duckdb_functions() "
-            "WHERE function_name ILIKE '%iceberg%'"
-        )
+        import duckdb
+
+        # A connection without an attached catalog: duckdb_functions() also lists the attached
+        # catalogs' schemas, so the inventory would depend on (and fail on) their contents.
+        con = duckdb.connect()
+        try:
+            con.execute("LOAD iceberg")
+            rows = con.execute(
+                "SELECT DISTINCT function_name FROM duckdb_functions() "
+                "WHERE function_name ILIKE '%iceberg%'"
+            ).fetchall()
+        finally:
+            con.close()
         return [f"function:{r[0]}" for r in rows]
+    adapter = engine_pool(engine)
     if engine == "spark":
         jvm = adapter.spark._jvm
         loader = jvm.java.lang.Thread.currentThread().getContextClassLoader()
@@ -193,9 +202,11 @@ def classified() -> dict[str, dict[str, str]]:
     """
     import tomllib
 
+    from iceberg_lab.lab.models import Classification
+
     if not CLASSIFIED_FILE.exists():
         return {}
-    return tomllib.loads(CLASSIFIED_FILE.read_text())
+    return Classification.validate_python(tomllib.loads(CLASSIFIED_FILE.read_text()))
 
 
 def unclassified(engine: str, names: list[str]) -> dict[str, list[str]]:

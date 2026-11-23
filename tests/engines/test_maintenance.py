@@ -42,10 +42,8 @@ Every such claim was checked (see the class docstrings).
 from __future__ import annotations
 
 import datetime as dt
-import fnmatch
 import time
 import uuid
-from typing import NamedTuple
 
 import boto3
 import pytest
@@ -57,9 +55,12 @@ from iceberg_lab.engines import SPARK_CATALOGS, pyiceberg_catalog
 
 from conftest import (
     ENGINES,
+    Gap,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
     fresh,
+    gap_table,
     keep_if_content_ok,
     not_offered,
     require,
@@ -102,43 +103,33 @@ TABLE_PROPS = {
 }
 
 
-class Gap(NamedTuple):
-    """Known gap: ``engine``/``task``/``fv`` are globs, ``match`` a regex the error must contain."""
-
-    engine: str
-    task: str
-    fv: str
-    match: str
-    reason: str
-    flaky: bool = False
-
-
-# Filled from observed failures only; first match wins.
+# Filled from observed failures only. Rows that apply to a case are alternatives: the first
+# whose regex matches the error names the cause (gap_register.find_gap).
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
-    Gap("pyiceberg", "expire_snapshots", "2", r"expired data file still in storage", "PyIceberg 0.12 expire_snapshots only removes snapshots from the metadata; data files, manifests and manifest lists stay in storage"),
+KNOWN_GAPS = gap_table(("engine", "task", "fv"), [
+    ("pyiceberg", "expire_snapshots", "2", r"expired data file still in storage", "pyiceberg-expire-keeps-files"),
     # Only visible where the catalog deletes files on purge only (Polaris); Lakekeeper's hard
     # delete removes them anyway.
-    *([Gap("pg_lake", "drop_table", "*", r"files left after DROP", "pg_lake DROP TABLE does not request a purge (no purgeRequested) - files stay on catalogs that only delete on purge (Polaris; Lakekeeper's hard delete hides it)")] if PROFILE.name != "lakekeeper" else []),
+    *([("pg_lake", "drop_table", "*", r"files left after DROP", "pglake-drop-no-purge")] if PROFILE.name != "lakekeeper" else []),
     # Spark is not affected: with a REST catalog it deletes the files itself (Spark actions).
-    *(Gap(e, "drop_table", "2" if e == "pyiceberg" else "*", r"files left after DROP, e\.g\. s3://unitylab/lab/__unitystorage/", "Unity Catalog OSS 0.7 deletes the files of a dropped managed table only later (server.storage-cleanup.initial-delay, default P7D = 7 days), purgeRequested=true does not delete them at once")
+    *((e, "drop_table", "2" if e == "pyiceberg" else "*", r"files left after DROP, e\.g\. s3://unitylab/lab/__unitystorage/", "unity-delayed-file-cleanup")
       for e in ("pyiceberg", "trino", "flink") if PROFILE.name == "unity"),
-    Gap("duckdb", "drop_table", "*", r"files left after DROP", "DuckDB DROP TABLE does not request a purge (purgeRequested=false), so Lakekeeper keeps the data files"),
-    Gap("duckdb", "compact_*", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "DuckDB 2.0: iceberg_rewrite_data_files does not support v3 tables yet"),
+    ("duckdb", "drop_table", "*", r"files left after DROP", "duckdb-drop-no-purge"),
+    ("duckdb", "compact_*", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
     # DuckDB 2.0.1 fixed "iceberg_rewrite_data_files keeps the position delete files" (v2).
-    Gap("duckdb", "expire_snapshots", "2", r"expired data file still in storage", "DuckDB 2.0.1 iceberg_expire_snapshots only removes snapshots from the metadata; data files and manifest lists stay in storage"),
-    Gap("duckdb", "expire_snapshots", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "DuckDB 2.0.1 cannot take a data file out of a v3 table (a full DELETE only adds deletion vectors, iceberg_rewrite_data_files does not support v3), so the expiry setup is impossible"),
+    ("duckdb", "expire_snapshots", "2", r"expired data file still in storage", "duckdb-expire-keeps-files"),
+    ("duckdb", "expire_snapshots", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
     # Two intermittent symptoms (probed by hand): the old snapshot stays in the metadata, or it
     # is removed but its data file stays in storage (also after VACUUM again and
     # lake_engine.flush_deletion_queue()).
-    Gap("pg_lake", "expire_snapshots", "*", r"(old snapshot still in metadata|expired data file still in storage)", "pg_lake VACUUM expiry is unreliable: the old snapshot stays, or it is removed but its data file stays in storage", flaky=True),
-    Gap("pg_lake", "remove_orphan_files", "*", r"orphan file still there", "pg_lake VACUUM only deletes files it tracked itself (deletion queue), not foreign orphan files"),
-    Gap("flink", "compact_delete_files", "*", r"Can't perform delete operation", "Flink cannot DELETE, so it cannot create (or compact) delete files"),
-    *(Gap("flink", t, "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "Flink SQL has no maintenance procedures (only the Java TableMaintenance API)")
+    ("pg_lake", "expire_snapshots", "*", r"(old snapshot still in metadata|expired data file still in storage)", "pglake-expiry-unreliable", True),
+    ("pg_lake", "remove_orphan_files", "*", r"orphan file still there", "pglake-no-foreign-orphans"),
+    ("flink", "compact_delete_files", "*", r"Can't perform delete operation", "flink-no-delete"),
+    *(("flink", t, "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures")
       for t in ("compact_data_files", "rewrite_manifests", "expire_snapshots", "remove_orphan_files")),
     # PyIceberg cannot write v3 data: the setup (its own writes) fails.
-    Gap("pyiceberg", "*", "3", base.NO_V3_MSG, base.PYICEBERG_NO_V3),
-]
+    ("pyiceberg", "*", "3", base.NO_V3_MSG, "pyiceberg-v3-data-write"),
+])
 # fmt: on
 
 
@@ -153,14 +144,7 @@ def known_gap(engine: str, task: str, fv: int) -> Gap | None:
     Returns:
         The gap, or None.
     """
-    for g in KNOWN_GAPS:
-        if (
-            fnmatch.fnmatch(engine, g.engine)
-            and fnmatch.fnmatch(task, g.task)
-            and fnmatch.fnmatch(str(fv), g.fv)
-        ):
-            return g
-    return None
+    return find_gap(KNOWN_GAPS, engine=engine, task=task, fv=fv)
 
 
 # =========================================================================== storage helpers
@@ -520,7 +504,7 @@ class DuckDBMaint(Maint):
 
 
 class PgLakeMaint(Maint):
-    """pg_lake (extension 3.6, release 3.7.0): everything runs through ``VACUUM``
+    """pg_lake 3.7 (extension 3.7, release v3.7.0): everything runs through ``VACUUM``
     (docs/findings.md, sections "pg_lake" and "Maintenance").
 
     ``VACUUM (FULL)`` compacts data files and applies deletes; ``VACUUM`` expires snapshots
@@ -816,9 +800,7 @@ def test_maintenance(engine, task, fv, namespace, engine_pool, maint_results):
 
     with (
         keep_if_content_ok(maint_results, (engine, task, fv), produced, content_ok),
-        expect_gap(
-            gap.reason if gap else None, gap.match if gap else None, flaky=bool(gap and gap.flaky)
-        ),
+        expect(gap),
     ):
         run_task(cls(ctx, engine_pool), task, engine_pool)
     if task in EXPECTED:
@@ -827,18 +809,18 @@ def test_maintenance(engine, task, fv, namespace, engine_pool, maint_results):
 
 #: Known cross-read gaps after maintenance: (engine, reader, task, fv) globs, regex, reason.
 # fmt: off
-CROSS_GAPS: list[tuple[str, str, str, str, str, str]] = [
+CROSS_GAPS = gap_table(("engine", "reader", "task", "fv"), [
     # After compaction the current manifests still list the removed DV as an entry with
     # status DELETED (as the spec requires); no live DV is left. pg_lake rejects it anyway.
-    *((w, "pg_lake", "compact_delete_files", "3", r"deletion vectors are not supported", "pg_lake rejects v3 tables whose manifests still list a removed (status DELETED) deletion vector, although no live DV exists")
+    *((w, "pg_lake", "compact_delete_files", "3", r"deletion vectors are not supported", "pglake-rejects-deleted-dv")
       for w in ("spark", "trino")),
     # DuckDB 2.0 cannot compact v3 (documented gap); its table keeps the live deletion vector,
     # which these readers cannot apply (the same gaps as in test_operations / test_neutral_source).
-    *(("duckdb", "daft", task, "3", r"\.puffin is not a valid parquet file", "Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet)")
+    *(("duckdb", "daft", task, "3", r"\.puffin is not a valid parquet file", "daft-dv-as-parquet")
       for task in ("compact_delete_files", "expire_snapshots")),
-    *(("duckdb", "pg_lake", task, "3", r"deletion vectors are not supported", "pg_lake 3.6 cannot read v3 deletion vectors")
+    *(("duckdb", "pg_lake", task, "3", r"deletion vectors are not supported", "pglake-no-dv-read")
       for task in ("compact_delete_files", "expire_snapshots")),
-]
+])
 # fmt: on
 
 
@@ -852,15 +834,9 @@ def _cross_gap(engine, reader, task, fv):
         fv: Iceberg format version (2 or 3).
 
     Returns:
-        ``(regex, reason)``, or None.
+        The gap, or None.
     """
-    for g_eng, g_reader, g_task, g_fv, regex, reason in CROSS_GAPS:
-        if all(
-            fnmatch.fnmatch(v, p)
-            for v, p in ((engine, g_eng), (reader, g_reader), (task, g_task), (str(fv), g_fv))
-        ):
-            return regex, reason
-    return None
+    return find_gap(CROSS_GAPS, engine=engine, reader=reader, task=task, fv=fv)
 
 
 @pytest.mark.slow
@@ -888,16 +864,21 @@ def test_maintenance_cross_read(engine, task, fv, reader, engine_pool, maint_res
         pytest.skip("own result is verified in test_maintenance")
     result = skip_if_not_produced(maint_results, (engine, task, fv), "test_maintenance")
     gap = _cross_gap(engine, reader, task, fv)
-    with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
+    with expect(gap):
         assert fresh(engine_pool(reader), *result).read(*result) == EXPECTED[task]
 
 
-#: Known gaps when writing after maintenance: (engine, writer, task, fv) globs, regex, reason.
+#: Known gaps when writing after maintenance: (engine, writer, task, fv) globs, regex, reason,
+#: intermittent.
 # fmt: off
-CROSS_WRITE_GAPS: list[tuple[str, str, str, str, str, str]] = [
-    *(("*", w, "*", "3", r"Cannot write manifest for table version: 3", "PyIceberg 0.12 cannot write DATA to v3 tables (Polars and Daft write through it)")
+CROSS_WRITE_GAPS = gap_table(("engine", "writer", "task", "fv"), [
+    *(("*", w, "*", "3", r"Cannot write manifest for table version: 3", "pyiceberg-v3-data-write", False)
       for w in ("pyiceberg", "polars", "daft")),
-]
+    # Observed 2026-11-23 (pg_lake 3.7): VACUUM queued a manifest for deletion, the next INSERT
+    # queues the same path again. Reproducible when run alone (v2, Lakekeeper and Polaris), but
+    # not in every full run - intermittent.
+    ("pg_lake", "pg_lake", "expire_snapshots", "*", r"duplicate key value violates unique constraint \"deletion_queue_pkey\"", "pglake-deletion-queue-duplicate", True),
+])
 # fmt: on
 
 
@@ -911,15 +892,9 @@ def _cross_write_gap(engine, writer, task, fv):
         fv: Iceberg format version (2 or 3).
 
     Returns:
-        ``(regex, reason)``, or None.
+        The gap, or None.
     """
-    for g_eng, g_writer, g_task, g_fv, regex, reason in CROSS_WRITE_GAPS:
-        if all(
-            fnmatch.fnmatch(v, p)
-            for v, p in ((engine, g_eng), (writer, g_writer), (task, g_task), (str(fv), g_fv))
-        ):
-            return regex, reason
-    return None
+    return find_gap(CROSS_WRITE_GAPS, engine=engine, writer=writer, task=task, fv=fv)
 
 
 @pytest.mark.slow
@@ -954,8 +929,7 @@ def test_maintenance_cross_write(engine, task, fv, writer, engine_pool, maint_re
         require(writer, "writing tables it did not create", engine_pool)
     n = 100 + ENGINES.index(writer)
     row = (n, f"w{n}", float(n))
-    gap = _cross_write_gap(engine, writer, task, fv)
-    with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
+    with expect(_cross_write_gap(engine, writer, task, fv)):
         ctx = base.Ctx(pyiceberg_catalog(WAREHOUSE), ns, table, fv, seed_writer=writer)
         if writer not in ("pyiceberg", "polars", "daft"):
             fresh(engine_pool(writer), ns, table)

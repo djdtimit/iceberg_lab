@@ -28,6 +28,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import pytest
 import requests
 
 from iceberg_lab.config import PROFILE, SETTINGS
@@ -148,6 +149,8 @@ def test_catalog_has_ui():
         * where the UI is configured at runtime (Polaris Console's ``config.js``), it points
           to the lab's Polaris - a UI wired to another catalog would prove nothing.
     """
+    if PROFILE.name not in UIS:
+        pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
     ui = UIS[PROFILE.name]
     r = requests.get(ui.page, headers=ui.headers, timeout=10)
     assert r.ok, f"{ui.page}: {r.status_code} {r.text[:200]}"
@@ -169,6 +172,8 @@ def test_ui_data_needs_login():
         * the same GET with admin credentials answers 2xx (positive control: the endpoint
           exists and works, so the refusal above is a refusal and not a broken URL).
     """
+    if PROFILE.name not in UIS:
+        pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
     ui = UIS[PROFILE.name]
     anonymous = requests.get(ui.data, headers=ui.headers, timeout=10)
     assert anonymous.status_code in (401, 403), (

@@ -26,11 +26,9 @@ Tests (each thread uses its OWN adapter instance: own connection, session or cat
 
 from __future__ import annotations
 
-import fnmatch
 import re
 import threading
 import uuid
-from typing import NamedTuple
 
 import pytest
 import test_maintenance as maint
@@ -42,8 +40,11 @@ from iceberg_lab.engines import SparkEngine, pyiceberg_catalog
 from conftest import (
     ENGINE_CLASSES,
     ENGINES,
+    Gap,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
+    gap_table,
     not_offered,
     require,
     require_engine,
@@ -54,40 +55,34 @@ WAREHOUSE = base.WAREHOUSE
 N_THREADS = 4
 
 
-class Gap(NamedTuple):
-    """Known gap: ``test``/``engine``/``fv`` globs, ``match`` regex the error must contain."""
-
-    test: str
-    engine: str
-    fv: str
-    match: str
-    reason: str
-    flaky: bool = False
-
-
-# Filled from observed failures only; first match wins.
+# Filled from observed failures only. Rows that apply to a case are alternatives: the first
+# whose regex matches the error names the cause (gap_register.find_gap).
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
-    # Before the general 409 entry (first match wins); RustFS, behind the gaps only.
-    *(Gap("test_append_during_compaction", "duckdb", "2", r"HTTP GET error reading 's3://labtables/\.rustfs-table/\S+/metadata/\d+-[0-9a-f-]+\.metadata\.json' \(HTTP 403 Forbidden\)", "INCONSISTENT: RustFS deletes every previous metadata file on commit although write.metadata.delete-after-commit.enabled is off (metadata-log points to missing files) - DuckDB's compaction re-reads its base metadata after the concurrent appends and fails (403, RustFS's answer for a missing key)")
+KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
+    # RustFS: an alternative to the 409 entry below (the error picks the row).
+    *(("test_append_during_compaction", "duckdb", "2", r"HTTP GET error reading 's3://labtables/\.rustfs-table/\S+/metadata/\d+-[0-9a-f-]+\.metadata\.json' \(HTTP 403 Forbidden\)", "rustfs-deletes-metadata-log")
       for _ in [1] if PROFILE.name == "rustfs"),
-    Gap("test_append_during_compaction", "duckdb", "2", r"Conflict_409", "DuckDB iceberg_rewrite_data_files does not retry after a commit conflict (409): compaction fails while appends commit"),
-    Gap("test_append_during_compaction", "duckdb", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "DuckDB 2.0: iceberg_rewrite_data_files does not support v3 tables yet"),
-    Gap("test_append_during_compaction", "flink", "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "Flink SQL has no compaction procedure"),
+    ("test_append_during_compaction", "duckdb", "2", r"Conflict_409", "duckdb-no-retry-on-conflict"),
+    ("test_append_during_compaction", "duckdb", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
+    ("test_append_during_compaction", "flink", "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures"),
     # DuckDB does not retry a commit that lost the race; whether it loses depends on timing.
-    *(Gap(t, "duckdb", "*", r"Conflict_409", "DuckDB does not retry a commit after a conflict (409) - intermittent, depends on timing", flaky=True)
+    *((t, "duckdb", "*", r"Conflict_409", "duckdb-no-retry-on-conflict", True)
       for t in ("test_concurrent_appends", "test_all_engines_append_concurrently")),
     # Seen on Unity only: 8 writers race, PyIceberg's 4 default commit retries
     # (commit.retry.num-retries) can all lose - depends on timing.
-    *(Gap("test_all_engines_append_concurrently", e, "2", r"CommitFailedException: Requirement failed: branch main has changed", "PyIceberg gives up after its 4 default commit retries while 7 other engines commit (Unity: 409 'branch main has changed') - intermittent", flaky=True)
+    *(("test_all_engines_append_concurrently", e, "2", r"CommitFailedException: (Requirement failed: branch main has changed|Metadata location for \S+ changed concurrently)", "pyiceberg-commit-retries-exhausted", True)
       for e in ("pyiceberg", "polars", "daft") if PROFILE.name == "unity"),
+    # DuckDB commits through /transactions/commit, where the REST fixture drops conflicting
+    # changes and still answers 204; how many get lost depends on timing.
+    *(("test_concurrent_appends", "duckdb", "*", r"appends confirmed but lost", "reference-tx-commit-loses-updates", True)
+      for _ in [1] if PROFILE.name == "reference"),
     # MERGE's default isolation is serializable (write.merge.isolation-level): a concurrent
     # insert that matches the MERGE condition must make one of them fail.
-    Gap("test_concurrent_upsert_same_key", "pyiceberg", "2", r"key 4 2 times after two concurrent upserts", "WRONG RESULT: PyIceberg 0.12: two concurrent upserts of the same new key both succeed - the loser's retry re-appends its row without checking for concurrent inserts (apache/iceberg-python#4194; 0.11.1 raised CommitFailedException)"),
+    ("test_concurrent_upsert_same_key", "pyiceberg", "2", r"key 4 2 times after two concurrent upserts", "pyiceberg-concurrent-upsert-duplicates"),
     # DuckDB 2.0.1 fixed "two concurrent MERGE INTO of the same new key both succeed" (5/5 runs).
     # Setup by the engine itself: PyIceberg (and Polars/Daft through it) cannot write v3 data.
-    *(Gap("*", e, "3", base.NO_V3_MSG, f"{e}: " + base.PYICEBERG_NO_V3) for e in ("pyiceberg", "polars", "daft")),
-]
+    *(("*", e, "3", base.NO_V3_MSG, "pyiceberg-v3-data-write") for e in ("pyiceberg", "polars", "daft")),
+])
 # fmt: on
 
 
@@ -102,12 +97,7 @@ def known_gap(test: str, engine: str, fv: int) -> Gap | None:
     Returns:
         The gap, or None.
     """
-    for g in KNOWN_GAPS:
-        if all(
-            fnmatch.fnmatch(v, p) for v, p in ((test, g.test), (engine, g.engine), (str(fv), g.fv))
-        ):
-            return g
-    return None
+    return find_gap(KNOWN_GAPS, test=test, engine=engine, fv=fv)
 
 
 def _gap_ctx(test, engine, fv):
@@ -121,8 +111,7 @@ def _gap_ctx(test, engine, fv):
     Returns:
         The context manager.
     """
-    g = known_gap(test, engine, fv)
-    return expect_gap(g.reason if g else None, g.match if g else None, flaky=bool(g and g.flaky))
+    return expect(known_gap(test, engine, fv))
 
 
 # =========================================================================== helpers
@@ -301,7 +290,12 @@ def _flink_merge_refused(engine_pool, ctx) -> None:
         )
     except Exception as e:
         first = str(e).strip().splitlines()[0][:160] if str(e).strip() else type(e).__name__
-        if re.search(r"(?i)merge|parse|encountered|not support|unsupported", str(e)):
+        # Flink 2.3 parses MERGE INTO but its planner fails validating it ("SQL validation
+        # failed", NullPointerException: rowType in FlinkCalciteSqlValidator.validateJoin) -
+        # refused before any job runs, like the earlier parse error.
+        if re.search(
+            r"(?i)merge|parse|encountered|not support|unsupported|validation|rowType", str(e)
+        ):
             pytest.skip(f"flink has no API for MERGE (refused: {first})")
         raise
     pytest.fail("[claim outdated?] Flink accepted MERGE INTO - test the concurrent upsert with it")
@@ -353,7 +347,10 @@ def test_concurrent_appends(engine, fv, namespace, engine_pool, fresh_engine):
             ]
         )
         raise_first(errors, "append")
-        assert engine_pool(engine).read(ctx.ns, ctx.table) == base.SEED + rows
+        got = engine_pool(engine).read(ctx.ns, ctx.table)
+        lost = [r for r in rows if r not in got]
+        assert not lost, f"appends confirmed but lost: {lost}"
+        assert got == base.SEED + rows
 
 
 @pytest.fixture(scope="module", params=[2, 3], ids=lambda v: f"v{v}")

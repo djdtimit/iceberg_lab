@@ -10,6 +10,7 @@ function:lake_file_cache.add
 function:lake_file_cache.list
 function:lake_file_cache.remove
 function:lake_iceberg.catalog_export
+function:lake_iceberg.catalog_stats
 function:lake_iceberg.data_file_stats
 function:lake_iceberg.external_catalog_modification
 function:lake_iceberg.files

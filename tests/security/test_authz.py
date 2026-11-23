@@ -30,7 +30,15 @@ from authz_backends import ROWS, Conn, backend, pyiceberg_for
 
 from iceberg_lab.config import PROFILE, SETTINGS
 
-from conftest import ENGINES, engine_param, expect_gap, require, require_engine
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    find_gap,
+    gap_table,
+    require,
+    require_engine,
+)
 
 #: What a refusal looks like: a permission or authentication error. Any other error (syntax,
 #: connection, driver) must NOT pass as "correctly refused".
@@ -612,21 +620,25 @@ def engine_sql(engine, user, b, request, make_sql):
     raise ValueError(engine)
 
 
-# Filled from observed failures only: (catalog glob, engine, user/test, regex, reason).
+# Filled from observed failures only: (catalog glob, engine, user/test, regex, cause[, flaky]).
 # fmt: off
-KNOWN_GAPS: list[tuple] = [
+KNOWN_GAPS = gap_table(("catalog", "engine", "what"), [
     # Trino hides the reason of a refusal behind generic messages (seen on every catalog).
-    ("*", "trino", "write", r"Error committing write to Parquet file", "Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown"),
+    ("*", "trino", "write", r"Error committing write to Parquet file", "trino-hides-write-refusal"),
     # On Lakekeeper Trino shows the refusal; on these catalogs only a generic message:
-    *((c, "trino", "bob", r"Failed to load (table|view)\W+t_select|Cannot obtain metadata", "Trino reports a refused table load (403) only as 'Failed to load table' / 'Failed to load view' / 'Cannot obtain metadata' - the refusal is not shown", c == "unity")
+    *((c, "trino", "bob", r"Failed to load (table|view)\W+t_select|Cannot obtain metadata", "trino-hides-load-refusal", c == "unity")
       for c in ("polaris", "rustfs", "unity")),  # Unity: Trino sometimes shows the 403 (intermittent)
     # Polaris authorizes /transactions/commit only with TABLE_FULL_METADATA (checked:
     # TABLE_WRITE_DATA, TABLE_WRITE_PROPERTIES, NAMESPACE_READ_PROPERTIES are not enough).
     # RustFS: catalog rights (admin:GetTable, ...) can be scoped per bucket only, not per table;
     # only the S3 prefix policy protects the data, so a reader loads every table's metadata.
-    ("rustfs", "catalog", "metadata", r"alice loaded the metadata of a table she has no grant on", "SECURITY: RustFS catalog rights can be scoped per bucket only, not per table: a user who may read one table also loads the metadata (schema, storage location) of every other table in the warehouse - only reading the data is refused by the S3 policy"),
-    ("polaris", "duckdb", "write_allowed", r"not authorized for op COMMIT_TRANSACTION", "Polaris requires TABLE_FULL_METADATA for /transactions/commit (TABLE_WRITE_DATA suffices for a normal commit) - DuckDB always commits that way, so a write grant does not let it write"),
-]
+    ("rustfs", "catalog", "metadata", r"alice loaded the metadata of a table she has no grant on", "rustfs-table-level-rights"),
+    # Seen 2026-11-23 on a fresh authz stack (pg_lake 3.7): bob may not read /v1/config, which
+    # Lakekeeper hides with 404; pg_lake carries on with a wrong prefix. Nothing is read.
+    ("lakekeeper", "pg_lake", "bob", r"WarehouseIdIsNotUUID", "pglake-ignores-config-404"),
+    ("unity", "pg_lake", "bob", r"could not look up namespace \"postgres\.az_\w+\" in the REST catalog.{1,4}DETAIL:\s+The REST catalog returned HTTP 500", "unity-authz-lookup-500", True),
+    ("polaris", "duckdb", "write_allowed", r"not authorized for op COMMIT_TRANSACTION", "polaris-tx-commit-full-metadata"),
+])
 # fmt: on
 
 
@@ -640,12 +652,7 @@ def _gap(engine, what):
     Returns:
         The context manager.
     """
-    import fnmatch
-
-    for cat, e, w, regex, reason, *flaky in KNOWN_GAPS:
-        if fnmatch.fnmatch(PROFILE.name, cat) and e == engine and w == what:
-            return expect_gap(reason, regex, flaky=bool(flaky and flaky[0]))
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, engine=engine, what=what))
 
 
 @pytest.mark.slow

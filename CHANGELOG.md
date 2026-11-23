@@ -2,6 +2,94 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Full runs 2026-11-23 (Polaris, Unity, RustFS, reference) and the gap register
+
+- **Five catalogs**: the Apache Iceberg REST fixture (`apache/iceberg-rest-fixture`, Iceberg
+  `main` c75374c, JDBC/SQLite in the container) is the fifth catalog (`CATALOG=reference`,
+  compose service `reference`, no auth, static S3 keys). All five references in `results/`
+  hold the same 11252 tests (self-test). Per catalog pass / known gap / not offered / not
+  testable: Lakekeeper 6918/635/988/2471, Polaris 7022/624/1031/2335, Unity 6283/713/1058/2958,
+  RustFS 3743/1036/2811/3422, reference 5776/1319/1155/2762. No NEW failure, no fixed gap.
+- **Gap register** (`docs/gaps.toml`, `iceberg_lab.lab.gap_register`): every known gap names a
+  cause (170: id, summary, severity, `seen_at` versions, flaky, bug report); tests keep their
+  selectors and refer to the cause through the shared `Gap` type (`gap`, `gap_table`,
+  `expect`, `expect_cause`). Self-tests: canonical file, every cause used, no free-text gaps,
+  unknown cause / bad regex refused, causes still seen with the current versions (after an
+  upgrade: the list to check again, `scripts/gap_register.py confirm`), every reason in
+  `results/` is a cause, all references hold the same tests. The gap list of
+  `docs/findings.md` is generated (`scripts/gap_register.py findings`).
+- **pydantic** (explicit dependency) for the register, `ResultRow`, `RunManifest` and
+  `engine-classified.toml` - not for test parameters, adapters or config.
+- **Alternatives**: several gap rows for the same case are alternatives; the error picks the
+  row (`find_gap` returns all, `matching()`). Before, the first row won by selectors, so the
+  second cause never matched (views on Unity, concurrency on RustFS).
+- **REST prefix in one place** (`config.rest_prefix_path`, `rest_base`): a catalog without a
+  `prefix` in `/v1/config` got `/v1/<warehouse>/...` in ~80 tests (lab bug, found with the
+  fixture). `test_security` treated every unknown catalog as Unity; fixed.
+- **Reference findings**: `/transactions/commit` answers concurrent commits with 204 and keeps
+  only one (DATA LOSS, bug report 16; new test
+  `test_parallel_transaction_commits_are_not_lost` on every catalog that advertises the
+  endpoint - Lakekeeper refuses the losers correctly); no location checks (SECURITY); stack
+  traces and 500 for client errors, empty error bodies; names it accepts but cannot address
+  afterwards (`%2E` separator, Jetty refuses encoded `/`, `\`, `%`); v3 type in a v2 table is a
+  500. It is the only catalog with server-side scan planning.
+- **pg_lake requires a REST prefix** (bug report 17): with a catalog without prefix every
+  request goes to `/v1/<catalog_name>/...`; pg_lake cannot use the fixture at all (central rule
+  in `gaps.CATALOG_GAPS`).
+- **Unity**: authz lookup intermittently answers 500 (flaky cause); `create_view` on the
+  read-only view API answers `NotFoundException`. **PyIceberg** commit retries: the message
+  "Metadata location ... changed concurrently" belongs to the same cause.
+- **Lab fixes**: DuckDB's function inventory is read without an attached catalog (a leftover
+  namespace with an empty name broke the listing on the fixture); `drop_namespace_tree` drops
+  only existing tables; `export_reference` takes the manifest of the run with most rows;
+  cross-reads of an engine's own result are "self", not "na"; `cleanup_storage` accepts Unity's
+  "Catalog not found"; `scripts/engine_inventory_doc.py` imported `reporting` from its old place.
+  `rest-conformance.md`, `engine-inventory.md` and the dashboard show the fifth catalog; the
+  dashboard data leaves out empty optional fields (data file 19 MB).
+- **Open**: the feature inventory (`tests/lab/feature_inventory.py`, `docs/api/`) has no column
+  for the reference catalog yet. `reports/rustfs-nohelp` was lost while freeing disk space; its
+  reference in `results/` is kept, the dashboard takes those rows from its previous data.
+- **Disk**: the runs filled the disk (btrfs); dangling images removed.
+
+## Full run 2026-11-23 (Lakekeeper, all eight engines)
+
+- **pg_lake image fixed** (`pg_lake/Dockerfile`, pg_lake 3.7.0): the build passed, but
+  pgduck_server stopped at start ("could not start query engine" in ~320 cases). Three causes:
+  libavro/libduckdb are installed into the system libdir and were not copied to the runtime
+  stage; the shallow submodule clone has no git tags, so DuckDB called itself v0.0.1 and fetched
+  its extensions from a URL that does not exist (now `OVERRIDE_GIT_DESCRIBE` from pg_lake's
+  `DUCKDB_VERSION`, checked in the build); no CA certificates in the runtime image. The build
+  tree (~30 GB) is removed in the same layer.
+- **DuckDB 2.0.1**: `CREATE SCHEMA lk."a"."b"` no longer creates a top-level namespace `b`
+  (gap removed, test kept as regression check); ORC/Avro tables are now refused ("only parquet
+  is supported") instead of silently getting Parquet files (gap reason updated).
+- **Flink 2.3**: no FLOAT NaN/Infinity in SQL - `CAST('NaN' AS FLOAT)` and
+  `CAST(CAST('NaN' AS DOUBLE) AS FLOAT)` fail with `NumberFormatException` (new gap; the
+  `float_nan` case ran on Flink for the first time). `MERGE INTO` now parses but the planner
+  fails validating it (NPE `rowType`) - still refused, the concurrency probe accepts this form.
+- **pg_lake 3.7** (first full run; `VERIFIED` and the inventory updated): resolves struct
+  fields by name, not by field id (wrong result: a renamed struct field reads as NULL; with no
+  name in common the read fails); cannot evolve a struct column (`ALTER TYPE` refused); after
+  `VACUUM` expired snapshots its own next INSERT fails (`deletion_queue_pkey`); new
+  `lake_iceberg.catalog_stats()` (tested). The partition bug (bug report 08) reproduces with new
+  wording. Bug report 06 reproduces again and was wrong in one point: the `{s}` comes from
+  Lakekeeper's message (it answers every non-UUID prefix that way), not from pg_lake; the earlier
+  "no longer reproduces" came from leftover grants on the long-running authz stack.
+- **Adapter code that had not run before**: the pg_lake paths of the nested evolution
+  (`map_type.create` names the type `float4`, not `real`) and of the time-zone matrix
+  (`insert_case` refused every table) fixed. `PgLakeEngine.insert_case` no longer decides up
+  front: on a table pg_lake did not create it attaches and tries, so pg_lake answers itself.
+- **pg_lake image**: `libduckdb.so` stripped of debug info (image 2.69 GB -> 1.13 GB).
+- **Run manifest**: a compose service key with a trailing comment made the next service's
+  image overwrite the previous one (pg-lake was recorded as `eclipse-temurin`, unity-gateway as
+  `python`); fixed, and a self-test compares the parser with PyYAML (now a dev dependency).
+- **Lab fixes found on a fresh authz stack**: `authz_backends.rest()` used the warehouse name
+  as REST prefix when the user may not read `/v1/config` (Lakekeeper hides the warehouse), so
+  every refusal was a 400 for a wrong path - now the warehouse id (`rest_prefix`).
+  `test_rbac` creates its Keycloak token-role clients itself instead of relying on
+  `test_security` having run first. Checked: OpenFGA 1.22.1 shows the same, the bump to 1.23.0
+  is not involved.
+
 ## Lab changes 2026-11-22 (3): one registry, adapters, new versions show up
 
 - **Framework is a package** (`src/iceberg_lab/lab/`): gaps, dependent results, inventory,

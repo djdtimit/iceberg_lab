@@ -24,6 +24,7 @@ Steps (all catalogs share RustFS):
 """
 
 import time
+from dataclasses import replace
 
 import boto3
 import requests
@@ -358,6 +359,10 @@ def main(s: Settings = SETTINGS) -> None:
     elif PROFILE.name == "polaris":
         wait_for(f"{s.catalog_base}/api/catalog/v1/config")
         ensure_polaris(s)
+    elif PROFILE.name == "reference":
+        # The fixture writes below its CATALOG_WAREHOUSE (s3://reference/wh): only the bucket.
+        ensure_bucket(replace(s, s3_bucket=PROFILE.location.split("/")[2]))
+        wait_for(f"{s.catalog_base}/v1/config")
     else:
         wait_for(f"{s.lakekeeper_url}/health")
         ensure_bootstrapped(s)

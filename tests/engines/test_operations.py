@@ -40,11 +40,9 @@ Adding an engine: write an ``<Engine>Ops`` class with one method per supported o
 
 from __future__ import annotations
 
-import fnmatch
 import re
 import uuid
 from dataclasses import dataclass
-from typing import NamedTuple
 
 import pyarrow as pa
 import pytest
@@ -57,9 +55,12 @@ from iceberg_lab.engines import SPARK_CATALOGS, polars_storage_options, pyiceber
 
 from conftest import (
     ENGINES,
+    Gap,
     engine_param,
-    expect_gap,
+    expect,
+    find_gap,
     fresh,
+    gap_table,
     keep_if_content_ok,
     not_offered,
     require_format,
@@ -110,76 +111,51 @@ OPERATIONS = [
 ]
 
 
-class Gap(NamedTuple):
-    """A known gap: ``engine``/``op``/``fv`` are shell-style globs (``fv`` as string);
-    ``match`` is a regex the error must contain, so the gap cannot hide unrelated failures.
-    ``flaky=True``: intermittent - a passing run is not reported as "gap fixed"."""
-
-    engine: str
-    op: str
-    fv: str
-    match: str
-    reason: str
-    flaky: bool = False
-
-
 # PyIceberg 0.12 supports v3 only partly: creating, reading and metadata-only changes work,
-# but write_manifest()/write_manifest_list() implement only format v1 and v2.
-PYICEBERG_NO_V3 = (
-    "PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: "
-    "'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work"
-)
-
+# but write_manifest()/write_manifest_list() implement only format v1 and v2
+# (cause pyiceberg-v3-data-write). Shared with the other engine matrices.
 NO_V3_MSG = r"Cannot write manifest for table version: 3"
-
-#: Lakekeeper 0.15 rejects pg_lake's partition fields (both source-id and source-ids) with 422;
-#: pg_lake only warns. Shared with test_evolution.py.
-PGLAKE_SOURCE_IDS = (
-    "pg_lake sends partition fields with both 'source-id' and 'source-ids'; Lakekeeper 0.15 "
-    "rejects that (HTTP 422) and pg_lake ignores the error - partitioned tables and partition "
-    "evolution fail (docs/bug-reports/08)"
-)
 
 # Known gaps of the operation matrix, one per line. First match wins.
 # fmt: off
-KNOWN_GAPS: list[Gap] = [
-    *([Gap("pg_lake", "partition_evolution", "*", r"partition spec 1 not found for manifest", PGLAKE_SOURCE_IDS)]
+KNOWN_GAPS = gap_table(("engine", "op", "fv"), [
+    *([("pg_lake", "partition_evolution", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]
       if PROFILE.name == "lakekeeper" else []),
-    Gap("trino", "branch_and_tag", "*", r"does not support creating branches", "Trino 484: 'This connector does not support creating branches'"),
-    Gap("trino", "overwrite", "*", r"Catalog only supports writes using autocommit", "Trino Iceberg: no atomic overwrite (writes only in autocommit, no multi-statement transactions)"),
-    Gap("pg_lake", "rename_table", "*", r"ALTER TABLE RENAME command not supported for pg_lake_iceberg tables", "pg_lake 3.6 cannot rename Iceberg tables in a REST catalog"),
-    Gap("flink", "delete", "*", r"Can't perform delete operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelDelete", "Iceberg's Flink sink does not support DELETE (no SupportsRowLevelDelete)"),
-    Gap("flink", "update", "*", r"Can't perform update operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelUpdate", "Iceberg's Flink sink does not support UPDATE (no SupportsRowLevelUpdate)"),
-    *(Gap("flink", op, "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", f"Flink: no {op} in SQL (FlinkCatalog has no procedures; only the Java TableMaintenance API)")
+    ("trino", "branch_and_tag", "*", r"does not support creating branches", "trino-no-create-branch"),
+    ("trino", "overwrite", "*", r"Catalog only supports writes using autocommit", "trino-autocommit-only"),
+    ("pg_lake", "rename_table", "*", r"ALTER TABLE RENAME command not supported for pg_lake_iceberg tables", "pglake-no-rename"),
+    ("flink", "delete", "*", r"Can't perform delete operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelDelete", "flink-no-delete"),
+    ("flink", "update", "*", r"Can't perform update operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelUpdate", "flink-no-update"),
+    *(("flink", op, "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures")
       for op in ("rollback",)),
-    Gap("flink", "branch_and_tag", "*", r"Flink SQL has no statement to create a tag", "Flink SQL writes/reads branches (OPTIONS('branch')) but cannot create tags"),
-    Gap("pg_lake", "merge", "*", r"cannot execute MERGE on relation", "pg_lake 3.6 does not support MERGE on Iceberg tables"),
+    ("flink", "branch_and_tag", "*", r"Flink SQL has no statement to create a tag", "flink-no-create-tag"),
+    ("pg_lake", "merge", "*", r"cannot execute MERGE on relation", "pglake-no-merge"),
     # PyIceberg (and Polars/Daft, which write through it) cannot write v3 data. Every test
     # starts by writing its own setup rows, so every v3 operation except create_table fails
     # in the setup - deliberately: no other engine writes the data for them.
-    *(Gap("pyiceberg", op, "3", NO_V3_MSG, PYICEBERG_NO_V3)
+    *(("pyiceberg", op, "3", NO_V3_MSG, "pyiceberg-v3-data-write")
       for op in ("insert", "overwrite", "delete", "merge", "add_column", "rename_column",
                  "drop_column", "widen_type", "partition_evolution", "time_travel", "rollback",
                  "branch_and_tag", "metadata_tables", "rename_table",
                  "drop_table", "delete_merge_on_read", "transaction_multi_change",
                  "transaction_rollback", "sees_external_commit", "create_existing_fails",
                  "filter_aggregate", "list_tables")),
-    *(Gap(eng, op, "3", NO_V3_MSG, f"{eng} writes through PyIceberg: {PYICEBERG_NO_V3}")
+    *((eng, op, "3", NO_V3_MSG, "pyiceberg-v3-data-write")
       for eng in ("polars", "daft")
       for op in ("insert", "overwrite", "time_travel", "sees_external_commit", "filter_aggregate", "list_tables")),
-    Gap("polars", "add_column", "3", NO_V3_MSG, f"polars writes through PyIceberg: {PYICEBERG_NO_V3}"),
+    ("polars", "add_column", "3", NO_V3_MSG, "pyiceberg-v3-data-write"),
     # Base cases added 2026-11-15: findings.
-    Gap("spark", "sees_external_commit", "*", r"engine does not see a commit made by another client", "Spark's Iceberg catalog caches loaded tables (cache-enabled defaults to true, 30 s expiry): a commit by another client stays invisible in the same session until the cache expires or REFRESH TABLE"),
-    Gap("pg_lake", "sees_external_commit", "*", r"engine does not see a commit made by another client", "WRONG RESULT: pg_lake does not see commits by other clients to a table it created (keeps its own metadata pointer; attached tables do follow - test_pglake.py)"),
-    Gap("pyiceberg", "delete_merge_on_read", "2", r"no delete file written - copy-on-write despite", "PyIceberg 0.12 deletes only copy-on-write (rewrites the data file) and ignores write.delete.mode=merge-on-read"),
-    Gap("pg_lake", "delete_merge_on_read", "2", r"no delete file written - copy-on-write despite", "pg_lake ignores write.delete.mode=merge-on-read: deleting 1 of 3 rows rewrites the data file (with 1 of 97 rows it writes a position delete file - test_maintenance)"),
-    Gap("duckdb", "identifier_fields", "*", r"Only NOT NULL constraints are supported for Iceberg tables", "DuckDB: no PRIMARY KEY / identifier fields on Iceberg tables (only NOT NULL)"),
-    Gap("pg_lake", "identifier_fields", "*", r"primary key constraints are not supported on foreign tables", "pg_lake: no PRIMARY KEY on Iceberg tables (foreign tables)"),
+    ("spark", "sees_external_commit", "*", r"engine does not see a commit made by another client", "spark-catalog-cache"),
+    ("pg_lake", "sees_external_commit", "*", r"engine does not see a commit made by another client", "pglake-no-external-commits"),
+    ("pyiceberg", "delete_merge_on_read", "2", r"no delete file written - copy-on-write despite", "pyiceberg-delete-copy-on-write-only"),
+    ("pg_lake", "delete_merge_on_read", "2", r"no delete file written - copy-on-write despite", "pglake-delete-copy-on-write"),
+    ("duckdb", "identifier_fields", "*", r"Only NOT NULL constraints are supported for Iceberg tables", "duckdb-no-primary-key"),
+    ("pg_lake", "identifier_fields", "*", r"primary key constraints are not supported on foreign tables", "pglake-no-primary-key"),
     # Same root causes as above, for the base cases added 2026-11-15.
-    Gap("flink", "delete_merge_on_read", "*", r"Can't perform delete operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelDelete", "Iceberg's Flink sink does not support DELETE (no SupportsRowLevelDelete)"),
-    *(Gap("trino", op, "*", r"Catalog only supports writes using autocommit", "Trino Iceberg: writes only in autocommit - no multi-statement transactions")
+    ("flink", "delete_merge_on_read", "*", r"Can't perform delete operation .* has not yet implemented org\.apache\.flink\.table\.connector\.sink\.abilities\.SupportsRowLevelDelete", "flink-no-delete"),
+    *(("trino", op, "*", r"Catalog only supports writes using autocommit", "trino-autocommit-only")
       for op in ("transaction_multi_change", "transaction_rollback")),
-]
+])
 # fmt: on
 
 
@@ -194,14 +170,7 @@ def known_gap(engine: str, op: str, fv: int) -> Gap | None:
     Returns:
         The gap, or None.
     """
-    for g in KNOWN_GAPS:
-        if (
-            fnmatch.fnmatch(engine, g.engine)
-            and fnmatch.fnmatch(op, g.op)
-            and fnmatch.fnmatch(str(fv), g.fv)
-        ):
-            return g
-    return None
+    return find_gap(KNOWN_GAPS, engine=engine, op=op, fv=fv)
 
 
 @dataclass
@@ -1184,7 +1153,7 @@ class TrinoOps(SqlOps):
 
 
 class PgLakeOps(SqlOps):
-    """Postgres + pg_lake 3.6.
+    """Postgres + pg_lake 3.7.
 
     Only tables pg_lake created itself are writable, so :meth:`setup` creates and seeds the
     table through pg_lake instead of PyIceberg. New writable tables are always format v2
@@ -1491,27 +1460,27 @@ CONTENT_OPS = sorted(EXPECTED_CONTENT)
 #: Known cross-read gaps: (writer engine, reader, op, fv) globs + error regex + reason.
 #: Filled from observed failures only.
 # fmt: off
-CROSS_GAPS: list[tuple[str, str, str, str, str, str]] = [
+CROSS_GAPS = gap_table(("engine", "reader", "op", "fv"), [
     # Only operations that delete/replace rows write delete files: on v3 deletion vectors
     # (Puffin), on v2 position deletes. Spark uses copy-on-write by default, so it writes none.
-    *((w, "daft", op, "3", r"not a valid parquet file", "Daft cannot apply v3 deletion vectors (reads Puffin as Parquet)")
+    *((w, "daft", op, "3", r"not a valid parquet file", "daft-dv-as-parquet")
       for w, ops in (("duckdb", ("delete", "update", "merge", "overwrite", "delete_merge_on_read", "transaction_multi_change")), ("trino", ("delete", "update", "merge", "delete_merge_on_read")), ("spark", ("delete_merge_on_read",)))
       for op in ops),
-    *((w, "pg_lake", op, "3", r"deletion vectors are not supported", "pg_lake 3.6 cannot read v3 deletion vectors")
+    *((w, "pg_lake", op, "3", r"deletion vectors are not supported", "pglake-no-dv-read")
       for w, ops in (("duckdb", ("delete", "update", "merge", "overwrite", "delete_merge_on_read", "transaction_multi_change")), ("trino", ("delete", "update", "merge", "delete_merge_on_read")), ("spark", ("delete_merge_on_read",)))
       for op in ops),
     # Flink's upsert (= its MERGE) writes EQUALITY deletes; PyIceberg cannot apply them.
-    *(("flink", r, "merge", "*", r"PyIceberg does not yet support equality deletes", f"{r}: PyIceberg cannot read equality deletes (Flink upsert)")
+    *(("flink", r, "merge", "*", r"PyIceberg does not yet support equality deletes", "pyiceberg-no-equality-deletes")
       for r in ("pyiceberg", "polars", "daft")),
     # Trino's v2 position-delete files use DELTA_LENGTH_BYTE_ARRAY for file_path.
-    *(("trino", "pyiceberg", op, "2", r"DeltaLengthByteArrayDecoder", "PyArrow cannot decode Trino's position-delete files (DELTA_LENGTH_BYTE_ARRAY)")
+    *(("trino", "pyiceberg", op, "2", r"DeltaLengthByteArrayDecoder", "pyarrow-trino-delta-length-byte-array")
       for op in ("delete", "update", "merge", "delete_merge_on_read")),
-]
+])
 # fmt: on
 
 
 def cross_gap(engine: str, reader: str, op: str, fv: int):
-    """``(regex, reason)`` of the first matching :data:`CROSS_GAPS` entry, else ``None``.
+    """The first matching :data:`CROSS_GAPS` entry, else ``None``.
 
     Args:
         engine: Engine that performed the operation.
@@ -1520,17 +1489,9 @@ def cross_gap(engine: str, reader: str, op: str, fv: int):
         fv: Iceberg format version (2 or 3).
 
     Returns:
-        ``(regex, reason)``, or None.
+        The gap, or None.
     """
-    for g_eng, g_reader, g_op, g_fv, regex, reason in CROSS_GAPS:
-        if (
-            fnmatch.fnmatch(engine, g_eng)
-            and fnmatch.fnmatch(reader, g_reader)
-            and fnmatch.fnmatch(op, g_op)
-            and fnmatch.fnmatch(str(fv), g_fv)
-        ):
-            return regex, reason
-    return None
+    return find_gap(CROSS_GAPS, engine=engine, reader=reader, op=op, fv=fv)
 
 
 class FlinkOps(SqlOps):
@@ -1764,9 +1725,7 @@ def test_operation(engine, op, fv, namespace, engine_pool, op_results):
 
     with (
         keep_if_content_ok(op_results, (engine, op, fv), produced, content_ok),
-        expect_gap(
-            gap.reason if gap else None, gap.match if gap else None, flaky=bool(gap and gap.flaky)
-        ),
+        expect(gap),
     ):
         # Setup is part of the checked block: the engine writes its own setup rows, and if
         # it cannot (e.g. v3), that is the test result.
@@ -1816,7 +1775,7 @@ def test_operation_cross_read(engine, op, fv, reader, engine_pool, op_results):
         pytest.skip("own result is verified in test_operation")
     ns, table = skip_if_not_produced(op_results, (engine, op, fv), "test_operation")
     gap = cross_gap(engine, reader, op, fv)
-    with expect_gap(gap[1] if gap else None, gap[0] if gap else None):
+    with expect(gap):
         assert fresh(engine_pool(reader), ns, table).read(ns, table) == EXPECTED_CONTENT[op]
 
 

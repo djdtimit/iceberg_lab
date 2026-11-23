@@ -11,9 +11,9 @@ Each capability:
     tests      test ids (``file::test``) that prove it; empty = not tested yet (listed as open)
     note       why something is not tested, or how a catalog does it differently
     not_implemented
-               catalog -> {status, test, gap}: the catalog DESCRIBES the capability in its API,
+               catalog -> {status, test, cause}: the catalog DESCRIBES the capability in its API,
                but the server does not implement it at all (shown as ◐). ``test`` proves it
-               with a known gap whose reason contains ``gap``; when the catalog adds it, that
+               with a known gap of ``cause`` (docs/gaps.toml); when the catalog adds it, that
                test reports "gap fixed" and the entry is removed. Partial failures stay ✓ with
                a note.
 
@@ -136,7 +136,7 @@ CAPABILITIES: dict[str, dict] = {
             "lakekeeper": {
                 "status": "404, not advertised in /v1/config",
                 "test": "test_scan_planning::test_server_side_plan_with_projection_and_filter",
-                "gap": "does not implement server-side scan planning",
+                "cause": "catalogs-no-scan-planning",
             },
         },
         "note": "Base test on all catalogs; none implements it (404/501).",
@@ -162,7 +162,7 @@ CAPABILITIES: dict[str, dict] = {
             "polaris": {
                 "status": "501, not advertised in /v1/config",
                 "test": "test_catalog_features::test_remote_signing",
-                "gap": "Polaris 1.9 has the Iceberg signing endpoint in its API but answers 501",
+                "cause": "polaris-signing-501",
             },
         },
     },
@@ -176,7 +176,7 @@ CAPABILITIES: dict[str, dict] = {
             "lakekeeper": {
                 "status": "404, not advertised in /v1/config",
                 "test": "test_catalog_features::test_lakekeeper_unregister",
-                "gap": "describes POST .../tables/{t}/unregister in its API, but the server answers 404",
+                "cause": "lakekeeper-functions-unregister-404",
             },
         },
     },
@@ -478,7 +478,7 @@ CAPABILITIES: dict[str, dict] = {
             "lakekeeper": {
                 "status": "404, not advertised in /v1/config",
                 "test": "test_catalog_features::test_catalog_functions",
-                "gap": "describes GET .../namespaces/{ns}/functions in its API, but the server answers 404",
+                "cause": "lakekeeper-functions-unregister-404",
             },
         },
     },

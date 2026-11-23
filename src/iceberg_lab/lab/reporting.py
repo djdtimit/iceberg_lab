@@ -129,6 +129,12 @@ def pytest_runtest_logreport(report):
     if report.when == "teardown" and rec["status"] is not None:
         return
     status, detail = _classify(report)
+    p = rec["params"]
+    if status == "na" and rec["test"] in CROSS_READ_TESTS and p.get("reader") == p.get("engine"):
+        # An engine reading its own result: verified in the producing test. Without this, an
+        # engine the catalog cannot serve (skip mark, before the body's own "self" skip) would
+        # add these cases on that catalog only.
+        status, detail = "self", "own result is verified in the producing test"
     if status is not None:
         rec["status"], rec["detail"] = status, detail
 

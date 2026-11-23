@@ -28,7 +28,7 @@ import requests
 from iceberg_lab.config import PROFILE, SETTINGS, catalog_auth, catalog_headers
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 
 def ok(r: requests.Response, *codes: int) -> requests.Response:
@@ -581,25 +581,25 @@ class Unity:
         ).json()["metastore_id"]
 
 
-ADMIN = {"lakekeeper": Lakekeeper, "polaris": Polaris, "rustfs": RustFS, "unity": Unity}[
-    PROFILE.name
-]()
+class Reference:
+    """The Iceberg REST fixture: no management API at all (one fixed warehouse)."""
+
+
+ADMIN = {
+    "lakekeeper": Lakekeeper,
+    "polaris": Polaris,
+    "rustfs": RustFS,
+    "unity": Unity,
+    "reference": Reference,
+}[PROFILE.name]()
 
 # Filled from observed failures only: (catalog, test, regex, reason).
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    (
-        "rustfs",
-        "list",
-        r"GET \S+/iceberg/v1/buckets: 501",
-        "RustFS cannot list table buckets (GET /iceberg/v1/buckets answers 501 Not Implemented)",
-    ),
-    (
-        "unity",
-        "users",
-        r"user still present after DELETE \(active=False\)",
-        "Unity's SCIM DELETE only deactivates a user (active=false); it stays listed and retrievable",
-    ),
-]
+# fmt: off
+KNOWN_GAPS = gap_table(("catalog", "test"), [
+    ("rustfs", "list", r"GET \S+/iceberg/v1/buckets: 501", "rustfs-list-buckets-501"),
+    ("unity", "users", r"user still present after DELETE \(active=False\)", "unity-scim-delete-deactivates"),
+])
+# fmt: on
 
 
 def gap(test: str):
@@ -611,10 +611,7 @@ def gap(test: str):
     Returns:
         The context manager.
     """
-    for cat, t, regex, reason in KNOWN_GAPS:
-        if cat == PROFILE.name and t == test:
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, test=test))
 
 
 def fresh_name() -> str:
@@ -653,6 +650,8 @@ def test_catalog_lifecycle():
         * it appears in the admin API's list;
         * after deletion it no longer exists.
     """
+    if not hasattr(ADMIN, "create"):
+        no_api("creating a warehouse or catalog")
     name = fresh_name()
     handle = ADMIN.create(name)
     try:
@@ -925,6 +924,8 @@ def test_users():
         if PROFILE.name == "lakekeeper"
         else f"admtest{uuid.uuid4().hex[:6]}"
     )
+    if PROFILE.name not in USERS:
+        no_api("users or principals")
     with gap("users"):
         USERS[PROFILE.name](uid)
 

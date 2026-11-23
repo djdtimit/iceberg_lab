@@ -17,7 +17,6 @@ created itself, always Parquet ("not offered").
 
 from __future__ import annotations
 
-import fnmatch
 import uuid
 
 import pytest
@@ -26,7 +25,7 @@ from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.datatypes import CASES, canonical, normalize
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh, offers
+from conftest import ENGINES, engine_param, expect, find_gap, fresh, gap_table, offers
 
 WAREHOUSE = WAREHOUSE_STS
 FORMATS = ["orc", "avro"]
@@ -34,17 +33,17 @@ CASE = next(c for c in CASES if c.name == "string")
 
 # Filled from observed failures only: (op, engine glob, format glob, regex, reason).
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str, str]] = [
-    ("write", "pyiceberg", "*", r"No writer registered for FileFormat\.(ORC|AVRO)", "PyIceberg 0.12 writes only Parquet data files (refuses ORC/Avro)"),
-    ("write", "polars", "*", r"No writer registered for FileFormat\.(ORC|AVRO)", "Polars writes through PyIceberg: only Parquet data files"),
-    ("write", "duckdb", "*", r"duckdb wrote \['parquet'\] data files", "DuckDB ignores write.format.default and writes Parquet instead"),
-    ("write", "daft", "*", r"daft wrote \['parquet'\] data files", "Daft ignores write.format.default and writes Parquet instead"),
-    ("read", "*>pyiceberg", "avro", r"Unsupported file format: FileFormat\.AVRO", "PyIceberg 0.12 cannot read Avro data files (ORC works)"),
-    ("read", "*>polars", "avro", r"Unsupported file format: FileFormat\.AVRO", "Polars plans through PyIceberg: no Avro data files (ORC works)"),
-    ("read", "*>daft", "*", r"FileFormat\.(ORC|AVRO) for iceberg not implemented", "Daft reads only Parquet data files"),
-    ("read", "*>duckdb", "*", r"File format '(ORC|AVRO)' not supported, only supports 'parquet'", "DuckDB reads only Parquet data files"),
-    ("read", "*>pg_lake", "*", r"No magic bytes found at end of file '[^']+\.(orc|avro)'", "pg_lake reads every data file as Parquet: ORC/Avro fail with a misleading 'No magic bytes found'"),
-]
+KNOWN_GAPS = gap_table(("op", "engine", "fmt"), [
+    ("write", "pyiceberg", "*", r"No writer registered for FileFormat\.(ORC|AVRO)", "pyiceberg-parquet-only-write"),
+    ("write", "polars", "*", r"No writer registered for FileFormat\.(ORC|AVRO)", "pyiceberg-parquet-only-write"),
+    ("write", "duckdb", "*", r"Cannot write data file with 'write\.format\.default'='(orc|avro)': only parquet is supported", "duckdb-parquet-only-write"),
+    ("write", "daft", "*", r"daft wrote \['parquet'\] data files", "daft-ignores-write-format"),
+    ("read", "*>pyiceberg", "avro", r"Unsupported file format: FileFormat\.AVRO", "pyiceberg-no-avro-read"),
+    ("read", "*>polars", "avro", r"Unsupported file format: FileFormat\.AVRO", "pyiceberg-no-avro-read"),
+    ("read", "*>daft", "*", r"FileFormat\.(ORC|AVRO) for iceberg not implemented", "daft-parquet-only-read"),
+    ("read", "*>duckdb", "*", r"File format '(ORC|AVRO)' not supported, only supports 'parquet'", "duckdb-parquet-only-read"),
+    ("read", "*>pg_lake", "*", r"No magic bytes found at end of file '[^']+\.(orc|avro)'", "pglake-reads-all-as-parquet"),
+])
 # fmt: on
 
 
@@ -63,10 +62,7 @@ def _gap(op, engine, fmt):
     Returns:
         The context manager.
     """
-    for o, e, f, regex, reason in KNOWN_GAPS:
-        if o == op and fnmatch.fnmatch(engine, e) and fnmatch.fnmatch(fmt, f):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, op=op, engine=engine, fmt=fmt))
 
 
 @pytest.fixture(scope="session")

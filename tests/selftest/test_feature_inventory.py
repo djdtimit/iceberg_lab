@@ -23,6 +23,8 @@ from pathlib import Path
 import feature_inventory as inv
 import pytest
 
+from iceberg_lab.lab import gap_register as gr
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -94,8 +96,8 @@ def test_not_implemented_is_proven():
 
     Checks:
         * the ◐ catalog offers the capability at all;
-        * the named test documents a known gap whose reason contains the given text - so the
-          mark disappears together with the gap.
+        * the named test's file uses the given cause of the gap register - so the mark
+          disappears together with the gap.
     """
     bad = []
     for name, cap in inv.CAPABILITIES.items():
@@ -106,8 +108,10 @@ def test_not_implemented_is_proven():
                 bad.append(f"{name}: {cat} does not offer the capability at all")
             if not re.search(rf"^def {re.escape(func)}\(", src, re.MULTILINE):
                 bad.append(f"{name}: Test {m['test']} fehlt")
-            if m["gap"] not in src:
-                bad.append(f"{name}: known gap '{m['gap']}' is not in {file}.py")
+            if m["cause"] not in gr.register():
+                bad.append(f"{name}: unknown gap cause {m['cause']!r}")
+            if f'"{m["cause"]}"' not in src:
+                bad.append(f"{name}: gap cause {m['cause']!r} is not used in {file}.py")
     assert not bad, "\n".join(bad)
 
 

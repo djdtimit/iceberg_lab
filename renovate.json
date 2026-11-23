@@ -48,7 +48,7 @@
     {
       "description": "Lab tooling, not under test: monthly, grouped.",
       "matchDepTypes": ["dependency-groups"],
-      "matchPackageNames": ["minio", "pytest", "pytest-timeout", "ruff", "sqlalchemy", "jupyterlab", "ipykernel", "nbclient", "nbformat"],
+      "matchPackageNames": ["minio", "pytest", "pytest-timeout", "pyyaml", "ruff", "sqlalchemy", "jupyterlab", "ipykernel", "nbclient", "nbformat"],
       "groupName": "lab tooling",
       "schedule": ["before 6am on the first day of the month"]
     }

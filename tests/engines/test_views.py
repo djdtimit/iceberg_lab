@@ -23,7 +23,6 @@ engine can run. PyIceberg cannot query views; Polars, Daft and pg_lake have no v
 
 from __future__ import annotations
 
-import fnmatch
 import uuid
 
 import pyarrow as pa
@@ -32,26 +31,26 @@ import pytest
 from iceberg_lab.config import PROFILE, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, require
+from conftest import ENGINES, engine_param, expect, expect_cause, find_gap, gap_table, require
 
 WAREHOUSE = WAREHOUSE_STS
 #: Engines with SQL views, and the dialect name they store.
 VIEW_ENGINES = {"spark": "spark", "trino": "trino", "duckdb": "duckdb", "flink": "flink"}
 
-# Filled from observed failures only: (creator, reader, regex, reason); first match wins.
+# Filled from observed failures only: (creator, reader, regex, cause); rows
+# that apply are alternatives, the first whose regex matches the error wins.
 # fmt: off
-KNOWN_GAPS: list[tuple[str, str, str, str]] = [
-    *([("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "Unity Catalog OSS 0.7 offers only GET for views (no create/replace/drop endpoints) - no engine can create an Iceberg view")]
+KNOWN_GAPS = gap_table(("creator", "reader"), [
+    # PyIceberg posts to the views endpoint; Unity answers 404 without a message.
+    *([("pyiceberg", "create", r"^RESTError: NotFoundException: Not Found$", "unity-views-read-only"),
+       ("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "unity-views-read-only")]
       if PROFILE.name == "unity" else []),
     # Not for PyIceberg's views: they carry a representation for every dialect.
-    *((c, "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "Trino only runs views that have a 'trino' SQL representation")
-      for c in VIEW_ENGINES),
-    *((c, "duckdb", r"no SQL representation with dialect 'duckdb'", "DuckDB only runs views that have a 'duckdb' SQL representation")
-      for c in VIEW_ENGINES),
-    *([(e, "create", r"view schema field id must be positive", f"RustFS catalog rejects {e.capitalize()}'s view schema (field id 0) - Lakekeeper and Polaris accept it")
-       for e in ("spark", "flink")]
+    *((c, "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "trino-view-dialect") for c in VIEW_ENGINES),
+    *((c, "duckdb", r"no SQL representation with dialect 'duckdb'", "duckdb-view-dialect") for c in VIEW_ENGINES),
+    *([(e, "create", r"view schema field id must be positive", "rustfs-view-field-id-0") for e in ("spark", "flink")]
       if PROFILE.name == "rustfs" else []),
-]
+])
 # fmt: on
 
 
@@ -66,11 +65,8 @@ def _gap(creator, reader):
         The context manager.
     """
     if creator == reader:  # an engine reading its own view: dialect gaps do not apply
-        return expect_gap(None, None)
-    for c, r, regex, reason in KNOWN_GAPS:
-        if fnmatch.fnmatch(creator, c) and fnmatch.fnmatch(reader, r):
-            return expect_gap(reason, regex)
-    return expect_gap(None, None)
+        return expect(None)
+    return expect(find_gap(KNOWN_GAPS, creator=creator, reader=reader))
 
 
 #: Catalog name every view engine uses: ``sts`` under Lakekeeper (Trino:
@@ -341,9 +337,7 @@ def test_view_needs_matching_catalog_names(base_table, engine_pool):
         tr.execute(f"CREATE VIEW {tr.fq(ns, view)} AS SELECT id FROM {ns}.{base} WHERE id > 1")
     v = pyiceberg_catalog(WAREHOUSE).load_view((ns, view))
     assert v.metadata.versions[-1].default_catalog == trino_cat
-    with expect_gap(
-        "Iceberg views store the creator's catalog name (default-catalog); Spark cannot "
-        "resolve a view created in Trino catalog 'lk_sts'/'pol_sts'",
-        r"REQUIRES_SINGLE_PART_NAMESPACE|TABLE_OR_VIEW_NOT_FOUND",
+    with expect_cause(
+        "spark-view-default-catalog", r"REQUIRES_SINGLE_PART_NAMESPACE|TABLE_OR_VIEW_NOT_FOUND"
     ):
         engine_pool("spark").execute(f"SELECT id FROM {engine_pool('spark').fq(ns, view)}")

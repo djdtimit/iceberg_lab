@@ -24,7 +24,14 @@ import uuid
 import pytest
 import requests
 
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, catalog_auth, catalog_headers
+from iceberg_lab.config import (
+    PROFILE,
+    SETTINGS,
+    WAREHOUSE_STS,
+    catalog_auth,
+    catalog_headers,
+    rest_prefix_path,
+)
 from iceberg_lab.datatypes import ALL_CASES
 
 from conftest import ENGINES, engine_param, require_engine
@@ -38,7 +45,7 @@ VERIFIED = {
     "spark": "4.1.4",
     "trino": "484",
     "flink": "2.3.0",
-    "pg_lake": "3.6",  # the extension's version (pg_extension.extversion); release tag v3.7.0
+    "pg_lake": "3.7",  # the extension's version (pg_extension.extversion); release tag v3.7.0
 }
 
 
@@ -212,13 +219,9 @@ def _iceberg_type(ns, table) -> str:
         auth=catalog_auth(),
         timeout=10,
     ).json()
-    prefix = (
-        cfg.get("overrides", {}).get("prefix")
-        or cfg.get("defaults", {}).get("prefix")
-        or WAREHOUSE_STS
-    )
+    prefix = rest_prefix_path(cfg)
     body = requests.get(
-        f"{SETTINGS.catalog_uri}/v1/{prefix}/namespaces/{ns}/tables/{table}",
+        f"{SETTINGS.catalog_uri}/v1{prefix}/namespaces/{ns}/tables/{table}",
         headers=catalog_headers(),
         auth=catalog_auth(),
         timeout=10,
@@ -279,13 +282,9 @@ def _load_config(ns, table, delegation: str) -> dict:
         auth=catalog_auth(),
         timeout=10,
     ).json()
-    prefix = (
-        cfg.get("overrides", {}).get("prefix")
-        or cfg.get("defaults", {}).get("prefix")
-        or WAREHOUSE_STS
-    )
+    prefix = rest_prefix_path(cfg)
     r = requests.get(
-        f"{SETTINGS.catalog_uri}/v1/{prefix}/namespaces/{ns}/tables/{table}",
+        f"{SETTINGS.catalog_uri}/v1{prefix}/namespaces/{ns}/tables/{table}",
         headers={**catalog_headers(), "X-Iceberg-Access-Delegation": delegation},
         auth=catalog_auth(),
         timeout=10,

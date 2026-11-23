@@ -36,16 +36,16 @@ from botocore.exceptions import ClientError
 
 from iceberg_lab.config import SETTINGS
 
-from conftest import expect_gap
+from conftest import expect, find_gap, gap_table
 
 BUCKET = SETTINGS.s3_bucket
 
-# Filled from observed results only: case -> (regex, reason).
+# Filled from observed results only: (case, regex, cause).
 # fmt: off
-KNOWN_GAPS: dict[str, tuple[str, str]] = {
-    "sts:short_duration": (r"asked for 60 s, the keys live 0:1[45]:\d\d", "SECURITY: RustFS STS silently raises DurationSeconds=60 to 900 s instead of refusing it (AWS: 400 below the minimum) - a client asking for 1-minute keys gets 15-minute keys"),
-    "sts:wildcard_action": (r"Failed to parse session policy: .*invalid action: 's3:Get\*'", "RustFS refuses wildcards in the actions of an STS session policy ('s3:Get*': invalid action) - AWS allows them; Unity's session policies use them (the lab's STS shim expands them)"),
-}
+KNOWN_GAPS = gap_table(("case",), [
+    ("sts:short_duration", r"asked for 60 s, the keys live 0:1[45]:\d\d", "rustfs-sts-duration"),
+    ("sts:wildcard_action", r"Failed to parse session policy: .*invalid action: 's3:Get\*'", "rustfs-sts-policy-wildcards"),
+])
 # fmt: on
 
 
@@ -58,8 +58,7 @@ def _gap(case: str):
     Returns:
         The context manager.
     """
-    entry = KNOWN_GAPS.get(case)
-    return expect_gap(entry[1], entry[0]) if entry else expect_gap(None, None)
+    return expect(find_gap(KNOWN_GAPS, case=case))
 
 
 def _client(**keys):

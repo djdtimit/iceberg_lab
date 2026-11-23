@@ -13,6 +13,15 @@ the installed files and checks with `ldd` that no shared library is missing. The
 about 1.5–2 hours (DuckDB) with 2 parallel jobs – DuckDB's link step needs ~3 GB RAM per job, so
 build it alone. A ccache cache mount makes a rebuild after a later failure quick.
 
+The build needs ~35 GB free disk at its peak (the DuckDB build tree, removed in the same layer);
+the image is ~1.1 GB (`libduckdb.so` stripped of debug info). The DuckDB version is set from
+pg_lake's `DUCKDB_VERSION` (the shallow clone has no git tags - without it DuckDB calls itself
+v0.0.1 and pgduck_server cannot load its extensions). Without BuildKit (`docker buildx` missing)
+the cache mount is refused: build a copy of the Dockerfile without
+`--mount=type=cache,target=/root/.ccache` with `docker build --build-arg JOBS=4 -t
+iceberg-lab/pg-lake:3.7.0-pg19 -f <copy> pg_lake`, then `docker compose ... up -d --no-build`.
+`scripts/build_polaris_console.sh` handles the missing BuildKit itself.
+
 One container, two processes (`pg_lake/entrypoint.sh`): `pgduck_server` (embedded DuckDB, reads and
 writes the files in S3) in the background, Postgres in the foreground; they connect through the
 socket `/var/run/pgduck/.s.PGSQL.5332`. Two pitfalls are solved there:
@@ -36,7 +45,7 @@ REST catalogs `sts` and `signing` (remote signing works, as with Spark, through 
 code). The gateway's JSON format cannot output `VARIANT` or maps with non-string keys; the metadata
 tests cast such columns to `STRING`.
 
-## Authentication and authorization – on all four catalogs
+## Authentication and authorization – on the four catalogs with authentication
 
 `tests/security/test_authz.py` checks the same scenarios on every catalog (alice: read on
 `t_select`, read and write on `t_modify`, nothing on `t_none`; bob: no rights; every engine logs in
@@ -125,8 +134,17 @@ pg_lake commits every write through `/transactions/commit`, which Unity does not
 still reports success; the adapter therefore refuses writes on such catalogs with a clear message,
 and `test_pglake.py::test_insert_commits_to_catalog` shows the real behaviour.
 
+**Apache Iceberg REST fixture** (`CATALOG=reference`, profile `reference`:
+`docker compose --profile reference up -d reference`): the reference implementation of the REST
+spec (`apache/iceberg-rest-fixture`, Iceberg `main`, pinned by digest), JDBC/SQLite backend inside
+the container, storage in the bucket `reference` (created by the bootstrap). No authentication, no
+credential vending and no REST prefix: the engines use their own keys. Its state lives in the
+container - `docker compose --profile reference up -d --force-recreate reference` empties it
+(names it accepted but cannot serve again cannot be dropped through the API,
+`reference-names-unaddressable`). pg_lake cannot use it (`pglake-requires-rest-prefix`).
+
 For views, all engines give the catalog the same name per catalog profile: `sts` (Lakekeeper),
-`psts` (Polaris), `rsts` (RustFS), `usts` (Unity) – Trino catalogs are fixed files
+`psts` (Polaris), `rsts` (RustFS), `usts` (Unity), `refsts` (reference) – Trino catalogs are fixed files
 (`trino/catalog/`), and `sts` points at Lakekeeper.
 
 ## Version updates

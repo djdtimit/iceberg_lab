@@ -15,7 +15,7 @@ import pytest
 from iceberg_lab.config import WAREHOUSE_SIGNING
 from iceberg_lab.engines import SPARK_CATALOGS
 
-from conftest import expect_gap, warehouse_params
+from conftest import expect_cause, warehouse_params
 
 pytestmark = pytest.mark.slow
 
@@ -56,15 +56,11 @@ def test_drop_table_purge(spark, namespace, table_name, warehouse):
     spark.sql(f"CREATE TABLE {fq} (id INT) USING iceberg")
     spark.sql(f"INSERT INTO {fq} VALUES (1)")
     if warehouse == WAREHOUSE_SIGNING:
-        gap = expect_gap(
-            "Spark PURGE after drop: Lakekeeper's signer refuses deletes for the dropped table",
+        gap = expect_cause(
+            "lakekeeper-signer-refuses-purge",
             r"Table does not exist or user does not have permission to view it at location",
         )
     else:
-        gap = expect_gap(
-            "Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException)",
-            r"NoSuchKeyException",
-            flaky=True,
-        )
+        gap = expect_cause("lakekeeper-hard-delete-race", r"NoSuchKeyException")
     with gap:
         spark.sql(f"DROP TABLE {fq} PURGE")

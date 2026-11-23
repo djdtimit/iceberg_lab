@@ -27,7 +27,7 @@ from pyiceberg.types import IntegerType, NestedField
 from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.engines import polars_storage_options, pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect_gap, fresh, require_engine
+from conftest import ENGINES, engine_param, expect, find_gap, fresh, gap_table, require_engine
 
 WAREHOUSE = WAREHOUSE_STS
 #: Seed rows as SQL VALUES, valid in Spark, Trino and DuckDB.
@@ -40,50 +40,23 @@ DV_WRITERS = {
     "duckdb": "DuckDB DELETE",
 }
 
-#: Known gaps: key -> (error regex, reason). Only the matching error counts as expected.
-DV_READ_GAPS: dict[tuple[str, str], tuple[str, str]] = {
-    **{
-        (w, "daft"): (
-            r"not a valid parquet file",
-            "Daft reads Puffin deletion vectors as Parquet ('not a valid parquet file')",
-        )
-        for w in DV_WRITERS
-    },
-    **{
-        (w, "pg_lake"): (
-            r"deletion vectors are not supported",
-            "pg_lake 3.6 cannot read v3 deletion vectors",
-        )
-        for w in DV_WRITERS
-    },
-}
-DEFAULT_READ_GAPS: dict[str, tuple[str, str]] = {
+#: Known gaps (only the matching error counts as expected).
+# fmt: off
+DV_READ_GAPS = gap_table(("writer", "reader"), [
+    ("*", "daft", r"not a valid parquet file", "daft-dv-as-parquet"),
+    ("*", "pg_lake", r"deletion vectors are not supported", "pglake-no-dv-read"),
+])
+DEFAULT_READ_GAPS = gap_table(("reader",), [
     # The assertion message shows NULLs where 42 was expected.
-    "daft": (
-        r"None, None",
-        "WRONG RESULT: Daft ignores initial-default and returns NULL for the added column",
-    ),
-    "flink": (
-        r"None, None",
-        "WRONG RESULT: Flink (Iceberg 1.12) ignores initial-default and returns NULL",
-    ),
-    "pg_lake": (
-        r"iceberg column default values are not supported",
-        "pg_lake 3.6 refuses tables whose columns declare an initial-default",
-    ),
-}
-
-
-def _gap(entry):
-    """``expect_gap`` for an optional ``(regex, reason)`` entry.
-
-    Args:
-        entry: ``(regex, reason)`` or None.
-
-    Returns:
-        The context manager.
-    """
-    return expect_gap(entry[1], entry[0]) if entry else expect_gap(None, None)
+    ("daft", r"None, None", "daft-ignores-initial-default"),
+    ("flink", r"None, None", "flink-ignores-initial-default"),
+    ("pg_lake", r"iceberg column default values are not supported", "pglake-no-initial-default"),
+])
+MANIFESTS_GAPS = gap_table(("reader",), [
+    ("trino", r'"summaries" is null', "duckdb-v3-null-partition-summaries"),
+    ("spark", r"ArrayData\.numElements", "duckdb-v3-null-partition-summaries"),
+])
+# fmt: on
 
 
 def _fresh(namespace):
@@ -207,7 +180,7 @@ def test_read_deletion_vectors(writer, reader, dv_tables, namespace, engine_pool
     table = dv_tables[writer]
     if isinstance(table, Exception):
         pytest.skip(f"{writer} could not delete on v3: {table}")
-    with _gap(DV_READ_GAPS.get((writer, reader))):
+    with expect(find_gap(DV_READ_GAPS, writer=writer, reader=reader)):
         got = fresh(engine_pool(reader), namespace, table).read(namespace, table)
         assert [r[0] for r in got] == [1, 3]
 
@@ -312,7 +285,7 @@ def test_read_initial_default(reader, default_table, namespace, engine_pool):
         namespace: Fresh namespace of the test session.
         engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
     """
-    with _gap(DEFAULT_READ_GAPS.get(reader)):
+    with expect(find_gap(DEFAULT_READ_GAPS, reader=reader)):
         assert _read_extra(
             fresh(engine_pool(reader), namespace, default_table), namespace, default_table
         ) == [42, 42, 42]
@@ -379,21 +352,10 @@ def test_manifests_table_of_duckdb_written_v3(reader, namespace, engine_pool):
     duck = engine_pool("duckdb")
     duck.execute(f"INSERT INTO {duck.fq(namespace, table)} VALUES (1)")
     e = fresh(engine_pool(reader), namespace, table)
-    gaps = {
-        "trino": (
-            r'"summaries" is null',
-            "Trino: 'manifests' table crashes on DuckDB-written v3 manifests (null partition summaries)",
-        ),
-        "spark": (
-            r"ArrayData\.numElements",
-            "Spark: 'manifests' table crashes on DuckDB-written v3 manifests (null partition summaries)",
-        ),
-    }
-    regex, reason = gaps[reader]
     query = (
         f'SELECT * FROM {namespace}."{table}$manifests"'
         if reader == "trino"
         else f"SELECT * FROM {e.fq(namespace, table)}.manifests"
     )
-    with expect_gap(reason, regex):
+    with expect(find_gap(MANIFESTS_GAPS, reader=reader)):
         assert len(e.execute(query)) >= 1
