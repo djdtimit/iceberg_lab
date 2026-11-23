@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+from pathlib import Path
 
 import pytest
 
@@ -85,6 +86,9 @@ def _require_specific(match: str | None, reason: str) -> None:
     Args:
         match: The gap's error pattern.
         reason: The gap's reason (for the message).
+
+    Raises:
+        ValueError: no pattern, or one that also matches a generic error.
     """
     if match is None:
         raise ValueError(f"gap without error pattern (would accept any failure): {reason}")
@@ -133,6 +137,9 @@ def _require_severity(reason: str) -> None:
 
     Args:
         reason: The gap's reason.
+
+    Raises:
+        ValueError: the reason sounds severe but has no severity prefix.
     """
     hint = SEVERE_HINT.search(reason)
     if hint and gap_severity(reason) is None:
@@ -157,7 +164,8 @@ def expect_gap(reason: str | None, match: str | None, flaky: bool = False):
       new, unexpected failure.
     * the block does NOT raise although a gap is documented: the gap is fixed ->
       :class:`GapFixedError` "[gap fixed] <reason>" in both modes (remove the entry).
-      With ``flaky=True`` the test passes and the summary lists it as "not reproduced".
+      With ``flaky=True`` the test passes, the summary lists it as "not reproduced" and the
+      report keeps it as a gap (reporting._classify); flaky_history.json counts the runs.
 
     ``match`` must name the error precisely: ``None`` or a pattern that also matches one of
     :data:`GENERIC_ERRORS` is refused (ValueError) - that is exactly what lets gaps hide bugs.
@@ -169,6 +177,10 @@ def expect_gap(reason: str | None, match: str | None, flaky: bool = False):
 
     Yields:
         Nothing; the checked block runs inside.
+
+    Raises:
+        KnownGapError: the documented gap reproduced (``fail`` mode).
+        GapFixedError: the documented, not intermittent gap did not occur.
     """
     if reason is None:
         yield
@@ -341,6 +353,18 @@ def write_summary(terminalreporter) -> None:
             tr.write_line(f"  {tid}: {reason} (not seen in {n} runs)")
 
 
+def flaky_not_seen(test_id: str) -> str | None:
+    """Reason of the intermittent gap that did not occur in this test (this run).
+
+    Args:
+        test_id: Node id of the test.
+
+    Returns:
+        The gap's reason, or None.
+    """
+    return next((reason for tid, reason in _FLAKY_NOT_SEEN if tid == test_id), None)
+
+
 def _update_flaky_history() -> list[tuple[str, str, int]]:
     """Count, per intermittent gap and test, the runs in a row in which it did not occur.
 
@@ -358,10 +382,24 @@ def _update_flaky_history() -> list[tuple[str, str, int]]:
     if not (_FLAKY_SEEN or _FLAKY_NOT_SEEN):
         return []
     path = reporting.REPORT_DIR / "flaky_history.json"
-    try:
-        history = json.loads(path.read_text())
-    except (OSError, ValueError):
-        history = {}
+    # reports/ is not kept: without it, continue from the copy in results/ (export_reference).
+    from iceberg_lab.config import PROFILE, WITH_HELP
+
+    name = PROFILE.name + ("" if WITH_HELP else "-nohelp")
+    saved = Path(__file__).resolve().parents[3] / "results" / f"{name}.flaky.json"
+    history = {}
+    for source in (path, saved):
+        try:
+            history = json.loads(source.read_text())
+            break
+        except (OSError, ValueError):
+            continue
+    # A reason the register no longer has (cause renamed or reworded) would never be seen again
+    # and end up "probably fixed" - drop it.
+    from iceberg_lab.lab import gap_register
+
+    reasons = {c.reason for c in gap_register.register().values()}
+    history = {k: n for k, n in history.items() if k.split(" :: ", 1)[-1] in reasons}
     for tid, reason in _FLAKY_SEEN:
         history[f"{tid} :: {reason}"] = 0
     for tid, reason in _FLAKY_NOT_SEEN:

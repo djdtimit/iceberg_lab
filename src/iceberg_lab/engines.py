@@ -1526,6 +1526,9 @@ class FlinkEngine(Engine):
         A TaskManager that lost its heartbeat (overloaded or suspended host) shuts itself down
         and nothing restarts it; every job then waits for a slot forever and the test hangs
         until the global timeout. The JobManager REST API runs on the gateway host, port 8081.
+
+        Raises:
+            RuntimeError: the Flink cluster has no TaskManager.
         """
         jm = re.sub(r":\d+$", ":8081", self._base)
         if self._http.get(f"{jm}/overview", timeout=10).json().get("taskmanagers", 1) == 0:
@@ -1547,6 +1550,9 @@ class FlinkEngine(Engine):
 
         Returns:
             All result rows (lists).
+
+        Raises:
+            RuntimeError: the gateway's error, unless it dropped the session (then reopened once).
         """
         try:
             return self._execute(query)

@@ -8,6 +8,7 @@
                          the run that produced it and, for a "not testable" case, the engine
                          (or "catalog") whose step failed before it (reporting.blocked_by). Left out, because the page shows them
                          nowhere: lab self-tests and cross-reads of an engine's own result.
+                         Encoded per column (:func:`compact`); the page's loader decodes it.
     runs.json            one row per recorded run (reports/.../runs.json): catalog, run id,
                          start, end, git commit, versions of engines and images
     inventar.json        one row per capability of tests/lab/feature_inventory.py: title, kind and
@@ -46,6 +47,25 @@ def current_tests() -> set[str]:
         ).stdout
         ids |= {line.strip() for line in out.splitlines() if "::" in line}
     return ids
+
+
+def comparison_rows(name: str) -> list[dict] | None:
+    """Comparison rows of a catalog or run without help: from its report directory, else from
+    the copy in ``results/<name>.rows.json.gz`` (scripts/export_reference.py).
+
+    Args:
+        name: Catalog name, or ``<catalog>-nohelp``.
+
+    Returns:
+        The rows, or None if neither exists.
+    """
+    import gzip
+
+    path = report_dir(name) / "comparison_rows.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    saved = ROOT / "results" / f"{name}.rows.json.gz"
+    return json.loads(gzip.decompress(saved.read_bytes())) if saved.exists() else None
 
 
 def report_dir(name: str) -> Path:
@@ -109,7 +129,7 @@ def results() -> list[dict]:
     known = current_tests()
     rows, dropped = [], 0
     for cat in CATALOGS:
-        for r in json.loads((report_dir(cat) / "comparison_rows.json").read_text()):
+        for r in comparison_rows(cat) or []:
             if r["test"] not in known:
                 dropped += 1
             elif shown(r):
@@ -117,11 +137,11 @@ def results() -> list[dict]:
     # Columns "without help": the runs without lab help (LAB_NO_HELP=1), only rows of the
     # helped engines (as engine or as writer). Shown, never counted (page: EV.compared).
     for cat in CATALOGS:
-        path = report_dir(f"{cat}-nohelp") / "comparison_rows.json"
+        nohelp = comparison_rows(f"{cat}-nohelp")
         helped = helped_engines(cat)
-        if not path.exists() or not helped:
+        if not nohelp or not helped:
             continue
-        for r in json.loads(path.read_text()):
+        for r in nohelp:
             if (
                 r["test"] in known
                 and shown(r)
@@ -182,22 +202,38 @@ def inventory() -> list[dict]:
     return out
 
 
-#: Fields the page only tests for truth: left out when empty, to keep the data file under the
-#: artifact's 16 MB limit (``engine`` stays, the page compares it with "").
-OPTIONAL = ("writer", "blocked_by", "severity", "detail", "run")
+#: Columns of a result row, in the order of the encoded file.
+COLUMNS = (
+    "catalog", "engine", "theme", "area", "capability", "status", "detail", "severity",
+    "writer", "test", "run", "blocked_by",
+)  # fmt: skip
 
 
 def compact(rows: list[dict]) -> str:
-    """The rows as JSON without spaces and without empty optional fields.
+    """The rows dictionary-encoded per column, so the file stays far below the artifact's
+    upload limit: ``{"columns": [...], "values": {column: [distinct values]}, "rows": [[index
+    per column], ...]}``. The page's loader for ``results`` turns it back into row objects.
 
     Args:
-        rows: Dashboard rows.
+        rows: Dashboard rows (a missing field counts as "").
 
     Returns:
         The JSON text.
     """
-    slim = [{k: v for k, v in r.items() if v != "" or k not in OPTIONAL} for r in rows]
-    return json.dumps(slim, ensure_ascii=False, separators=(",", ":"))
+    values: dict[str, list[str]] = {c: [] for c in COLUMNS}
+    index: dict[str, dict[str, int]] = {c: {} for c in COLUMNS}
+    encoded = []
+    for r in rows:
+        line = []
+        for c in COLUMNS:
+            v = r.get(c, "") or ""
+            if v not in index[c]:
+                index[c][v] = len(values[c])
+                values[c].append(v)
+            line.append(index[c][v])
+        encoded.append(line)
+    doc = {"columns": list(COLUMNS), "values": values, "rows": encoded}
+    return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
 
 
 if __name__ == "__main__":

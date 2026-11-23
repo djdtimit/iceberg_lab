@@ -1,9 +1,14 @@
-"""Token endpoint outage (base test, catalogs with bearer tokens; Python and Java REST clients).
+"""Token endpoint outage (base test, catalogs with a login through a token; Python and Java REST
+clients).
 
 The identity provider fails while the catalog keeps running. A proxy sits in front of the token
 endpoint each client uses for the catalog under test (Keycloak for Lakekeeper, the token shim -
-which asks Keycloak - for Unity, Polaris' own token endpoint for Polaris); the catalog itself is
-reached directly. Clients: PyIceberg (Python) and Spark (Iceberg Java's REST client).
+which asks Keycloak - for Unity, Polaris' own token endpoint for Polaris, Keycloak for RustFS,
+whose token is exchanged at RustFS' STS for temporary SigV4 keys); the catalog itself is reached
+directly. Clients: PyIceberg (Python) and Spark (Iceberg Java's REST client).
+
+Not covered: the catalog's own connection to the identity provider (key set for validating
+tokens) - the catalogs reach Keycloak directly, not through the proxy.
 
 ``running_session``  a session that got its token before the outage keeps working (list, load,
                      read a table) - nothing asks the identity provider again
@@ -27,6 +32,7 @@ from authz_backends import Conn, backend, pyiceberg_for
 from storage_proxy import StorageProxy
 
 from iceberg_lab.config import PROFILE
+from iceberg_lab.keycloak import KC
 
 from conftest import expect, find_gap, gap_table
 
@@ -52,24 +58,46 @@ def _gap(client: str, case: str):
     return expect(find_gap(KNOWN_GAPS, client=client, case=case))
 
 
+def _proxy(url) -> StorageProxy:
+    """TCP proxy on :data:`PORT` in front of the token endpoint's host.
+
+    Args:
+        url: Split URL of the token endpoint.
+
+    Returns:
+        The proxy.
+    """
+    port = url.port or 80
+    return StorageProxy(port=PORT, upstream=(url.hostname, port), host=f"{url.hostname}:{port}")
+
+
 @pytest.fixture(scope="module")
 def idp():
-    """(backend, namespace with t_select readable by alice, alice's Conn via the proxy, proxy).
+    """(backend, namespace with t_select readable by alice, login of alice via the proxy, proxy).
+
+    The login is called once per session: with a bearer token the client itself asks the token
+    endpoint (the connection names the proxy); on RustFS the session starts with the Keycloak
+    token (through the proxy) and its exchange at RustFS' STS.
 
     Yields:
-        ``(backend, namespace, conn via proxy, proxy)``.
+        ``(backend, namespace, login () -> Conn, proxy)``.
     """
-    if PROFILE.name == "rustfs":
-        pytest.skip("catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)")
     b = backend()
     ns = b.setup_namespace()
-    direct = b.conn("alice")
-    url = urlsplit(direct.token_url)
-    proxy = StorageProxy(
-        port=PORT, upstream=(url.hostname, url.port or 80), host=f"{url.hostname}:{url.port or 80}"
-    )
-    via = replace(direct, token_url=f"http://127.0.0.1:{PORT}{url.path}")
-    yield b, ns, via, proxy
+    if PROFILE.name == "rustfs":
+        url = urlsplit(KC)
+        proxy = _proxy(url)
+        via = f"http://127.0.0.1:{PORT}"
+        login = lambda: b.web_identity_conn("rustfs-alice", kc=via)
+    else:
+        direct = b.conn("alice")
+        if direct.token_url is None:
+            pytest.skip(f"catalog {PROFILE.name} has no API for logging in with a token")
+        url = urlsplit(direct.token_url)
+        proxy = _proxy(url)
+        conn = replace(direct, token_url=f"http://127.0.0.1:{PORT}{url.path}")
+        login = lambda: conn
+    yield b, ns, login, proxy
     proxy.close()
     b.drop_namespace(ns)
 
@@ -131,12 +159,12 @@ def test_running_session(client, idp, request):
 
     Args:
         client: Client under test (PyIceberg or Spark).
-        idp: ``(backend, namespace, alice's connection via the proxy, proxy)`` - a TCP proxy in
+        idp: ``(backend, namespace, alice's login via the proxy, proxy)`` - a TCP proxy in
             front of the catalog's token endpoint that the test can switch off (the outage).
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
-    _, ns, via, proxy = idp
-    read = _session(client, via, request)
+    _, ns, login, proxy = idp
+    read = _session(client, login(), request)
     expected = read(ns)  # token fetched now, through the proxy
     proxy.arm("down")
     try:
@@ -159,17 +187,17 @@ def test_new_session(client, idp, request):
 
     Args:
         client: Client under test (PyIceberg or Spark).
-        idp: ``(backend, namespace, alice's connection via the proxy, proxy)`` - a TCP proxy in
+        idp: ``(backend, namespace, alice's login via the proxy, proxy)`` - a TCP proxy in
             front of the catalog's token endpoint that the test can switch off (the outage).
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
-    _, ns, via, proxy = idp
+    _, ns, login, proxy = idp
     proxy.arm("down")
     started = time.monotonic()
     try:
         with _gap(client, "new_session"):
             with pytest.raises(Exception) as exc:
-                _session(client, via, request)(ns)
+                _session(client, login(), request)(ns)
             took = time.monotonic() - started
             text = f"{type(exc.value).__name__}: {exc.value}"
             assert took < 60, f"the failing token request took {took:.0f} s"
@@ -190,12 +218,12 @@ def test_recovery(client, idp, request):
 
     Args:
         client: Client under test (PyIceberg or Spark).
-        idp: ``(backend, namespace, alice's connection via the proxy, proxy)`` - a TCP proxy in
+        idp: ``(backend, namespace, alice's login via the proxy, proxy)`` - a TCP proxy in
             front of the catalog's token endpoint that the test can switch off (the outage).
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
-    b, ns, via, proxy = idp
+    b, ns, login, proxy = idp
     proxy.arm("down")
     proxy.disarm()
     with _gap(client, "recovery"):
-        assert _session(client, via, request)(ns) == b.rows(ns, "t_select")
+        assert _session(client, login(), request)(ns) == b.rows(ns, "t_select")

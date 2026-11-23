@@ -33,7 +33,6 @@
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_projects", "status": "na", "detail": "catalog rustfs has no API for projects (tenants)"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_storage_validation", "status": "na", "detail": "catalog rustfs has no API for validating storage access"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_task_queue_config", "status": "na", "detail": "catalog rustfs has no API for task queue configuration"}
-{"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_unregister", "status": "na", "detail": "catalog rustfs has no API for unregistering tables"}
 {"test": "tests/catalog/test_catalog_features.py::test_load_credentials", "status": "na", "detail": "catalog rustfs has no API for vended storage credentials"}
 {"test": "tests/catalog/test_catalog_features.py::test_metrics_report", "status": "na", "detail": "catalog rustfs has no API for metrics reports"}
 {"test": "tests/catalog/test_catalog_features.py::test_namespace_move", "status": "na", "detail": "catalog rustfs has no API for moving namespaces"}
@@ -59,6 +58,7 @@
 {"test": "tests/catalog/test_catalog_features.py::test_unity_schema_api", "status": "na", "detail": "catalog rustfs has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
 {"test": "tests/catalog/test_catalog_features.py::test_unity_temporary_path_credentials", "status": "na", "detail": "catalog rustfs has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
 {"test": "tests/catalog/test_catalog_features.py::test_unity_volumes", "status": "na", "detail": "catalog rustfs has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
+{"test": "tests/catalog/test_catalog_features.py::test_unregister", "status": "na", "detail": "catalog rustfs has no API for unregistering tables"}
 {"test": "tests/catalog/test_catalog_features.py::test_warehouse_statistics", "status": "na", "detail": "catalog rustfs has no API for warehouse statistics"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-create]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-drop]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
@@ -191,7 +191,7 @@
 {"test": "tests/engines/test_branch_isolation.py::test_write_to_main_leaves_branch[spark]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_branch_isolation.py::test_write_to_main_leaves_branch[trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-daft]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-duckdb]", "status": "gap", "detail": "DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)"}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-flink]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-polars]", "status": "pass", "detail": ""}
@@ -208,7 +208,7 @@
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[daft-v2]", "status": "na", "detail": "daft has no API for compact_data_files (checked: no /rewrite_data_files|compact|optimize|bin_?pack/ in its API)"}
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[daft-v3]", "status": "na", "detail": "daft has no API for compact_data_files (checked: no /rewrite_data_files|compact|optimize|bin_?pack/ in its API)"}
-{"test": "tests/engines/test_concurrency.py::test_append_during_compaction[duckdb-v2]", "status": "gap", "detail": "DuckDB does not retry a commit after a conflict (409): its write or compaction fails while other engines commit"}
+{"test": "tests/engines/test_concurrency.py::test_append_during_compaction[duckdb-v2]", "status": "gap", "detail": "DuckDB's compaction (iceberg_rewrite_data_files) while DuckDB appends to the same table fails on the conflict (409, or 'table snapshot changed between planning and execution') - Spark and Trino finish both"}
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[duckdb-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[flink-v2]", "status": "gap", "detail": "Flink SQL has no procedures (FlinkCatalog: getProcedure is not implemented) - no compaction, maintenance or rollback in SQL, only the Java TableMaintenance API"}
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[flink-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
@@ -224,7 +224,7 @@
 {"test": "tests/engines/test_concurrency.py::test_append_during_compaction[trino-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_concurrency.py::test_concurrent_appends[daft-v2]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_concurrent_appends[daft-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
-{"test": "tests/engines/test_concurrency.py::test_concurrent_appends[duckdb-v2]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_concurrency.py::test_concurrent_appends[duckdb-v2]", "status": "gap", "detail": "DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)"}
 {"test": "tests/engines/test_concurrency.py::test_concurrent_appends[duckdb-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_concurrency.py::test_concurrent_appends[flink-v2]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_concurrent_appends[flink-v3]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
@@ -3312,6 +3312,22 @@
 {"test": "tests/engines/test_maintenance.py::test_maintenance_cross_write[trino-rewrite_manifests-v3-pyiceberg]", "status": "blocked", "detail": "trino rewrite_manifests v3 did not succeed in test_maintenance"}
 {"test": "tests/engines/test_maintenance.py::test_maintenance_cross_write[trino-rewrite_manifests-v3-spark]", "status": "blocked", "detail": "trino rewrite_manifests v3 did not succeed in test_maintenance"}
 {"test": "tests/engines/test_maintenance.py::test_maintenance_cross_write[trino-rewrite_manifests-v3-trino]", "status": "blocked", "detail": "trino rewrite_manifests v3 did not succeed in test_maintenance"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-daft]", "status": "gap", "detail": "Daft reads only Parquet data files"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-duckdb]", "status": "gap", "detail": "DuckDB reads only Parquet data files"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-polars]", "status": "gap", "detail": "PyIceberg 0.12 cannot read Avro data files (ORC works) - Polars plans through it"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-pyiceberg]", "status": "gap", "detail": "PyIceberg 0.12 cannot read Avro data files (ORC works) - Polars plans through it"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[avro-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-daft]", "status": "gap", "detail": "Daft reads only Parquet data files"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-duckdb]", "status": "gap", "detail": "DuckDB reads only Parquet data files"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_format[orc-trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_neutral_source.py::test_read_maintained[compact_data_files-v2-daft]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_neutral_source.py::test_read_maintained[compact_data_files-v2-duckdb]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_neutral_source.py::test_read_maintained[compact_data_files-v2-flink]", "status": "pass", "detail": ""}
@@ -3680,7 +3696,119 @@
 {"test": "tests/engines/test_neutral_source.py::test_read_schema_evolved[v3-pyiceberg]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_neutral_source.py::test_read_schema_evolved[v3-spark]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_neutral_source.py::test_read_schema_evolved[v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-berlin_dst-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-kathmandu-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[ntz-la_1969-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-berlin_dst-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-kathmandu-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_read_tz[tz-la_1969-trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_neutral_source.py::test_states_cover_the_matrices", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v2-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-daft]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-duckdb]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-flink]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-polars]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-pyiceberg]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-spark]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_data_files-v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v2-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-daft]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-duckdb]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-flink]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-polars]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-pyiceberg]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-spark]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[compact_delete_files-v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v2-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-daft]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-duckdb]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-flink]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-polars]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-pyiceberg]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-spark]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[expire_snapshots-v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-daft]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-duckdb]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-polars]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-spark]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v2-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-daft]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-duckdb]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-flink]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-polars]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-pyiceberg]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-spark]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
+{"test": "tests/engines/test_neutral_source.py::test_write_maintained[rewrite_manifests-v3-trino]", "status": "gap", "detail": "RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction')"}
 {"test": "tests/engines/test_operations.py::test_operation[daft-add_column-v2]", "status": "na", "detail": "daft has no API for add_column (checked: no /update_schema|add_column|drop_column|rename_column|alter_table|schema_mode/ in its API)"}
 {"test": "tests/engines/test_operations.py::test_operation[daft-add_column-v3]", "status": "na", "detail": "daft has no API for add_column (checked: no /update_schema|add_column|drop_column|rename_column|alter_table|schema_mode/ in its API)"}
 {"test": "tests/engines/test_operations.py::test_operation[daft-branch_and_tag-v2]", "status": "na", "detail": "daft has no API for branch_and_tag (checked: no /branch|create_tag|(?<![a-z_])tags?(?![a-z_])|manage_snapshots/ in its API)"}
@@ -10368,21 +10496,21 @@
 {"test": "tests/engines/test_views.py::test_create_view[spark]", "status": "gap", "detail": "RustFS catalog rejects the view schema of Spark and Flink (field id 0) - Lakekeeper and Polaris accept it"}
 {"test": "tests/engines/test_views.py::test_create_view[trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_views.py::test_read_view[daft-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[daft-duckdb]", "status": "blocked", "detail": "daft did not create a view (see test_create_view)"}
-{"test": "tests/engines/test_views.py::test_read_view[daft-flink]", "status": "blocked", "detail": "daft did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[daft-duckdb]", "status": "na", "detail": "daft has no API for creating views (checked: no /create_view|register_view/ in its API)"}
+{"test": "tests/engines/test_views.py::test_read_view[daft-flink]", "status": "na", "detail": "daft has no API for creating views (checked: no /create_view|register_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[daft-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[daft-polars]", "status": "na", "detail": "polars has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[daft-pyiceberg]", "status": "na", "detail": "pyiceberg has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[daft-spark]", "status": "blocked", "detail": "daft did not create a view (see test_create_view)"}
-{"test": "tests/engines/test_views.py::test_read_view[daft-trino]", "status": "blocked", "detail": "daft did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[daft-spark]", "status": "na", "detail": "daft has no API for creating views (checked: no /create_view|register_view/ in its API)"}
+{"test": "tests/engines/test_views.py::test_read_view[daft-trino]", "status": "na", "detail": "daft has no API for creating views (checked: no /create_view|register_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[duckdb-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[duckdb-duckdb]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_views.py::test_read_view[duckdb-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_views.py::test_read_view[duckdb-duckdb]", "status": "blocked", "detail": "duckdb did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[duckdb-flink]", "status": "blocked", "detail": "duckdb did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[duckdb-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[duckdb-polars]", "status": "na", "detail": "polars has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[duckdb-pyiceberg]", "status": "na", "detail": "pyiceberg has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[duckdb-spark]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_views.py::test_read_view[duckdb-trino]", "status": "gap", "detail": "Trino only runs views that have a 'trino' SQL representation"}
+{"test": "tests/engines/test_views.py::test_read_view[duckdb-spark]", "status": "blocked", "detail": "duckdb did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[duckdb-trino]", "status": "blocked", "detail": "duckdb did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[flink-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[flink-duckdb]", "status": "blocked", "detail": "flink did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[flink-flink]", "status": "blocked", "detail": "flink did not create a view (see test_create_view)"}
@@ -10400,21 +10528,21 @@
 {"test": "tests/engines/test_views.py::test_read_view[pg_lake-spark]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[pg_lake-trino]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[polars-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[polars-duckdb]", "status": "blocked", "detail": "polars did not create a view (see test_create_view)"}
-{"test": "tests/engines/test_views.py::test_read_view[polars-flink]", "status": "blocked", "detail": "polars did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[polars-duckdb]", "status": "na", "detail": "polars has no API for creating views (checked: no /create_view|register_view/ in its API)"}
+{"test": "tests/engines/test_views.py::test_read_view[polars-flink]", "status": "na", "detail": "polars has no API for creating views (checked: no /create_view|register_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[polars-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[polars-polars]", "status": "na", "detail": "polars has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[polars-pyiceberg]", "status": "na", "detail": "pyiceberg has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[polars-spark]", "status": "blocked", "detail": "polars did not create a view (see test_create_view)"}
-{"test": "tests/engines/test_views.py::test_read_view[polars-trino]", "status": "blocked", "detail": "polars did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[polars-spark]", "status": "na", "detail": "polars has no API for creating views (checked: no /create_view|register_view/ in its API)"}
+{"test": "tests/engines/test_views.py::test_read_view[polars-trino]", "status": "na", "detail": "polars has no API for creating views (checked: no /create_view|register_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[pyiceberg-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-duckdb]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-duckdb]", "status": "blocked", "detail": "pyiceberg did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-flink]", "status": "blocked", "detail": "pyiceberg did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[pyiceberg-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[pyiceberg-polars]", "status": "na", "detail": "polars has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[pyiceberg-pyiceberg]", "status": "na", "detail": "pyiceberg has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-spark]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-spark]", "status": "blocked", "detail": "pyiceberg did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[pyiceberg-trino]", "status": "blocked", "detail": "pyiceberg did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[spark-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[spark-duckdb]", "status": "blocked", "detail": "spark did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[spark-flink]", "status": "blocked", "detail": "spark did not create a view (see test_create_view)"}
@@ -10424,13 +10552,13 @@
 {"test": "tests/engines/test_views.py::test_read_view[spark-spark]", "status": "blocked", "detail": "spark did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[spark-trino]", "status": "blocked", "detail": "spark did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[trino-daft]", "status": "na", "detail": "daft has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[trino-duckdb]", "status": "gap", "detail": "DuckDB only runs views that have a 'duckdb' SQL representation"}
-{"test": "tests/engines/test_views.py::test_read_view[trino-flink]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_views.py::test_read_view[trino-duckdb]", "status": "blocked", "detail": "trino did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[trino-flink]", "status": "blocked", "detail": "trino did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_read_view[trino-pg_lake]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/engines/test_views.py::test_read_view[trino-polars]", "status": "na", "detail": "polars has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
 {"test": "tests/engines/test_views.py::test_read_view[trino-pyiceberg]", "status": "na", "detail": "pyiceberg has no API for querying views (checked: no /load_view|query_view|read_view/ in its API)"}
-{"test": "tests/engines/test_views.py::test_read_view[trino-spark]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_views.py::test_read_view[trino-trino]", "status": "pass", "detail": ""}
+{"test": "tests/engines/test_views.py::test_read_view[trino-spark]", "status": "blocked", "detail": "trino did not create a view (see test_create_view)"}
+{"test": "tests/engines/test_views.py::test_read_view[trino-trino]", "status": "blocked", "detail": "trino did not create a view (see test_create_view)"}
 {"test": "tests/engines/test_views.py::test_view_needs_matching_catalog_names", "status": "gap", "detail": "Iceberg views store the creator's catalog name (default-catalog); Spark cannot resolve a view created in Trino catalog 'lk_sts'/'pol_sts'"}
 {"test": "tests/engines/test_wap.py::test_write_audit_publish[daft-v2]", "status": "na", "detail": "daft has no API for writing to branches (checked: no /branch/ in its API)"}
 {"test": "tests/engines/test_wap.py::test_write_audit_publish[daft-v3]", "status": "na", "detail": "daft has no API for writing to branches (checked: no /branch/ in its API)"}
@@ -10530,12 +10658,12 @@
 {"test": "tests/security/test_authz.py::test_table_without_grant_stays_closed", "status": "pass", "detail": ""}
 {"test": "tests/security/test_authz.py::test_user_without_grants_is_refused", "status": "pass", "detail": ""}
 {"test": "tests/security/test_authz.py::test_whoami", "status": "na", "detail": "catalog rustfs has no API for asking who am I"}
-{"test": "tests/security/test_idp_outage.py::test_new_session[pyiceberg]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
-{"test": "tests/security/test_idp_outage.py::test_new_session[spark]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
-{"test": "tests/security/test_idp_outage.py::test_recovery[pyiceberg]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
-{"test": "tests/security/test_idp_outage.py::test_recovery[spark]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
-{"test": "tests/security/test_idp_outage.py::test_running_session[pyiceberg]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
-{"test": "tests/security/test_idp_outage.py::test_running_session[spark]", "status": "na", "detail": "catalog rustfs has no API for bearer tokens (SigV4 keys, no token endpoint)"}
+{"test": "tests/security/test_idp_outage.py::test_new_session[pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_idp_outage.py::test_new_session[spark]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_idp_outage.py::test_recovery[pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_idp_outage.py::test_recovery[spark]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_idp_outage.py::test_running_session[pyiceberg]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_idp_outage.py::test_running_session[spark]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_privileges.py::test_action_needs_its_privilege[alter_table]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_privileges.py::test_action_needs_its_privilege[create_table]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_privileges.py::test_action_needs_its_privilege[describe]", "status": "pass", "detail": ""}
@@ -10551,7 +10679,7 @@
 {"test": "tests/security/test_privileges.py::test_privilege_inventory_matches_the_image", "status": "pass", "detail": ""}
 {"test": "tests/security/test_privileges.py::test_recorded_privileges_are_accepted", "status": "pass", "detail": ""}
 {"test": "tests/security/test_rbac.py::test_idp_role_is_a_catalog_role", "status": "pass", "detail": ""}
-{"test": "tests/security/test_rbac.py::test_namespace_grant_covers_its_tables", "status": "na", "detail": "catalog rustfs has no API for namespace-level data grants: table data lies under tables/<uuid> (tables/4dddd602-c7d1-4d60-8ff7-fe0b49ebe3e0), not under the namespace, and S3 policies - the only data rights - cannot follow a namespace; catalog actions can be scoped per bucket only"}
+{"test": "tests/security/test_rbac.py::test_namespace_grant_covers_its_tables", "status": "na", "detail": "catalog rustfs has no API for namespace-level data grants: table data lies under tables/<uuid> (tables/85f05ceb-09b0-420f-bc06-f576ac4c26a8), not under the namespace, and S3 policies - the only data rights - cannot follow a namespace; catalog actions can be scoped per bucket only"}
 {"test": "tests/security/test_rbac.py::test_removed_member_loses_access", "status": "pass", "detail": ""}
 {"test": "tests/security/test_rbac.py::test_role_grant_reaches_every_member", "status": "pass", "detail": ""}
 {"test": "tests/security/test_rbac.py::test_roles_add_up", "status": "pass", "detail": ""}
@@ -10571,11 +10699,11 @@
 {"test": "tests/security/test_security.py::test_bad_token_is_refused[other_issuer]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_bad_token_is_refused[tampered]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_cannot_grant_oneself_rights", "status": "pass", "detail": ""}
-{"test": "tests/security/test_security.py::test_catalog_token_does_not_outlive_identity_token", "status": "na", "detail": "catalog rustfs has no API for identity-provider tokens (own broker / SigV4)"}
+{"test": "tests/security/test_security.py::test_catalog_token_does_not_outlive_identity_token", "status": "gap", "detail": "SECURITY: RustFS' STS (AssumeRoleWithWebIdentity) issues temporary keys for up to 12 h on a Keycloak token that lives 1 h - the key lifetime is not bounded by the identity token: a user disabled in Keycloak keeps access for up to 12 h"}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[broken_json]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[huge_name]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[missing_table]", "status": "pass", "detail": ""}
-{"test": "tests/security/test_security.py::test_error_response_is_clean[traversal]", "status": "blocked", "detail": "not testable on rustfs: the lab's SigV4 client cannot sign an encoded '../' path"}
+{"test": "tests/security/test_security.py::test_error_response_is_clean[traversal]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[unknown_update]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[wrong_types]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_identity_provider_policy_applies_on_rustfs", "status": "pass", "detail": ""}
@@ -10659,6 +10787,19 @@
 {"test": "tests/selftest/test_capability_registry.py::test_proving_test_exists[pg_lake-writing tables it did not create]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_registry_names_only_lab_engines", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_the_finder_finds_a_hard_coded_skip", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_branches_cover_every_describing_catalog[background tasks of the catalog]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::ADMIN.create]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::ADMIN.deactivate]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::ADMIN.server_info]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::ADMIN.storage]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::ADMIN.update]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/catalog/test_catalog_admin.py::USERS]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/lab/authz_backends.py::BACKENDS]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/security/test_privileges.py::SERVICES]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_lists_name_every_describing_catalog[tests/security/test_ui.py::UIS]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_no_catalog_skips_outside_the_inventory", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_offered_by_names_every_describing_catalog", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_catalog_claims.py::test_the_finder_finds_a_hard_coded_catalog_skip", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_classification_names_only_lab_engines", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_engine_inventory_is_recorded[daft]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_engine_inventory_is_recorded[duckdb]", "status": "pass", "detail": ""}
@@ -10699,6 +10840,7 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[roles]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[server_info]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[storage_config]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[unregister]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[users]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[web_ui]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[whoami]", "status": "pass", "detail": ""}
@@ -10758,6 +10900,7 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[whoami]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[polaris]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[reference]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[rustfs]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[unity]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_evidence_tests_exist", "status": "pass", "detail": ""}
@@ -10891,28 +11034,44 @@
 {"test": "tests/specific/test_spark.py::test_drop_table_purge[signing]", "status": "na", "detail": "catalog rustfs has no API for remote signing"}
 {"test": "tests/specific/test_spark.py::test_drop_table_purge[sts]", "status": "gap", "detail": "RustFS catalog rejects DROP with purge (purgeRequested=true -> 406), and clients may not delete table files themselves (403) - Spark, Trino and Flink DROP fails"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[duckdb-catalog_down]", "status": "gap", "detail": "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[duckdb-concurrent_commit]", "status": "gap", "detail": "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[duckdb-lost_response]", "status": "gap", "detail": "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[duckdb-repeated_conflicts]", "status": "gap", "detail": "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[duckdb-transient_503]", "status": "gap", "detail": "DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-catalog_down]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-concurrent_commit]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-lost_response]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-repeated_conflicts]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-transient_503]", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pyiceberg-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pyiceberg-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pyiceberg-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pyiceberg-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pyiceberg-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[spark-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[spark-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[spark-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[spark-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[spark-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[trino-catalog_down]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[trino-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[trino-lost_response]", "status": "pass", "detail": ""}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[trino-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[trino-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_proxy_is_transparent", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_rustfs.py::test_aborted_multipart_upload_leaves_nothing", "status": "pass", "detail": ""}

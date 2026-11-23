@@ -31,6 +31,14 @@ compact_delete_files              data file + delete file -> 1 data file (v3: th
                                   stays listed with status DELETED, as the spec requires)
 rewrite_manifests                 3 manifests -> 1
 expire_snapshots                  replaced snapshot expired, its files deleted
+write after maintenance (``test_write_maintained``)
+                                  the four maintained states above (own tables), then every
+                                  engine appends - counterpart of test_maintenance_cross_write
+file formats (``test_read_format``)
+orc, avro                         ``(1, value)``, ``(2, NULL)`` in ORC / Avro data files
+time zones (``test_read_tz``)
+tz, ntz per zone                  the instant / plain timestamp each zone of test_timezones
+                                  stands for (no session zone involved: the expected value)
 ================================  ==============================================================
 
 ``remove_orphan_files`` has no neutral state: removing an unreferenced file changes nothing a
@@ -46,12 +54,16 @@ import uuid
 
 import pytest
 import test_evolution as ev
+import test_file_formats as ff
 import test_maintenance as mt
 import test_operations as base
+import test_timezones as tz
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from reference_writer import ReferenceWriter
 
-from conftest import ENGINES, engine_param, expect, find_gap, fresh, gap_table
+from iceberg_lab.datatypes import canonical, normalize
+
+from conftest import ENGINES, engine_param, expect, find_gap, fresh, gap_table, require
 
 WAREHOUSE = base.WAREHOUSE
 SEED = base.SEED
@@ -604,13 +616,170 @@ def test_read_maintained(task, fv, reader, namespace, engine_pool, ref, sources)
         assert got == mt.EXPECTED[task], f"{reader} reads {got}"
 
 
+#: The neutral source's name in the gap tables of the matrices (writer / engine column).
+REF = "ref"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("writer", [engine_param(e) for e in ENGINES])
+@FV
+@pytest.mark.parametrize("task", TASKS)
+def test_write_maintained(task, fv, writer, namespace, engine_pool, ref, sources):
+    """The writer appends to a table after maintenance by the reference implementation.
+
+    The counterpart of ``test_maintenance_cross_write``, which only has tables where an engine's
+    maintenance worked. One table per task and version (not the readers' tables): each writer
+    appends its own row (id 100 + its position in ``ENGINES``), so writers do not disturb each
+    other's checks.
+
+    Checks:
+        * the append works on the maintained table;
+        * the lab client then reads every row the task left, the writer's row exactly once, no
+          duplicated and no other unexpected row.
+
+    Args:
+        task: Maintenance task whose result is written to.
+        fv: Iceberg format version of the table (2 or 3).
+        writer: Engine that appends.
+        namespace: Fresh namespace of the test session.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        ref: The reference writer (Iceberg Java core via PySpark's JVM).
+        sources: ``(kind, state, fv) -> (namespace, table)`` or the source's exception.
+    """
+    require(writer, "writing tables it did not create", engine_pool)
+    n = 100 + ENGINES.index(writer)
+    row = (n, f"w{n}", float(n))
+    with expect(mt._cross_write_gap(REF, writer, task, fv)):
+        ns, table = _source(
+            sources, ("mtw", task, fv), lambda: _maintained(ref, namespace, task, fv)
+        )
+        ctx = base.Ctx(base.pyiceberg_catalog(WAREHOUSE), ns, table, fv, seed_writer=writer)
+        if writer not in ("pyiceberg", "polars", "daft"):
+            fresh(engine_pool(writer), ns, table)
+        base.append_rows(ctx, engine_pool, [row])
+        got = fresh(engine_pool("pyiceberg"), ns, table).read(ns, table)
+        missing = [r for r in mt.EXPECTED[task] if r not in got]
+        assert not missing, f"rows the task left are gone after {writer}'s append: {missing}"
+        assert got.count(row) == 1, f"{writer}'s row appears {got.count(row)} times"
+        assert len(got) == len(set(got)), (
+            f"duplicated rows: {sorted(r for r in got if got.count(r) > 1)}"
+        )
+        unexpected = [r for r in got if r not in mt.EXPECTED[task] and r[0] < 100]
+        assert not unexpected, f"rows that should not be there: {unexpected}"
+
+
+def _format_source(w: ReferenceWriter, ns: str, fmt: str) -> tuple[str, str]:
+    """Table ``(id, v string)`` with ``(1, value)``, ``(2, NULL)`` in ``fmt`` data files.
+
+    Args:
+        w: The reference writer.
+        ns: Namespace of the table.
+        fmt: ``orc`` or ``avro``.
+
+    Returns:
+        ``(namespace, table)``.
+    """
+    name = _name("ff", fmt, 2)
+    w.write_values(ns, name, "string", 2, [(1, canonical(ff.CASE)), (2, None)], fmt=fmt.upper())
+    found = ff._formats(ns, name)
+    assert found == {fmt}, f"source check: {sorted(found)} data files"
+    return ns, name
+
+
+@READER
+@pytest.mark.parametrize("fmt", ff.FORMATS)
+def test_read_format(fmt, reader, namespace, engine_pool, ref, sources):
+    """The reader reads ORC / Avro data files the reference implementation wrote.
+
+    The counterpart of ``test_file_formats.test_read_format``, whose cells exist only where an
+    engine wrote that format (most write Parquet only).
+
+    Checks:
+        * source: every data file has the format;
+        * the reader returns exactly the value and the NULL row.
+
+    Args:
+        fmt: Data file format (``orc``, ``avro``).
+        reader: Engine that reads it.
+        namespace: Fresh namespace of the test session.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        ref: The reference writer (Iceberg Java core via PySpark's JVM).
+        sources: ``(kind, state, fv) -> (namespace, table)`` or the source's exception.
+    """
+    with ff._gap("read", f"{REF}>{reader}", fmt):
+        ns, table = _source(sources, ("ff", fmt, 2), lambda: _format_source(ref, namespace, fmt))
+        got = [
+            (i, normalize(ff.CASE, v))
+            for i, v in fresh(engine_pool(reader), ns, table).select(ns, table, ff.CASE)
+        ]
+        assert got == [(1, canonical(ff.CASE)), (2, None)]
+
+
+def _tz_source(w: ReferenceWriter, ns: str, kind: str, zone: str) -> tuple[str, str]:
+    """Table ``(id, v timestamp[tz])`` with the value a zone of test_timezones stands for.
+
+    Args:
+        w: The reference writer.
+        ns: Namespace of the table.
+        kind: ``tz`` or ``ntz``.
+        zone: Key of ``test_timezones.ZONES``.
+
+    Returns:
+        ``(namespace, table)``.
+    """
+    case = tz._case(kind, zone, None)
+    name = _name("tz", f"{kind}_{zone}", 2)
+    type_json = "timestamptz" if kind == "tz" else "timestamp"
+    w.write_values(ns, name, type_json, 2, [(1, case.value), (2, None)])
+    return ns, name
+
+
+@READER
+@pytest.mark.parametrize("zone", list(tz.ZONES))
+@pytest.mark.parametrize("kind", tz.KINDS)
+def test_read_tz(kind, zone, reader, namespace, engine_pool, ref, sources):
+    """The reader returns a timestamp(tz) the reference implementation wrote, unshifted.
+
+    The counterpart of ``test_timezones.test_tz_read``: the same values (an offset of no whole
+    hour, a time right after a DST switch, a date before 1970), stored without any session zone.
+
+    Checks:
+        * ``tz``: the instant; ``ntz``: the plain timestamp; row 2 stays NULL.
+
+    Args:
+        kind: ``tz`` (timestamptz) or ``ntz`` (timestamp).
+        zone: Key of ``test_timezones.ZONES``.
+        reader: Engine that reads (in a UTC session).
+        namespace: Fresh namespace of the test session.
+        engine_pool: Session pool of engine adapters on the ``sts`` warehouse (conftest).
+        ref: The reference writer (Iceberg Java core via PySpark's JVM).
+        sources: ``(kind, state, fv) -> (namespace, table)`` or the source's exception.
+    """
+    case = tz._case(kind, zone, None)
+    with tz._gap(REF, reader, kind, zone):
+        ns, table = _source(
+            sources, ("tz", f"{kind}_{zone}", 2), lambda: _tz_source(ref, namespace, kind, zone)
+        )
+        got = [
+            (i, normalize(case, v))
+            for i, v in fresh(engine_pool(reader), ns, table).select(ns, table, case)
+        ]
+        assert got == [(1, canonical(case)), (2, None)]
+
+
 def test_states_cover_the_matrices():
     """Guard: every state of the read matrices has a neutral source (or a reason why not).
 
     Checks:
         * the operation states equal the operation matrix's content states;
         * the maintenance states plus remove_orphan_files (no reader-visible state) equal the
-          maintenance matrix's.
+          maintenance matrix's (read and write after maintenance);
+        * the file formats and the time zone cells equal those of their matrices (the
+          parametrization reads them from there, so this guards against a local copy).
     """
     assert set(OPERATIONS) == set(base.EXPECTED_CONTENT)
     assert set(TASKS) | {"remove_orphan_files"} == set(mt.EXPECTED)
+    marks = {m.args[0]: m.args[1] for m in getattr(test_read_tz, "pytestmark", [])}
+    assert marks.get("zone") == list(tz.ZONES) and marks.get("kind") == tz.KINDS
+    fmts = {m.args[0]: m.args[1] for m in getattr(test_read_format, "pytestmark", [])}
+    assert fmts.get("fmt") == ff.FORMATS

@@ -1,0 +1,4 @@
+{
+ "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-duckdb] :: DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)": 2,
+ "tests/engines/test_concurrency.py::test_concurrent_appends[duckdb-v2] :: DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)": 2
+}

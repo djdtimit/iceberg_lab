@@ -9,7 +9,7 @@ are imported by name (`from authz_backends import backend`).
 |---|---|
 | [`authz_backends.py`](authz_backends.py) | Permission tests on every catalog: one backend per catalog behind the same interface. |
 | [`datagen.py`](datagen.py) | Generate ``n`` rows ``(id, md5(id) as name, id * 0.5 as amount)`` with each engine's OWN write path. |
-| [`feature_inventory.py`](feature_inventory.py) | Feature inventory: every endpoint of the four catalogs -> a capability -> tests (evidence). |
+| [`feature_inventory.py`](feature_inventory.py) | Feature inventory: every endpoint of the five catalogs -> a capability -> tests (evidence). |
 | [`reference_writer.py`](reference_writer.py) | Neutral source: tables written with Iceberg's Java core API (the reference implementation). |
 | [`reporting.py`](reporting.py) | Engine comparison report: collects every test result and writes a side-by-side overview. |
 | [`rest_client.py`](rest_client.py) | Raw Iceberg REST client for catalog-level tests: no engine or client library in between, so a library bug can never be booked as a catalog gap. |

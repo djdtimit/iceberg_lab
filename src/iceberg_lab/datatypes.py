@@ -719,6 +719,12 @@ def expected_family(case: TypeCase) -> str:
 
     Returns:
         The canonical family name.
+
+    Raises:
+        ValueError: the type has no family.
+
+    Raises:
+        ValueError: the type has no family.
     """
     t = case.iceberg
     if t is None:

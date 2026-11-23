@@ -1,0 +1,48 @@
+# Checks that need no catalog or engine: lint, formatting and the offline self-tests
+# (gap register, references in results/, docstrings, inventories, generated docs).
+# The lab itself (catalogs, engines) runs locally: scripts/run_all.sh, scripts/rerun.sh.
+name: offline checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Docstrings match the signatures (Args, Returns, Yields)
+        run: >-
+          uv run ruff check --preview --select D417,DOC201,DOC202,DOC402,DOC403
+          --config 'lint.pydocstyle.convention="google"' src tests scripts
+      - name: Library code documents what it raises (not the tests' own assertions and stubs)
+        run: >-
+          uv run ruff check --preview --select DOC501
+          --config 'lint.pydocstyle.convention="google"' src scripts tests/lab
+      - name: Offline self-tests
+        run: uv run pytest -m offline -q -p no:cacheprovider
+      - name: Generated docs are current
+        run: |
+          uv run python scripts/gap_register.py findings
+          uv run python scripts/rest_conformance_doc.py
+          uv run python scripts/engine_inventory_doc.py
+          (cd tests/lab && uv run python -m feature_inventory)
+          git diff --exit-code -- docs/ || {
+            echo "::error::generated docs are outdated - run the generators above and commit"
+            exit 1
+          }

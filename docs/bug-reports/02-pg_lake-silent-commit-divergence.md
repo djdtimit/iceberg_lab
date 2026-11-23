@@ -55,3 +55,33 @@ Expected: pg_lake either uses the single-table commit endpoint
 advertised, or at least fails the statement.
 
 Lab test: `tests/specific/test_pglake.py::test_insert_commits_to_catalog` (CATALOG=unity).
+
+## The everyday case: a concurrent commit (409)
+
+The same happens without any fault and on catalogs that implement `/transactions/commit`
+(reproduced 2026-11-23, pg_lake 3.7.0 on Postgres 19, Lakekeeper 0.15.1 and Apache Polaris
+1.9.0): another client commits to the table between pg_lake's table load and its commit.
+
+1. A pg_lake table `t` with three rows.
+2. Just before pg_lake's commit reaches the catalog, another client (PyIceberg) appends one row
+   to `t` - a normal concurrent write.
+3. `INSERT INTO t VALUES (99, 'fault', 9.0);`
+
+The catalog answers pg_lake's commit correctly with 409:
+
+```
+POST /catalog/v1/<warehouse>/transactions/commit   409
+{"error":{"message":"Cannot add snapshot with sequence number 2 older than last sequence number 2","type":"CommitFailedException","code":409}}
+```
+
+Polaris: the same 409 ("Validation failed, please retry: ...").
+
+pg_lake neither reloads the table and retries (what a 409 `CommitFailedException` asks for) nor
+fails the statement: the INSERT returns without error, Postgres shows row 99, the catalog has the
+other client's row but not row 99 - also 5 s later. So any concurrent writer can make pg_lake
+lose writes silently.
+
+Expected: reload and retry the commit (the append does not conflict with the other append), or
+fail the statement.
+
+Lab test: `tests/storage/test_robustness.py::test_catalog_fault[pg_lake-concurrent_commit]`.

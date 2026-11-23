@@ -74,6 +74,9 @@ def insert_generated(engine: str, adapter, warehouse: str, ns: str, table: str, 
         ns: Namespace.
         table: Table name (without namespace).
         n: Number of rows.
+
+    Raises:
+        ValueError: an unknown engine.
     """
     fq = adapter.fq(ns, table) if adapter is not None and hasattr(adapter, "fq") else None
     if engine in ("pyiceberg", "polars", "daft"):

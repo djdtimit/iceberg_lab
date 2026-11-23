@@ -574,7 +574,7 @@ ENDPOINTS = {
     ]
 }
 
-#: Spec endpoints tested elsewhere, not by test_spec_endpoint (tests/selftest/test_rest_spec.py).
+#: Spec endpoints tested elsewhere, not by test_spec_endpoint (checked by tests/selftest/test_iceberg_spec.py).
 SPEC_ELSEWHERE = {
     "GET /v1/config": "read by every test (tests/lab/rest_client.py) and test_advertised_endpoints_are_recorded",
     "POST /v1/oauth/tokens": "token exchange of the authz profile (tests/security/test_security.py)",

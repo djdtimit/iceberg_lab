@@ -41,5 +41,5 @@ on all four catalogs.
 
 - Lab test: `tests/engines/test_concurrency.py::test_concurrent_upsert_same_key[duckdb-v2|duckdb-v3]`.
 - The same class of bug exists in PyIceberg 0.12 (apache/iceberg-python#4194, already reported).
-- Related: DuckDB does not retry appends after a 409 (intermittent failures in the lab's concurrent
-  append tests) - so the commit carries some check; it does not validate concurrent inserts for MERGE.
+- Related: DuckDB's commit does carry a check - it retries an append after a 409 (4 times) - but
+  it does not validate concurrent inserts for MERGE.

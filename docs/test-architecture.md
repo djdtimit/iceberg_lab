@@ -164,8 +164,8 @@ The history of the rework (2026-11-15 to 2026-11-20) is in [CHANGELOG.md](../CHA
 
 ## Feature inventory (as of the pinned versions)
 
-All 353 endpoints of the four catalogs (Lakekeeper 178, Polaris 76, RustFS 37, Unity 62) are
-assigned in `tests/lab/feature_inventory.py` to exactly one of 53 capabilities; the overview is in
+All 384 endpoints of the five catalogs (Lakekeeper 178, Polaris 76, RustFS 37, Unity 62,
+reference 31) are assigned in `tests/lab/feature_inventory.py` to exactly one of 54 capabilities; the overview is in
 `docs/feature-inventory.md`. Every capability has a test as evidence, every base capability a test
 that runs on all catalogs. The inventory distinguishes ✓ (described and implemented), ◐ (described,
 not implemented by the server – example: Lakekeeper describes scan planning but answers 404;
@@ -184,12 +184,12 @@ The endpoint counts cannot be compared directly:
   actions (about 43 together), plus projects, tag definitions, background tasks, trash bin, search
   and statistics. Polaris handles permissions compactly through roles and grants (21 endpoints).
 
-The number of capabilities is more meaningful (of 53, header of `docs/feature-inventory.md`):
+The number of capabilities is more meaningful (of 54, header of `docs/feature-inventory.md`):
 
-| | Lakekeeper | Polaris | RustFS | Unity |
-|---|---|---|---|---|
-| described in the API | 38 | 22 | 16 | 20 |
-| of which implemented (without ◐) | 35 | 21 | 16 | 20 |
+| | Lakekeeper | Polaris | RustFS | Unity | Iceberg REST fixture |
+|---|---|---|---|---|---|
+| described in the API | 39 | 23 | 18 | 21 | 10 |
+| of which implemented (without ◐) | 36 | 22 | 18 | 21 | 10 |
 
 ◐ means: described, but not implemented by the server at all – Lakekeeper scan planning, functions
 and unregister (404 each), Polaris remote signing (501). Every ◐ is backed by a test's known gap

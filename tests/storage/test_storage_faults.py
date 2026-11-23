@@ -136,11 +136,12 @@ def fault_setup():
         ``(proxy, warehouse, catalog IPs)``.
     """
     if PROFILE.name not in ("lakekeeper", "polaris"):
-        reason = (
-            "the catalog is the storage itself (catalog faults: test_robustness.py)"
-            if PROFILE.name == "rustfs"
-            else "Unity reaches RustFS only through the gateway for the AWS host names"
-        )
+        reason = {
+            "rustfs": "the catalog is the storage itself (catalog faults: test_robustness.py)",
+            "unity": "Unity reaches RustFS only through the gateway for the AWS host names",
+            "reference": "the fixture's S3 endpoint is fixed at start (compose environment), "
+            "a warehouse cannot point it at the fault proxy",
+        }.get(PROFILE.name, "no fault proxy setup for this catalog")
         pytest.skip(f"not testable on {PROFILE.name}: {reason}")
     proxy = StorageProxy()
     try:

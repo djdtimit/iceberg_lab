@@ -188,6 +188,12 @@ def main() -> int:
 
     Returns:
         Exit code 0.
+
+    Raises:
+        RESTError: a warehouse cannot be opened for another reason than "not found".
+
+    Raises:
+        RESTError: a warehouse cannot be opened for another reason than "not found".
     """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--apply", action="store_true", help="really drop/delete (default: dry run)")

@@ -21,7 +21,10 @@ Further figures, because a plain total over all cases misleads:
   not produce says nothing about the reader. It counts at the step that failed - the writing
   engine ("blocks N cases of other engines"), or the catalog when it makes the state
   impossible - and is in no denominator of the reading engine. A reader's ability to read such
-  a table is shown by the neutral source.
+  a table is shown by the neutral source (`tests/engines/test_neutral_source.py`: Iceberg Java
+  writes each state once - types, operations, partitions, evolution, maintenance results, ORC/Avro
+  files, the time zone values - and every engine reads it; every engine also appends after
+  maintenance done by Iceberg Java).
 - **Planned / ran**: every compared case, and those that actually ran (works, gap, new).
 - **Run manifest**: every row names its run; `manifest.json` / `runs.json` record git commit,
   package versions, DuckDB extension versions and image digests (`src/iceberg_lab/lab/manifest.py`).
@@ -47,9 +50,10 @@ trino/catalog/          Trino catalogs per catalog profile, warehouse and authz 
 unity/                  Unity: Envoy gateway, STS shim, token shim, server(-authz).properties
 docs/                   setup.md, tests.md (this file), findings.md, test-architecture.md (base vs. special
                         features, themes), feature-inventory.md (generated), api/ (endpoint lists of the
-                        four catalogs), bug-reports/ (drafts, not filed)
+                        five catalogs), bug-reports/ (drafts, not filed)
 results/                reference results of the latest full run per catalog + manifest (in git)
-scripts/                run_all.sh (full run per catalog), export_reference.py (reports -> results/),
+scripts/                run_all.sh (full run per catalog), rerun.sh (rerun tests on all catalogs,
+                        merged into their full runs), export_reference.py (reports -> results/),
                         cleanup_storage.py (remove test leftovers), dashboard/ (page + data builder)
 authz/                  Keycloak realm (fixed service-account IDs) for the authz instances
 flink/                  Dockerfile (Flink 2.3 + Iceberg JARs), start-lab.sh (cluster + SQL Gateway)
@@ -86,7 +90,7 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_views.py` | create views and read foreign views (dialects); PyIceberg creates view metadata with one representation per dialect; dependency on the catalog name |
 | `test_namespaces.py` | namespaces per engine: create, nest, properties, do not drop non-empty ones, drop |
 | `test_statistics.py` | compute table statistics (Puffin/NDV) and have Trino use them, partition statistics |
-| `test_robustness.py` | fault proxy in front of the catalog (all four): lost commit response, 503 on commit, catalog gone – with an integrity check of the table |
+| `test_robustness.py` | fault proxy in front of the catalog (every catalog): lost commit response, 503 on commit, catalog gone, a concurrent commit forced right before the engine's own (409: the engine must reload and retry) – with an integrity check of the table |
 | `test_storage_faults.py` | storage faults under the catalog (proxy in front of RustFS, own warehouse/catalog): metadata writes with 503, without response, slow; storage gone while loading; STS gone while vending – error instead of hanging, table intact, catalog recovers (Lakekeeper, Polaris; RustFS/Unity not testable) |
 | `test_rustfs.py` | object storage: multipart upload, range reads, bulk delete, listing over 1000 objects, consistency (directly with boto3); plus per engine one large table (1.5 M rows, ~60 MB) written and read by all engines |
 | `test_transactions.py` | transactions over two tables (DuckDB/pg_lake `BEGIN…COMMIT`, Flink `STATEMENT SET`, Trino): one atomic `/transactions/commit`? Does A stay unchanged when B's commit fails? |
@@ -105,7 +109,7 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_capability_registry.py` | lab self-test (offline): the capability registry is complete (every missing capability has an API pattern or a proving test, every proving test exists) and no test skips an engine by name outside it |
 | `test_iceberg_spec.py` | lab self-test (offline): every REST endpoint of the recorded Iceberg spec has a conformance test, every spec type a type case, and the recorded release is the lab's `ICEBERG_VERSION` (`scripts/iceberg_spec.py` re-records it) |
 | `test_catalog_admin.py` | catalog administration as a base on all catalogs (adapter per catalog): create, list, use, drop a warehouse/catalog; rename/alter; disable and enable; change storage access; manage users; server info; background tasks |
-| `test_feature_inventory.py` | lab self-test: every endpoint of the four catalogs (`docs/api/`) belongs to exactly one capability, every capability has a test, base capabilities have a test for all catalogs, `docs/feature-inventory.md` is up to date; ✓ described and implemented, ◐ described but not implemented (backed by a known gap) |
+| `test_feature_inventory.py` | lab self-test: every endpoint of the five catalogs (`docs/api/`) belongs to exactly one capability, every capability has a test, base capabilities have a test for all catalogs, `docs/feature-inventory.md` is up to date; ✓ described and implemented, ◐ described but not implemented (backed by a known gap) |
 | `test_lab_selftest.py`, `test_lab_adapters.py` | lab self-tests: the gap mechanism hides nothing (wrong error message, a rule outside its engine, a notebook limit without expectation); the token adapter and STS adapter for Unity open and close nothing by themselves |
 | `test_scan_planning.py` | capability tests: server-side scan planning / row and column security |
 | `test_pyiceberg.py`, `test_duckdb.py`, `test_spark.py`, `test_dataframes.py`, `test_flink.py` | engine-specific (not in the comparison): only what no base matrix covers – PyIceberg partition pruning and upsert after a rename, DuckDB three-part schema name, Spark PURGE on Lakekeeper, Polars lazy API, Flink join across two warehouses |
@@ -138,8 +142,13 @@ test is **FAILED** with `[gap fixed] … remove the KNOWN_GAPS entry` and listed
 **FIXED gaps** – in both modes. Then delete the entry from the test file's `KNOWN_GAPS` table (and
 the cause from the register once no test refers to it - a self-test says so); from then on the case
 is tested normally. Exception: intermittent gaps (`flaky = true` in the register, or per test, e.g.
-the signing 403) – a run without them does not mean "fixed"; they are only listed under
-"intermittent gaps not reproduced this run".
+the signing 403) – a run without them does not mean "fixed": the case stays a **gap** in the report
+and the summary lists it under "intermittent gaps not reproduced this run". `flaky_history.json`
+(kept in `results/<catalog>.flaky.json`) counts the runs in a row without it; after 5 the summary
+lists it as **PROBABLY FIXED** and `scripts/rerun.sh` prints `FIXED?`. `scripts/rerun.sh --flaky
+[n]` reruns every intermittent gap n times to get there faster. Where a race can be forced, the
+test forces it instead (the conflict scenario of `test_robustness.py`, the repeated rounds of
+`test_parallel_namespace_property_updates_are_not_lost`), so the gap is stable, not flaky.
 
 **After a version change** the self-test `test_causes_seen_with_current_versions` lists every
 cause last seen with the old version: run the tests (or a full run with `scripts/run_all.sh`),

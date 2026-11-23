@@ -198,14 +198,21 @@ class Backend:
 
     # -- roles (tests/security/test_rbac.py) ---------------------------------------------------------
     def roles_not_offered(self) -> str | None:
-        """``None`` if the catalog has roles/groups, else the checked reason why not."""
+        """Whether the catalog has roles/groups.
+
+        Returns:
+            ``None`` if it has, else the checked reason why not.
+        """
         return None
 
     def role_create(self, name: str):
-        """Create a role/group; returns the handle the other role methods take.
+        """Create a role/group.
 
         Args:
             name: Name of the role / policy.
+
+        Returns:
+            The handle the other role methods take.
         """
         raise NotImplementedError
 
@@ -337,10 +344,13 @@ class Backend:
         return warehouse
 
     def namespace_grant_not_offered(self, ns: str) -> str | None:
-        """``None`` if a read grant on a namespace can cover its tables, else the reason.
+        """Whether a read grant on a namespace can cover its tables.
 
         Args:
             ns: Namespace of the table.
+
+        Returns:
+            ``None`` if it can, else the reason why not.
         """
         return None
 
@@ -1620,16 +1630,31 @@ class RustFSAuthz(Backend):
         Returns:
             SigV4 connection with the temporary keys and session token.
         """
+        from iceberg_lab.keycloak import RUSTFS_IDP_CLIENT
+
+        return self.web_identity_conn(RUSTFS_IDP_CLIENT)
+
+    def web_identity_conn(self, client: str, kc: str | None = None):
+        """Log in through the identity provider: Keycloak token of ``client``, exchanged at
+        RustFS' STS (AssumeRoleWithWebIdentity) for temporary keys.
+
+        Args:
+            client: Keycloak client (its token names the IAM policy, claim ``rustfs_policy``).
+            kc: Keycloak base URL (default the lab's; a proxy in the outage tests).
+
+        Returns:
+            SigV4 connection with the temporary keys and session token.
+        """
         import re as _re
 
-        from iceberg_lab.keycloak import RUSTFS_IDP_CLIENT, token
+        from iceberg_lab.keycloak import KC, token
 
         r = requests.post(
             SETTINGS.s3_endpoint + "/",
             data={
                 "Action": "AssumeRoleWithWebIdentity",
                 "Version": "2011-06-15",
-                "WebIdentityToken": token(RUSTFS_IDP_CLIENT),
+                "WebIdentityToken": token(client, base=kc or KC),
                 "DurationSeconds": "900",
             },
             timeout=10,
@@ -1929,8 +1954,9 @@ class UnityAuthz(Backend):
         )
         assert not r.ok, f"claim outdated: Unity answers /scim2/Groups with {r.status_code}"
         return (
-            "catalog unity has no API for roles or groups (Unity Catalog OSS 0.7: SCIM /Groups "
-            f"answers {r.status_code} {r.text[:80]!r}); privileges go to single users"
+            "catalog unity has no API for roles or groups (Unity Catalog OSS 0.7 describes only "
+            f"SCIM /Users and /Me; /Groups answers {r.status_code} {r.text[:80]!r}); privileges "
+            "go to single users"
         )
 
     #: privilege -> (securable type, Unity privilege); the others have no privilege at all

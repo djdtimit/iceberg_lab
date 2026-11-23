@@ -59,8 +59,8 @@ SCHEMA = pa.schema([("id", pa.int64()), ("name", pa.string()), ("gone", pa.int64
 KNOWN_GAPS = gap_table(("catalog", "case"), [
     *((cat, case, r"invalid commit answered 200", "catalogs-no-schema-compat-check")
       for cat in ("lakekeeper", "polaris", "unity", "reference") for case in ("incompatible_type", "reuse_field_id")),
-    # Intermittent (about 1 run in 3): one of 8 concurrent updates confirmed and lost - the race
-    # Lakekeeper fixed in 0.15.1.
+    # About 1 round in 3 loses one of 8 concurrent updates (confirmed, then gone) - the race
+    # Lakekeeper fixed in 0.15.1; the test repeats the round until it shows.
     ("unity", "lost_namespace_property", r"confirmed but lost", "unity-loses-namespace-property"),
     # The server retries a conflicting transaction itself, finds "Nothing to commit" and
     # answers 204: the client's changes are dropped (table endpoint: correct 409).
@@ -390,14 +390,21 @@ def test_parallel_transaction_commits_are_not_lost(table):
         assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
 
 
+#: Rounds of the namespace race: Unity loses an update in about 1 round in 3, so 15 rounds
+#: miss it with probability (2/3)^15 < 0.3 % - a stable gap instead of a flaky one.
+ROUNDS = 15
+
+
 def test_parallel_namespace_property_updates_are_not_lost(namespace):
     """8 clients set their own namespace property at the same time - no confirmed update is lost.
 
-    (Lakekeeper fixed exactly this race in 0.15.1.)
+    (Lakekeeper fixed exactly this race in 0.15.1.) The race is repeated up to ``ROUNDS`` times
+    and stops at the first loss, so an intermittent loss shows up in (almost) every run.
 
     Checks:
         * at least one update succeeded;
-        * every property whose update the catalog confirmed (200) is on the namespace afterwards.
+        * in every round, every property whose update the catalog confirmed (200) is on the
+          namespace afterwards.
 
     Args:
         namespace: Fresh namespace of the test session.
@@ -410,26 +417,35 @@ def test_parallel_namespace_property_updates_are_not_lost(namespace):
         auth=catalog_auth(),
         timeout=15,
     ).raise_for_status()
-    confirmed, barrier = [], threading.Barrier(WRITERS)
 
-    def writer(i):
-        """Set this writer's namespace property once.
+    def race(rnd: int) -> tuple[list[int], list[int]]:
+        """One round: 8 writers set ``r<rnd>-writer-<i>`` at once.
 
         Args:
-            i: Writer number.
-        """
-        barrier.wait()
-        r = requests.post(
-            f"{_url(ns)}/properties",
-            json={"updates": {f"writer-{i}": "x"}, "removals": []},
-            headers=catalog_headers(),
-            auth=catalog_auth(),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            confirmed.append(i)
+            rnd: Round number (part of the property names).
 
-    try:
+        Returns:
+            ``(confirmed, lost)`` writer numbers.
+        """
+        confirmed, barrier = [], threading.Barrier(WRITERS)
+
+        def writer(i):
+            """Set this writer's namespace property once.
+
+            Args:
+                i: Writer number.
+            """
+            barrier.wait()
+            r = requests.post(
+                f"{_url(ns)}/properties",
+                json={"updates": {f"r{rnd}-writer-{i}": "x"}, "removals": []},
+                headers=catalog_headers(),
+                auth=catalog_auth(),
+                timeout=30,
+            )
+            if r.status_code == 200:
+                confirmed.append(i)
+
         threads = [threading.Thread(target=writer, args=(i,)) for i in range(WRITERS)]
         [t.start() for t in threads]
         [t.join(60) for t in threads]
@@ -438,13 +454,23 @@ def test_parallel_namespace_property_updates_are_not_lost(namespace):
             .json()
             .get("properties", {})
         )
-        lost = [i for i in confirmed if f"writer-{i}" not in props]
+        return confirmed, [i for i in confirmed if f"r{rnd}-writer-{i}" not in props]
+
+    try:
+        confirmed, lost, rnd = [], [], 0
+        for rnd in range(1, ROUNDS + 1):
+            confirmed, lost = race(rnd)
+            if lost or not confirmed:
+                break
         with _gap("lost_namespace_property"):
             if not confirmed:
                 pytest.skip(
                     f"catalog {PROFILE.name} has no API for namespace property updates (none accepted)"
                 )
-            assert not lost, f"confirmed but lost: writers {lost} (confirmed {sorted(confirmed)})"
+            assert not lost, (
+                f"confirmed but lost in round {rnd} of {ROUNDS}: writers {lost} "
+                f"(confirmed {sorted(confirmed)})"
+            )
     finally:
         requests.delete(_url(ns), headers=catalog_headers(), auth=catalog_auth(), timeout=15)
 

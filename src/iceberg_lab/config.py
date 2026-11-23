@@ -368,7 +368,10 @@ def catalog_auth_props(s: Settings | None = None) -> dict[str, str]:
 def catalog_auth(s: Settings | None = None):
     """``requests`` auth for raw REST calls to the catalog (``auth=catalog_auth()``).
 
-    SigV4 signs every request (incl. ``x-amz-content-sha256``, which RustFS requires);
+    SigV4 signs every request (incl. ``x-amz-content-sha256``, which RustFS requires) with the
+    standard SigV4 path encoding (each ``%`` encoded again, as PyIceberg and Iceberg Java sign):
+    botocore's S3 signer signs the path as sent, which RustFS refuses with 403 for every path
+    that holds an encoded character (``%1F`` namespace separator, ``%2F``, non-ASCII names).
     OAuth2/open catalogs return ``None`` and use :func:`catalog_headers` instead.
 
     Args:
@@ -380,11 +383,25 @@ def catalog_auth(s: Settings | None = None):
     if PROFILE.auth != "sigv4":
         return None
     import requests
-    from botocore.auth import S3SigV4Auth
+    from botocore.auth import S3SigV4Auth, SigV4Auth
     from botocore.awsrequest import AWSRequest
     from botocore.credentials import Credentials
 
     s = s or SETTINGS
+
+    class _CatalogSigner(S3SigV4Auth):
+        """S3 signer (payload hash header) with the standard SigV4 path encoding."""
+
+        def _normalize_url_path(self, path):
+            """Path as SigV4 (not S3) canonicalises it.
+
+            Args:
+                path: URL path.
+
+            Returns:
+                The canonical path.
+            """
+            return SigV4Auth._normalize_url_path(self, path)
 
     class _SigV4(requests.auth.AuthBase):
         """``requests`` auth that signs each request with the lab's RustFS keys (SigV4, service s3)."""
@@ -408,9 +425,9 @@ def catalog_auth(s: Settings | None = None):
                     if k.lower() not in ("connection", "content-length")
                 },
             )
-            S3SigV4Auth(Credentials(s.s3_access_key, s.s3_secret_key), "s3", s.s3_region).add_auth(
-                req
-            )
+            _CatalogSigner(
+                Credentials(s.s3_access_key, s.s3_secret_key), "s3", s.s3_region
+            ).add_auth(req)
             r.headers.update(dict(req.headers))
             return r
 

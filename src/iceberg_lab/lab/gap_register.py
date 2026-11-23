@@ -179,6 +179,9 @@ def cause(cid: str) -> Cause:
 
     Returns:
         The cause.
+
+    Raises:
+        ValueError: the cause is not in docs/gaps.toml.
     """
     try:
         return register()[cid]
@@ -233,6 +236,9 @@ class Gap(BaseModel):
 
         Returns:
             True if all selectors match.
+
+        Raises:
+            ValueError: the test does not pass every selector of the gap.
         """
         missing = set(self.where) - set(dims)
         if missing:
@@ -264,6 +270,9 @@ def gap_table(fields: tuple[str, ...], rows: Iterable[tuple]) -> list[Gap]:
 
     Returns:
         The gaps, in row order.
+
+    Raises:
+        ValueError: a row has the wrong number of fields.
     """
     out = []
     n = len(fields)
@@ -385,7 +394,11 @@ def _image_version(ref: str) -> str:
 
 
 def _iceberg_java() -> str:
-    """The Iceberg runtime Spark loads (``engines.ICEBERG_VERSION``, read from the source)."""
+    """The Iceberg runtime Spark loads.
+
+    Returns:
+        ``engines.ICEBERG_VERSION``, read from the source ("?" if not found).
+    """
     src = (ROOT / "src" / "iceberg_lab" / "engines.py").read_text()
     m = re.search(r'^ICEBERG_VERSION = "([^"]+)"', src, re.MULTILINE)
     return m.group(1) if m else "?"

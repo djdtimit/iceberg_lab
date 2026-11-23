@@ -6,6 +6,7 @@ and how its base tests went on the five catalogs (last results). Nothing is ente
 
 from __future__ import annotations
 
+import gzip
 import json
 import pathlib
 import sys
@@ -13,14 +14,12 @@ from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "tests"), str(ROOT / "tests" / "lab")]
-from iceberg_lab.lab.reporting import DIMENSIONS, ENGINE_ORDER, NOT_COMPARED, flat_rows
+from iceberg_lab.lab.reporting import DIMENSIONS, ENGINE_ORDER, NOT_COMPARED
 
+#: Comparison rows of the latest full run per catalog (scripts/export_reference.py).
 SOURCES = {
-    "Lakekeeper": ROOT / "reports/results.json",
-    "Polaris": ROOT / "reports/polaris/results.json",
-    "RustFS": ROOT / "reports/rustfs/results.json",
-    "Unity": ROOT / "reports/unity/results.json",
-    "Reference": ROOT / "reports/reference/results.json",
+    name: ROOT / "results" / f"{name}.rows.json.gz"
+    for name in ("lakekeeper", "polaris", "rustfs", "unity", "reference")
 }
 
 
@@ -59,7 +58,7 @@ def main() -> None:
 
     cells: dict[tuple[str, str], Counter] = defaultdict(Counter)
     for path in SOURCES.values():
-        for row in flat_rows(json.loads(path.read_text())):
+        for row in json.loads(gzip.decompress(path.read_bytes())):
             if row["area"] in NOT_COMPARED or row["engine"] not in ENGINE_ORDER:
                 continue
             cells[(row["area"], row["engine"])][row["status"]] += 1
@@ -69,7 +68,7 @@ def main() -> None:
         "## How the base tests went per engine (all five catalogs together)",
         "",
         "Per cell: passed / checked (checked = passed + known gap + new failure);",
-        '"—" not offered or not testable. Details and reasons: dashboard and `reports/`.',
+        '"—" not offered or not testable. Details and reasons: dashboard and `results/`.',
         "",
         "| Area | " + " | ".join(ENGINE_ORDER) + " |",
         "|---|" + "---|" * len(ENGINE_ORDER),

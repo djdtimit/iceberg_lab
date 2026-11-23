@@ -317,7 +317,7 @@ def test_listing_with_hidden_tables(az):
     listings that lost entries when some were hidden).
 
     Checks:
-        * alice may list the namespace (else: not testable on this catalog);
+        * alice may list the namespace after ``allow_listing`` (a refusal fails);
         * page size 2: no table twice across the pages;
         * the paged names equal the unpaged list;
         * t_select and t_modify are in it.
@@ -335,11 +335,9 @@ def test_listing_with_hidden_tables(az):
     try:
         b.allow_listing(ns)
         alice = b.catalog("alice")
-        try:
-            whole = _list_pages(alice, ns, None)[0]
-        except requests.HTTPError as exc:
-            assert re.search(DENIED, str(exc)), exc
-            pytest.skip(f"catalog {PROFILE.name}: alice may not list the namespace ({exc})")
+        # allow_listing granted alice the listing: a refusal now is a failure, not "not
+        # testable" (it used to skip, which would hide a regression in the grant).
+        whole = _list_pages(alice, ns, None)[0]
         pages = _list_pages(alice, ns, 2)
         paged = [n for page in pages for n in page]
         with _gap("catalog", "listing"):

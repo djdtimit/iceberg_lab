@@ -1,0 +1,35 @@
+# Apache Iceberg REST fixture (apache/iceberg-rest-fixture@sha256:009f9f6897cc, Iceberg main c75374c): enum
+# org.apache.iceberg.rest.Route of iceberg-rest-adapter.jar (javap) - the routes RESTCatalogAdapter serves; the same list
+# as the endpoints of /v1/config (advertised-reference.txt). Left out: SEPARATE_AUTH_TOKENS_URI
+# (POST https://auth-server.com/token), a test hook for an external token server, not served here.
+DELETE /v1/{prefix}/namespaces/{namespace}  # DROP_NAMESPACE
+DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table}  # DROP_TABLE
+DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}  # CANCEL_PLAN_TABLE_SCAN
+DELETE /v1/{prefix}/namespaces/{namespace}/views/{view}  # DROP_VIEW
+GET /v1/config  # CONFIG
+GET /v1/{prefix}/namespaces  # LIST_NAMESPACES
+GET /v1/{prefix}/namespaces/{namespace}  # LOAD_NAMESPACE
+GET /v1/{prefix}/namespaces/{namespace}/tables  # LIST_TABLES
+GET /v1/{prefix}/namespaces/{namespace}/tables/{table}  # LOAD_TABLE
+GET /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}  # FETCH_PLANNING_RESULT
+GET /v1/{prefix}/namespaces/{namespace}/views  # LIST_VIEWS
+GET /v1/{prefix}/namespaces/{namespace}/views/{view}  # LOAD_VIEW
+HEAD /v1/{prefix}/namespaces/{namespace}  # NAMESPACE_EXISTS
+HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table}  # TABLE_EXISTS
+HEAD /v1/{prefix}/namespaces/{namespace}/views/{view}  # VIEW_EXISTS
+POST /v1/oauth/tokens  # TOKENS
+POST /v1/{prefix}/namespaces  # CREATE_NAMESPACE
+POST /v1/{prefix}/namespaces/{namespace}/properties  # UPDATE_NAMESPACE
+POST /v1/{prefix}/namespaces/{namespace}/register  # REGISTER_TABLE
+POST /v1/{prefix}/namespaces/{namespace}/register-view  # REGISTER_VIEW
+POST /v1/{prefix}/namespaces/{namespace}/tables  # CREATE_TABLE
+POST /v1/{prefix}/namespaces/{namespace}/tables/{table}  # UPDATE_TABLE
+POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics  # REPORT_METRICS
+POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan  # PLAN_TABLE_SCAN
+POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/tasks  # FETCH_SCAN_TASKS
+POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/unregister  # UNREGISTER_TABLE
+POST /v1/{prefix}/namespaces/{namespace}/views  # CREATE_VIEW
+POST /v1/{prefix}/namespaces/{namespace}/views/{view}  # UPDATE_VIEW
+POST /v1/{prefix}/tables/rename  # RENAME_TABLE
+POST /v1/{prefix}/transactions/commit  # COMMIT_TRANSACTION
+POST /v1/{prefix}/views/rename  # RENAME_VIEW

@@ -20,6 +20,15 @@ armed only for the one commit under test):
 ``transient_503``  the first commit attempt gets ``503`` without reaching the catalog.
                    Acceptable: success with the row exactly once (retried), or an error
                    with the table unchanged.
+``concurrent_commit`` just before the engine's first commit reaches the catalog, another
+                   client commits a row to the same table (directly, not through the proxy),
+                   so the engine's commit ALWAYS conflicts (409). Correct: the engine
+                   reloads and retries - success with both rows. A conflict the engine does
+                   not retry, and a success without its row, are gaps. (The concurrency tests
+                   race real threads, so there running out of retries shows only sometimes.)
+``repeated_conflicts`` the same before each of the engine's first 3 commit attempts: it must
+                   keep retrying (the default is 4 retries). A gap names after how many
+                   attempts the engine gave up.
 ``catalog_down``   every request is refused. Acceptable: an error within 120 s, or the
                    correct content (Spark's table cache and pg_lake's own metadata in Postgres
                    can still read). Not acceptable: hanging, or wrong content.
@@ -55,7 +64,16 @@ COMMIT = re.compile(
     # The prefix may contain slashes (Unity: "catalogs/lab").
     rf"^{re.escape(PROFILE.path)}/v1/(?:.+/)?(namespaces/[^/]+/tables/[^/?]+|transactions/commit)$"
 )
-SCENARIOS = ["lost_response", "transient_503", "catalog_down"]
+SCENARIOS = [
+    "lost_response",
+    "transient_503",
+    "catalog_down",
+    "concurrent_commit",
+    "repeated_conflicts",
+]
+#: Commits that conflict per scenario (the rest get one fault). 3 in a row stays below the
+#: default of 4 retries of Iceberg Java and PyIceberg (``commit.retry.num-retries``).
+CONFLICTS = {"concurrent_commit": 1, "repeated_conflicts": 3}
 #: Errors that plausibly mean "catalog unreachable" (connection refused/reset, no response).
 CATALOG_GONE = (
     r"(?i)(connect|connection|refused|reset|closed|unreachable|timed? ?out|remote end|"
@@ -68,9 +86,14 @@ class Proxy:
     """Forwarding proxy with one-shot faults on commit requests (and a "down" mode)."""
 
     def __init__(self):
-        #: None | "lost_response" | "transient_503" | "down" | "fail_table" (see ``target``)
         """Start the proxy on port 18181 in a background thread."""
+        #: None | "lost_response" | "transient_503" | "down" | "fail_table" (see ``target``)
+        #: | "concurrent_commit" / "repeated_conflicts" (see ``rival`` and ``CONFLICTS``)
         self.mode: str | None = None
+        #: concurrent_commit / repeated_conflicts: ``rival(k)`` is called before the k-th
+        #: commit is forwarded (k = 1 .. CONFLICTS[mode]) - another client's commit to the
+        #: same table, so the forwarded one conflicts
+        self.rival = None
         #: fail_table: table name whose commits (also inside /transactions/commit) get a 503
         self.target: str | None = None
         #: path of every commit request since the last arm() (shows per-table vs. multi-table)
@@ -111,7 +134,9 @@ class Proxy:
                         proxy.commits += 1
                         proxy.commit_paths.append(path)
                     fire = (mode == "down") or (
-                        is_commit and mode in ("lost_response", "transient_503") and not proxy.fired
+                        is_commit
+                        and mode in ("lost_response", "transient_503", *CONFLICTS)
+                        and proxy.fired < CONFLICTS.get(mode, 1)
                     )
                     if is_commit and mode == "fail_table" and proxy.target:
                         names_target = path.endswith(f"/tables/{proxy.target}") or (
@@ -126,6 +151,8 @@ class Proxy:
                     self.close_connection = True
                     self.connection.shutdown(2)
                     return
+                if fire and mode in CONFLICTS:
+                    proxy.rival(proxy.fired)  # commits first; the forwarded commit conflicts
                 if fire and mode == "transient_503":
                     msg = b'{"error":{"message":"injected","type":"ServiceUnavailable","code":503}}'
                     self.send_response(503)
@@ -188,15 +215,18 @@ class Proxy:
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
-    def arm(self, mode, target=None):
+    def arm(self, mode, target=None, rival=None):
         """Arm a one-shot fault (or a permanent one for ``down``).
 
         Args:
-            mode: Fault mode (lost_response, transient_503, down, fail_table).
+            mode: Fault mode (lost_response, transient_503, down, fail_table,
+                concurrent_commit, repeated_conflicts).
             target: Table whose commit is affected (fail_table).
+            rival: ``rival(k)`` - the competing commit before the k-th commit
+                (concurrent_commit, repeated_conflicts).
         """
         with self.lock:
-            self.mode, self.fired, self.target = mode, 0, target
+            self.mode, self.fired, self.target, self.rival = mode, 0, target, rival
             self.commit_paths = []
 
     def close(self):
@@ -371,6 +401,10 @@ KNOWN_GAPS = gap_table(("engine", "scenario"), [
     # Reproduced 3/3: DuckDB treats the unknown commit outcome as a failure and deletes the
     # commit's files - but Lakekeeper had applied the commit, so the table points at them.
     ("duckdb", "lost_response", r"TABLE CORRUPTED: manifest list of the current snapshot is missing", "duckdb-lost-response-corruption"),
+    # The catalog answers the conflicting /transactions/commit with 409; pg_lake neither retries
+    # nor fails - Postgres shows the row, the catalog does not.
+    *(("pg_lake", s, r"client reported success but the row is missing", "pglake-ignores-refused-commit")
+      for s in ("concurrent_commit", "repeated_conflicts")),
 ])
 # fmt: on
 
@@ -397,18 +431,21 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
     After every fault the table's integrity is checked first: every file the current snapshot
     references exists.
 
-    Checks per scenario:
+    Checks per scenario (see the module docstring):
         * lost_response (commit applied, response dropped): the fault fired; the row is in the
           table at most once (a blind retry must not append it twice); a reported success
           needs the row to be there;
         * transient_503: success with the row exactly once, or an error with the table
           unchanged;
+        * concurrent_commit / repeated_conflicts: each competing row is there once; the engine
+          reported success (it retried every conflict) and its row is there exactly once;
         * catalog_down: an error within 120 s that names the unreachable catalog, or the
           correct content - never hanging, never wrong content.
 
     Args:
         engine: Engine under test.
-        scenario: ``lost_response``, ``transient_503`` or ``catalog_down``.
+        scenario: ``lost_response``, ``transient_503``, ``catalog_down``,
+            ``concurrent_commit`` or ``repeated_conflicts``.
         namespace: Fresh namespace of the test session.
         proxy: Fault-injecting HTTP proxy in front of the catalog (port 18181).
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
@@ -441,7 +478,19 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
                 assert took < 120, f"took {took:.0f}s while the catalog was down"
                 assert n in (None, len(base.SEED)), f"wrong content while catalog down: {n} rows"
                 return
-            proxy.arm(scenario)
+            conflicts = CONFLICTS.get(scenario, 0)
+            rivals = [(98 - k, f"rival{k}", 98.0 - k) for k in range(conflicts)]
+
+            def commit_rival(k):
+                """Another client appends its k-th row directly (not through the proxy).
+
+                Args:
+                    k: Number of the conflicting commit (1-based).
+                """
+                t = pyiceberg_catalog(WAREHOUSE).load_table(f"{namespace}.{table}")
+                t.append(base.arrow([rivals[k - 1]]))
+
+            proxy.arm(scenario, rival=commit_rival)
             error = None
             try:
                 append(engine, adapter, namespace, table, [row])
@@ -449,16 +498,28 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
                 error = exc
             fired = proxy.fired
             proxy.arm(None)
-            assert fired == 1, "fault was not triggered"
+            assert fired >= 1, "fault was not triggered"
             assert_intact(namespace, table)
             rows = direct_rows(namespace, table)
             n = rows.count(row)
             assert n <= 1, f"row appended {n} times (client error: {error!r})"
+            if conflicts:
+                gone = [r for r in rivals[:fired] if rows.count(r) != 1]
+                assert not gone, f"competing commits gone or doubled: {gone}"
+                if error is not None and conflicts == 1:
+                    raise AssertionError(f"conflict not retried: {type(error).__name__}: {error}")
+                if error is not None:
+                    raise AssertionError(
+                        f"gave up after {fired} conflicting commit attempts of {conflicts}: "
+                        f"{type(error).__name__}: {error}"
+                    )
             if error is None:
                 assert n == 1, "client reported success but the row is missing"
             elif scenario == "transient_503":
                 assert n == 0, "client reported an error but the row was committed"
-            assert sorted(r for r in rows if r != row) == base.SEED
+            if conflicts:  # a success means it retried until the last conflict was behind it
+                assert fired == conflicts, f"only {fired} of {conflicts} conflicts fired"
+            assert sorted(r for r in rows if r != row and r not in rivals) == base.SEED
     finally:
         proxy.arm(None)
         if adapter is not None and engine not in ("spark",):

@@ -331,13 +331,14 @@ def ensure_client(
     return True
 
 
-def token(client: str, scope: str | None = None, realm: str = "iceberg") -> str:
+def token(client: str, scope: str | None = None, realm: str = "iceberg", base: str = KC) -> str:
     """Client-credentials token of a lab client (secret ``<client>-secret``).
 
     Args:
         client: Keycloak client id.
         scope: Optional scopes to request.
         realm: Keycloak realm.
+        base: Keycloak base URL (a proxy in front of it in the outage tests).
 
     Returns:
         The access token.
@@ -349,6 +350,6 @@ def token(client: str, scope: str | None = None, realm: str = "iceberg") -> str:
     }
     if scope:
         data["scope"] = scope
-    r = requests.post(f"{KC}/realms/{realm}/protocol/openid-connect/token", data=data, timeout=10)
+    r = requests.post(f"{base}/realms/{realm}/protocol/openid-connect/token", data=data, timeout=10)
     r.raise_for_status()
     return r.json()["access_token"]

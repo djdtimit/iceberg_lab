@@ -22,7 +22,7 @@ the change is classified.
 ## How the base tests went per engine (all five catalogs together)
 
 Per cell: passed / checked (checked = passed + known gap + new failure);
-"—" not offered or not testable. Details and reasons: dashboard and `reports/`.
+"—" not offered or not testable. Details and reasons: dashboard and `results/`.
 
 | Area | pyiceberg | duckdb | polars | daft | spark | trino | pg_lake | flink |
 |---|---|---|---|---|---|---|---|---|
@@ -35,6 +35,9 @@ Per cell: passed / checked (checked = passed + known gap + new failure);
 | Read partitions (neutral source) | 63/70 | 63/70 | 63/70 | 63/70 | 63/70 | 63/70 | 42/56 | 63/70 |
 | Read evolution (neutral source) | 18/20 | 18/20 | 18/20 | 18/20 | 18/20 | 18/20 | 12/16 | 18/20 |
 | Read maintenance results (neutral source) | 36/40 | 36/40 | 36/40 | 36/40 | 36/40 | 36/40 | 21/32 | 36/40 |
+| Write after maintenance (neutral source) | 20/40 | 36/40 | 20/40 | 20/40 | 36/40 | 36/40 | — | 36/40 |
+| Read file formats (neutral source) | 5/10 | 0/10 | 5/10 | 0/10 | 10/10 | 10/10 | 0/8 | 10/10 |
+| Time zones (neutral source) | 30/30 | 30/30 | 30/30 | 30/30 | 30/30 | 30/30 | 18/24 | 30/30 |
 | Write file formats | 0/10 | 0/10 | 0/10 | 0/10 | 10/10 | 10/10 | — | 10/10 |
 | Read file formats | 15/30 | 0/30 | 15/30 | 0/30 | 30/30 | 30/30 | 0/24 | 30/30 |
 | Type fidelity | 210/222 | 222/222 | 196/222 | 214/222 | 191/222 | 213/222 | 130/199 | 209/222 |
@@ -49,12 +52,12 @@ Per cell: passed / checked (checked = passed + known gap + new failure);
 | Nested schema evolution | 56/61 | 60/61 | 56/61 | 47/61 | 60/61 | 60/61 | 0/48 | 60/61 |
 | Time zones | 126/126 | 156/156 | 126/126 | 126/126 | 156/156 | 156/156 | 90/126 | 156/156 |
 | Partition evolution | 57/62 | 61/62 | 57/62 | 57/62 | 52/62 | 61/62 | 35/49 | 61/62 |
-| Concurrent commits | 10/30 | 34/50 | 10/20 | 10/20 | 45/50 | 45/50 | 6/12 | 18/31 |
-| Views | 4/5 | 12/23 | — | — | 21/23 | 12/23 | — | 21/23 |
+| Concurrent commits | 9/30 | 18/50 | 9/20 | 9/20 | 45/50 | 45/50 | 6/12 | 18/31 |
+| Views | 4/5 | 4/5 | — | — | 3/5 | 4/5 | — | 3/5 |
 | Namespaces | 23/25 | 23/25 | — | — | 24/25 | 19/20 | — | 20/25 |
 | Statistics | — | — | — | — | 15/15 | 10/10 | 0/4 | — |
-| Robustness (catalog faults) | 15/15 | 8/15 | 15/15 | 15/15 | 15/15 | 15/15 | 6/12 | 15/15 |
-| Authorization | 15/16 | 11/16 | 15/16 | 15/16 | 16/16 | 9/16 | 5/6 | 16/16 |
+| Robustness (catalog faults) | 25/25 | 16/25 | 25/25 | 25/25 | 25/25 | 25/25 | 6/20 | 25/25 |
+| Authorization | 15/16 | 11/16 | 15/16 | 15/16 | 16/16 | 9/16 | 4/6 | 16/16 |
 | Transactions (several tables) | — | 6/10 | — | — | — | 0/10 | 2/8 | 0/10 |
 | Write-Audit-Publish | 5/10 | — | — | — | 9/10 | 0/10 | — | 0/10 |
 | Incremental & streaming | 5/5 | — | 5/10 | — | 19/20 | 5/10 | — | 15/15 |
@@ -68,4 +71,4 @@ Per cell: passed / checked (checked = passed + known gap + new failure);
 | Credentials: reach and signing | — | 1/1 | 1/1 | 1/1 | — | — | — | — |
 | Maintenance | 3/20 | 10/40 | — | — | 53/60 | 51/60 | 5/20 | 6/60 |
 | Read others' maintenance results | 161/161 | 139/139 | 166/166 | 158/166 | 121/121 | 121/121 | 93/140 | 130/130 |
-| Write after others' maintenance | 98/166 | 166/166 | 98/166 | 98/166 | 166/166 | 166/166 | 7/8 | 166/166 |
+| Write after others' maintenance | 98/166 | 166/166 | 98/166 | 98/166 | 166/166 | 166/166 | 6/8 | 166/166 |

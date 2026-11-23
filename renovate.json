@@ -10,7 +10,7 @@
     "**Lab checklist** (docs/test-architecture.md, \"New versions\"):",
     "1. `RECORD_INVENTORY=1 pytest tests/selftest/test_engine_inventory.py` - new API names must be tested or classified in `docs/api/engine-classified.toml`.",
     "2. Re-check the \"not offered\" claims and update `VERIFIED` in `tests/selftest/test_na_claims.py`.",
-    "3. Run the engine's tests: `[gap fixed]` and `[claim outdated?]` show what the version changed; update KNOWN_GAPS, docs/findings.md, CHANGELOG.md."
+    "3. Run the engine's tests: `[gap fixed]` and `[claim outdated?]` show what the version changed; move `seen_at` forward with `scripts/gap_register.py confirm`, enter new causes in `docs/gaps.toml`, regenerate `docs/findings.md` (`scripts/gap_register.py findings`), CHANGELOG.md."
   ],
   "pep621": { "rangeStrategy": "update-lockfile" },
   "packageRules": [

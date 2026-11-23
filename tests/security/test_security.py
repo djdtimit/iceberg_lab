@@ -72,6 +72,7 @@ import re
 import time
 import uuid
 
+import feature_inventory as inv
 import pyarrow as pa
 import pytest
 import requests
@@ -116,6 +117,7 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     ("unity", "error_unknown_update", r"server error for a client error: 500 .*Cannot convert metadata update action to json: explode", "unity-unknown-update-500"),
     ("lakekeeper", "name_table_dotdot", r"cannot be loaded again", "lakekeeper-dotdot-table-name"),
     ("unity", "token_lifetime", r"catalog token lives 86400 s, the identity token 3600 s", "unity-token-lifetime"),
+    ("rustfs", "token_lifetime", r"catalog token lives 43200 s, the identity token 3600 s", "rustfs-sts-outlives-identity-token"),
     ("rustfs", "write_data_path", r"accepted an overlapping location, no issued keys", "rustfs-write-data-path-overlap"),
     # The REST fixture checks no location at all (and vends no keys: clients use their own).
     *(("reference", c, r"accepted an overlapping location, no issued keys", "reference-no-location-checks")
@@ -726,6 +728,11 @@ ESCAPES = [
     "register_outside",
     "write_data_path",
 ]
+#: Inventory capability whose endpoint each case needs (the rest: create/commit a table).
+ESCAPE_CAPABILITY = {c: "iceberg_tables" for c in ESCAPES} | {
+    "register_metadata": "iceberg_register",
+    "register_outside": "iceberg_register",
+}
 SCHEMA = pa.schema([("id", pa.int64()), ("secret", pa.string())])
 
 
@@ -895,6 +902,10 @@ def test_location_cannot_reach_another_table(case, victim):
                 name, schema=SCHEMA, properties={"write.data.path": a_file.rsplit("/", 1)[0]}
             )
     except NotImplementedError as exc:  # PyIceberg: the catalog does not offer the endpoint
+        # Only "no API" when the catalog's own API description lacks it too - otherwise the
+        # catalog describes the endpoint but does not serve it, and the test fails.
+        if PROFILE.name in inv.offered_by(inv.CAPABILITIES[ESCAPE_CAPABILITY[case]]):
+            raise
         pytest.skip(f"catalog {PROFILE.name} has no API for this ({exc})")
     except Exception as exc:  # noqa: BLE001 - refused: that is the expected outcome
         if case == "register_outside":  # refused for the location, not for a broken file
@@ -1151,10 +1162,6 @@ def test_error_response_is_clean(case):
         case: The bad input (token, signature, location escape, error, escalation - see the
             module's case lists).
     """
-    if case == "traversal" and PROFILE.name == "rustfs":
-        pytest.skip(
-            "not testable on rustfs: the lab's SigV4 client cannot sign an encoded '../' path"
-        )
     v1 = f"{_base()}"
     missing = f"nope_{uuid.uuid4().hex[:6]}"
     js = {"Content-Type": "application/json"}
@@ -1557,31 +1564,46 @@ def _claims(token: str) -> dict:
 
 
 def test_catalog_token_does_not_outlive_identity_token(request):
-    """The token the catalog accepts expires no later than the Keycloak token it stems from.
+    """What the catalog accepts expires no later than the Keycloak token it stems from.
 
     Checks:
-        * the catalog token's lifetime is at most the identity token's (+60 s).
-        Catalogs with an own broker or SigV4: not offered.
+        * the lifetime of the catalog's credential is at most the identity token's (+60 s):
+          Lakekeeper and Polaris (``mixed``) take the Keycloak token itself, Unity exchanges it
+          for its own token, RustFS exchanges it at its STS for temporary keys (asked for the
+          longest lifetime STS allows, 12 h - what a client may ask for).
+        Catalogs without authentication: not offered.
 
     Args:
         request: pytest request (fixtures by name).
     """
     cat = PROFILE.name
-    if cat in ("polaris", "rustfs"):
-        pytest.skip(f"catalog {cat} has no API for identity-provider tokens (own broker / SigV4)")
-    if cat not in ("lakekeeper", "unity"):
+    if cat not in ("lakekeeper", "polaris", "unity", "rustfs"):
         pytest.skip(f"catalog {cat} has no API for authentication (open catalog)")
     _require(KC)
-    identity = keycloak_token("alice")
-    if cat == "lakekeeper":
-        _require(f"{LAKEKEEPER}/health")
-        accepted = identity  # Lakekeeper takes the Keycloak token itself
+    if cat == "rustfs":
+        identity = keycloak_token("rustfs-alice")
+        r = _rustfs_sts(identity, duration=43200)
+        assert r.status_code == 200, f"STS refused: {r.status_code} {r.text[:300]}"
+        expires = re.search(r"<Expiration>([^<]+)</Expiration>", r.text)[1]
+        stamp = datetime.datetime.fromisoformat(expires).timestamp()
+        catalog_life = stamp - time.time()
     else:
-        _require(f"{UNITY}/api/2.1/unity-catalog/catalogs")
-        accepted = _unity_token()  # exchanged through the lab's token shim, as every engine does
-    ident, cat_claims = _claims(identity), _claims(accepted)
+        identity = keycloak_token("alice", scope="polaris" if cat == "polaris" else None)
+        if cat == "unity":
+            _require(f"{UNITY}/api/2.1/unity-catalog/catalogs")
+            accepted = (
+                _unity_token()
+            )  # exchanged through the lab's token shim, as every engine does
+        else:
+            _require(
+                f"{LAKEKEEPER}/health"
+                if cat == "lakekeeper"
+                else f"{SETTINGS.catalog_uri}/v1/config"
+            )
+            accepted = identity  # Lakekeeper and Polaris (mixed) take the Keycloak token itself
+        catalog_life = _claims(accepted)["exp"] - int(time.time())
+    ident = _claims(identity)
     identity_life = ident["exp"] - ident["iat"]
-    catalog_life = cat_claims["exp"] - int(time.time())
     with _gap("token_lifetime"):
         assert catalog_life <= identity_life + 60, (
             f"catalog token lives {round(catalog_life, -2):.0f} s, the identity token {identity_life} s"

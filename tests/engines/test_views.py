@@ -292,7 +292,9 @@ def test_read_view(creator, reader, base_table, adapters, views, engine_pool):
 
     Checks:
         * the reader returns ids 2 and 3.
-        Engines that cannot query views: not offered; skipped (blocked) if no view was created.
+        Readers that cannot query views and creators that cannot create one (Polars, Daft,
+        pg_lake): not offered - there is no such case. Skipped (blocked) only if a creator that
+        has view DDL did not create its view.
 
     Args:
         creator: Engine that creates the view.
@@ -303,6 +305,7 @@ def test_read_view(creator, reader, base_table, adapters, views, engine_pool):
         engine_pool: Session pool of engine adapters (for the "not offered" check).
     """
     require(reader, "querying views", engine_pool)
+    require(creator, "creating views", engine_pool)
     if creator not in views:
         pytest.skip(f"{creator} did not create a view (see test_create_view)")
     ns, _ = base_table

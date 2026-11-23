@@ -1,4 +1,4 @@
-"""Feature inventory: every endpoint of the four catalogs -> a capability -> tests (evidence).
+"""Feature inventory: every endpoint of the five catalogs -> a capability -> tests (evidence).
 
 Source of the endpoints: ``docs/api/<catalog>-<version>.txt`` (extracted from each catalog's API
 description, see the file headers). Rule (docs/test-architecture.md): a capability that at least
@@ -38,6 +38,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: fetch configuration (/v1/config)",
         "endpoints": {
             "lakekeeper": rf"^GET {ICEBERG}config$",
+            "reference": rf"^GET {ICEBERG}config$",
             "polaris": rf"^GET {ICEBERG}config$",
             "rustfs": rf"^{RFS}config$",
         },
@@ -51,6 +52,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, list, properties, drop namespaces",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
+            "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
         },
@@ -63,6 +65,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, load, commit, drop, rename tables",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
+            "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
         },
@@ -75,6 +78,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, load, replace, drop, rename views",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/views(/\{{view\}})?|views/rename)$",
+            "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/views(/\{{view\}})?|views/rename)$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}(\{{prefix\}})?(/namespaces/\{{namespace\}}/views(/\{{view\}})?|/views/rename)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces/\{{namespace\}}/views(/\{{view\}})?$",
         },
@@ -87,6 +91,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: register a table (or view) from existing metadata",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
+            "reference": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
             "polaris": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces/\{{namespace\}}/register$",
         },
@@ -96,6 +101,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: transaction across several tables (/transactions/commit)",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/transactions/commit$",
+            "reference": rf"^POST {ICEBERG}\{{prefix\}}/transactions/commit$",
             "polaris": rf"^POST {ICEBERG}\{{prefix\}}/transactions/commit$",
         },
         "tests": ["test_transactions::test_multi_table_commit"],
@@ -118,6 +124,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: report scan/commit metrics",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
+            "reference": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
             "polaris": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
         },
         "also": [
@@ -129,8 +136,8 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: server-side scan planning",
         "endpoints": {
             "lakekeeper": rf"^(POST|GET|DELETE) {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/(plan(/\{{plan-id\}})?|tasks)$",
+            "reference": rf"^(POST|GET|DELETE) {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/(plan(/\{{plan-id\}})?|tasks)$",
         },
-        "also": [],  # only Lakekeeper describes it; the others answer 404/501 (base test on all)
         "tests": ["test_scan_planning::test_server_side_plan_with_projection_and_filter"],
         "not_implemented": {
             "lakekeeper": {
@@ -139,17 +146,18 @@ CAPABILITIES: dict[str, dict] = {
                 "cause": "catalogs-no-scan-planning",
             },
         },
-        "note": "Base test on all catalogs; none implements it (404/501).",
+        "note": "Base test on all catalogs; only the Iceberg REST fixture implements it, the others answer 404/501.",
     },
     "oauth_tokens": {
         "title": "Catalog issues access tokens",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}oauth/tokens$",
+            "reference": rf"^POST {ICEBERG}oauth/tokens$",
             "polaris": r"^POST /api/catalog/v1/oauth/tokens$",
             "unity": rf"^POST {UCC}auth/(tokens|logout)$",
         },
         "tests": ["test_authz::test_engine_reads"],
-        "note": "Lakekeeper: endpoint from the specification; in the lab the tokens come from Keycloak. Unity: token exchange (unity/token_shim.py).",
+        "note": "Lakekeeper: endpoint from the specification; in the lab the tokens come from Keycloak. Unity: token exchange (unity/token_shim.py). Reference: served by the fixture, not tested (no authentication in the lab).",
     },
     "iceberg_remote_signing": {
         "title": "Iceberg REST: catalog signs S3 requests (remote signing)",
@@ -169,13 +177,14 @@ CAPABILITIES: dict[str, dict] = {
     "unregister": {
         "title": "Unregister a table from the catalog (files stay)",
         "endpoints": {
-            "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/unregister$"
+            "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/unregister$",
+            "reference": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/unregister$",
         },
-        "tests": ["test_catalog_features::test_lakekeeper_unregister"],
+        "tests": ["test_catalog_features::test_unregister"],
         "not_implemented": {
             "lakekeeper": {
                 "status": "404, not advertised in /v1/config",
-                "test": "test_catalog_features::test_lakekeeper_unregister",
+                "test": "test_catalog_features::test_unregister",
                 "cause": "lakekeeper-functions-unregister-404",
             },
         },
@@ -272,7 +281,7 @@ CAPABILITIES: dict[str, dict] = {
             "test_rbac::test_roles_add_up",
             "test_rbac::test_idp_role_is_a_catalog_role",
         ],
-        "note": "RustFS: IAM groups with a group policy (admin API). Unity Catalog OSS 0.7: no roles or groups (SCIM /Groups answers 500) - checked by test_rbac on every run.",
+        "note": "RustFS: IAM groups with a group policy (admin API). Unity Catalog OSS 0.7: no roles or groups (its API describes only SCIM /Users and /Me; /Groups answers 500) - checked by test_rbac on every run.",
     },
     "web_ui": {
         "title": "Web UI of the catalog",
@@ -525,12 +534,20 @@ CAPABILITIES: dict[str, dict] = {
     },
 }
 
-CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity")
+CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference")
+NAMES = {
+    "lakekeeper": "Lakekeeper",
+    "polaris": "Polaris",
+    "rustfs": "RustFS",
+    "unity": "Unity",
+    "reference": "Reference",
+}
 API_FILES = {
     "lakekeeper": "lakekeeper-0.15.1.txt",
     "polaris": "polaris-1.9.0.txt",
     "rustfs": "rustfs-1.0.6.txt",
     "unity": "unity-0.7.0.txt",
+    "reference": "reference-c75374c.txt",
 }
 
 
@@ -595,7 +612,7 @@ def render() -> str:
         "code and proving test in the note) · **–** not offered. Partial failures stay ✓ with a",
         "note.",
         "",
-        "| | " + " | ".join(c.capitalize() if c != "rustfs" else "RustFS" for c in CATALOGS) + " |",
+        "| | " + " | ".join(NAMES[c] for c in CATALOGS) + " |",
         "|---|" + "---|" * len(CATALOGS),
         "| Capabilities described (of "
         + str(len(CAPABILITIES))
@@ -606,8 +623,10 @@ def render() -> str:
         + " | ".join(str(sum(c in works_on(x) for x in CAPABILITIES.values())) for c in CATALOGS)
         + " |",
         "",
-        "| Capability | Kind | Lakekeeper | Polaris | RustFS | Unity | Evidence (tests) | Note |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Capability | Kind | "
+        + " | ".join(NAMES[c] for c in CATALOGS)
+        + " | Evidence (tests) | Note |",
+        "|---|---|" + "---|" * len(CATALOGS) + "---|---|",
     ]
     for name, cap in CAPABILITIES.items():
         offered = set(offered_by(cap))
@@ -617,8 +636,7 @@ def render() -> str:
             "– *(" + cap["untested_reason"] + ")*" if "untested_reason" in cap else "**open**"
         )
         gaps = [
-            f"{c.capitalize() if c != 'rustfs' else 'RustFS'}: described, not implemented "
-            f"({m['status']}; `{m['test']}`)."
+            f"{NAMES[c]}: described, not implemented ({m['status']}; `{m['test']}`)."
             for c, m in missing.items()
         ]
         note = " ".join(x for x in (*gaps, cap.get("note", "")) if x)

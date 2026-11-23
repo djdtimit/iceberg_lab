@@ -56,6 +56,12 @@ def enum_constants(data: bytes) -> list[str]:
 
     Returns:
         The constant names in declaration order.
+
+    Raises:
+        ValueError: an unknown constant pool tag (not a class file this parser knows).
+
+    Raises:
+        ValueError: an unknown constant pool tag (not a class file this parser knows).
     """
     count = struct.unpack(">H", data[8:10])[0]
     pool: list[str | None] = [None]

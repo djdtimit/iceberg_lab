@@ -83,7 +83,7 @@
 
   <section id="glance" class="card">
     <h2>Catalogs at a glance</h2>
-    <p class="note">Big number: reliability (works / offered cases), every theme weighted equally. Without that weighting the type matrix alone would make up a third of the result. Below it: the same per case, and the scope (works / all cases, also counting what is not offered or not testable by the engine's own step; a case blocked by another engine counts at that engine). Click a catalog to select it.</p>
+    <p class="note">Big number: reliability (works / offered cases), every theme weighted equally. Without that weighting the type matrix alone would make up a third of the result. Below it: the same per case, and the scope (works / all cases, also counting what is not offered or not run because its own step before failed; a case blocked by another engine counts at that engine). Click a catalog to select it.</p>
     <div class="cards" data-draw="glance" data-source="catalog_kpis"></div>
   </section>
 
@@ -124,7 +124,7 @@
       <select id="area-pick" class="dash-select" data-draw="area-pick" aria-label="Area" data-source="cells"></select>
     </div>
     <div class="scroll matrixbox" data-draw="matrix" data-source="cells"></div>
-    <div class="legend"><span><span class="st st-pass">✓</span> works</span><span><span class="st st-gap">✗</span> documented gap</span><span><span class="st st-part">◐</span> partly (over several writers)</span><span><span class="st st-new">!</span> new failure</span><span><span class="st st-fixed">🔧</span> gap fixed</span><span><span class="st st-na">—</span> not offered</span><span><span class="st st-blocked">·</span> not testable</span></div>
+    <div class="legend"><span><span class="st st-pass">✓</span> works</span><span><span class="st st-gap">✗</span> documented gap</span><span><span class="st st-part">◐</span> partly (over several writers)</span><span><span class="st st-new">!</span> new failure</span><span><span class="st st-fixed">🔧</span> gap fixed</span><span><span class="st st-na">—</span> not offered</span><span><span class="st st-blocked">·</span> not run (a step before failed)</span></div>
   </section>
 
   <section id="reference" class="card">
@@ -143,13 +143,13 @@
       <p class="note">Every endpoint of the API descriptions belongs to exactly one capability. ✓ described and implemented, ◐ described but not implemented by the server, – not offered.</p>
       <div class="scroll">
         <table data-source="inventory_counts" data-row-key="measure">
-          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th></tr></thead>
+          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th></tr></thead>
           <tbody data-draw="inventory-counts-body"></tbody>
         </table>
       </div>
       <div class="scroll" style="margin-top: var(--cds-gap-md)">
         <table data-source="inventory" data-row-key="capability">
-          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="note">Note</th></tr></thead>
+          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="note">Note</th></tr></thead>
           <tbody data-draw="inventory-body"></tbody>
         </table>
       </div>
@@ -166,10 +166,10 @@
         <dt>Offered</dt><dd>Works, documented gap or new failure: the engine and the catalog have the capability, so the test ran.</dd>
         <dt>Reliability</dt><dd>Works / offered. How well what is offered works.</dd>
         <dt>Equal theme weight</dt><dd>Reliability per theme, then the mean over the themes. Without it, themes with large matrices (types: about a third of all cases) decide the total.</dd>
-        <dt>Scope</dt><dd>Works / all cases of the engine, counting "not offered" and its own "not testable" as not working. How much of the whole test catalogue works.</dd>
+        <dt>Scope</dt><dd>Works / all cases of the engine, counting "not offered" and its own "not run" as not working. How much of the whole test catalogue works.</dd>
         <dt>Not offered</dt><dd>The engine or catalog has no API or type for it; checked by the lab (test_na_claims).</dd>
         <dt>Not testable</dt><dd>A step before failed, mostly the engine that writes the table. The case counts at that step: against the engine that failed, or the catalog when it makes the state impossible - not against the engine that would have read. Whether the reader can read such a table shows the neutral source.</dd>
-        <dt>Planned / ran</dt><dd>Planned: every compared case. Ran: works, documented gap or new failure. The difference is "not offered" and "not testable".</dd>
+        <dt>Planned / ran</dt><dd>Planned: every compared case. Ran: works, documented gap or new failure. The difference is "not offered" and "not run".</dd>
         <dt>Severe gap</dt><dd>A documented gap that loses or corrupts data, gives wrong results, leaves a commit half applied or opens access wider than intended.</dd>
         <dt>New failure</dt><dd>A failure without a documented gap, or with a different error than documented.</dd>
       </dl>
@@ -236,6 +236,19 @@
       : r.blocked_by ? `${EV.engineNames[r.blocked_by] || r.blocked_by} failed in the step before (mostly writing the table)`
         : (r.detail || 'prerequisite failed').slice(0, 110)),
   };
+
+  // results: testergebnisse.json is encoded per column (scripts/dashboard/build_dashboard_data.py
+  // compact): every row is a list of indexes into one list of distinct values per column.
+  dash.loader('results', {
+    description: 'Decodes the per-column encoding of the file: each row lists, per column, the index of its value in that column\'s list of distinct values.',
+    fn: ({ answer }) => {
+      const { columns, values, rows } = answer;
+      return {
+        columns,
+        rows: rows.map((r) => Object.fromEntries(columns.map((c, i) => [c, values[c][r[i]]]))),
+      };
+    },
+  });
 
   dash.calc('catalog_kpis', {
     title: 'Per catalog',
@@ -318,7 +331,7 @@
 
   dash.calc('causes', {
     title: 'Biggest causes',
-    description: 'Selected catalog, narrowed by the engine filter: documented gaps grouped by cause and not testable cases grouped by the step that failed before them, by number of cases.',
+    description: 'Selected catalog, narrowed by the engine filter: documented gaps grouped by cause and cases that did not run, grouped by the step that failed before them, by number of cases.',
     inputs: ['results'],
     fn: (results) => {
       const cat = EV.cat();
@@ -562,7 +575,7 @@
     if (!r || !r.all) { td.textContent = '·'; return td; }
     td.append(mark(el('span', 'v', EV.pct(r.reliability)), source, 'reliability', where));
     td.append(mark(el('span', 's', `${EV.int(r.works)}/${EV.int(r.all)}`), source, 'works', where));
-    td.title = `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not testable (own step), ${r.foreign} blocked by another engine or the catalog (not counted here)`;
+    td.title = `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not run (own step failed before), ${r.foreign} blocked by another engine or the catalog (not counted here)`;
     if (onClick) td.addEventListener('click', onClick);
     return td;
   }
@@ -654,7 +667,7 @@
       const bar = el('div', `bar ${r.kind === 'gap' ? 'gap' : ''}`); bar.style.width = `${(100 * r.cases) / max}%`; bc.append(bar);
       const c = tr.insertCell(); c.className = 'wrap';
       if (r.severity) c.append(el('span', 'sev', r.severity), ' ');
-      c.append(mark(el('span', r.kind === 'gap' ? null : 'count', (r.kind === 'gap' ? '' : 'not testable: ') + r.cause), 'causes', 'cause'));
+      c.append(mark(el('span', r.kind === 'gap' ? null : 'count', (r.kind === 'gap' ? '' : 'not run: ') + r.cause), 'causes', 'cause'));
       const e = tr.insertCell(); e.className = 'wrap'; e.textContent = r.engines;
       for (const s of tr.querySelectorAll('[data-source]')) s.dataset.row = String(i);
       return tr;
@@ -731,7 +744,7 @@
   });
 
   // ---------- reference
-  const STATE_TEXT = { pass: '✓ works', gap: '✗ gap', part: '◐ partly', new: '! new', fixed: '🔧 fixed', na: '— not offered', blocked: '· not testable' };
+  const STATE_TEXT = { pass: '✓ works', gap: '✗ gap', part: '◐ partly', new: '! new', fixed: '🔧 fixed', na: '— not offered', blocked: '· not run' };
   function stateTable(table, src, data, lead, cols, limit) {
     headRow(table, [...lead.map((f) => f.label), ...cols.map((c) => EV.catalogNames[c] || c), 'Cause'],
       Object.fromEntries(cols.filter(EV.isHelp).map((c) => [EV.catalogNames[c] || c, 'help-col'])));

@@ -152,7 +152,15 @@ def _classify(report) -> tuple[str | None, str]:
     if hasattr(report, "wasxfail"):
         return "gap", report.wasxfail
     if report.passed:
-        return ("pass", "") if report.when == "call" else (None, "")
+        if report.when != "call":
+            return None, ""
+        # An intermittent gap that did not occur this time is still a gap, not a pass: one
+        # lucky run says nothing. Whether it occurred is kept in flaky_history.json; after
+        # gaps.FLAKY_FIXED_AFTER runs without it the summary lists it as "probably fixed".
+        from iceberg_lab.lab import gaps
+
+        flaky = gaps.flaky_not_seen(report.nodeid)
+        return ("gap", flaky) if flaky else ("pass", "")
     if report.skipped:
         reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else text
         reason = reason.removeprefix("Skipped: ")
@@ -266,9 +274,10 @@ def _capability(rec) -> str:
     if rec["file"] == "test_namespaces":
         return str(p.get("task"))
     if rec["file"] == "test_neutral_source":
-        return (
-            f"{p.get('op') or p.get('case') or p.get('task') or t.removeprefix('test_read_')}{fv}"
-        )
+        if t == "test_read_tz":
+            return f"{p.get('kind')} {p.get('zone')}"
+        state = p.get("op") or p.get("case") or p.get("task") or p.get("fmt")
+        return f"{state or t.removeprefix('test_read_')}{fv}"
     if rec["file"] == "test_evolution":
         return f"{p.get('case', t.removeprefix('test_'))}{fv}"
     if t in ("test_maintenance", "test_maintenance_cross_read"):
@@ -460,6 +469,18 @@ DIMENSIONS = [
         lambda r: r["file"] == "test_neutral_source" and r["test"] == "test_read_maintained",
     ),
     (
+        "Write after maintenance (neutral source)",
+        lambda r: r["file"] == "test_neutral_source" and r["test"] == "test_write_maintained",
+    ),
+    (
+        "Read file formats (neutral source)",
+        lambda r: r["file"] == "test_neutral_source" and r["test"] == "test_read_format",
+    ),
+    (
+        "Time zones (neutral source)",
+        lambda r: r["file"] == "test_neutral_source" and r["test"] == "test_read_tz",
+    ),
+    (
         "Write file formats",
         lambda r: r["file"] == "test_file_formats" and r["test"] == "test_write_format",
     ),
@@ -567,6 +588,7 @@ THEMES = {
         "Read results (neutral source)",
         "Write file formats",
         "Read file formats",
+        "Read file formats (neutral source)",
         "Write large files",
         "Read large files",
         "Performance (correctness only)",
@@ -578,6 +600,7 @@ THEMES = {
         "Type fidelity",
         "Type check by the catalog",
         "Time zones",
+        "Time zones (neutral source)",
     ),
     "Partitions & evolution": (
         "Write partitions",
@@ -604,6 +627,7 @@ THEMES = {
         "Read others' maintenance results",
         "Write after others' maintenance",
         "Read maintenance results (neutral source)",
+        "Write after maintenance (neutral source)",
     ),
     "Concurrency & robustness": (
         "Concurrent commits",

@@ -121,6 +121,9 @@ class ReferenceWriter:
 
         Returns:
             The Java value.
+
+        Raises:
+            TypeError: no conversion for the field type.
         """
         if v is None:
             return None
@@ -169,7 +172,7 @@ class ReferenceWriter:
 
         Args:
             table: Java Iceberg table.
-            fmt: File format (``PARQUET``, ``PUFFIN``).
+            fmt: File format (``PARQUET``, ``ORC``, ``AVRO``, ``PUFFIN``).
 
         Returns:
             The factory.
@@ -181,12 +184,13 @@ class ReferenceWriter:
             .build()
         )
 
-    def _factory(self, table, eq_field: str | None = None):
-        """GenericFileWriterFactory (Parquet data and delete files).
+    def _factory(self, table, eq_field: str | None = None, fmt: str = "PARQUET"):
+        """GenericFileWriterFactory (data files in ``fmt``, Parquet delete files).
 
         Args:
             table: Java Iceberg table.
             eq_field: Column of equality deletes (None: none).
+            fmt: Data file format (``PARQUET``, ``ORC``, ``AVRO``).
 
         Returns:
             The factory.
@@ -194,7 +198,7 @@ class ReferenceWriter:
         b = (
             getattr(self.ice.data, "GenericFileWriterFactory$Builder")(table)
             .dataSchema(table.schema())
-            .dataFileFormat(self.ice.FileFormat.PARQUET)
+            .dataFileFormat(getattr(self.ice.FileFormat, fmt))
             .deleteFileFormat(self.ice.FileFormat.PARQUET)
         )
         if eq_field is not None:
@@ -400,7 +404,9 @@ class ReferenceWriter:
 
     # ------------------------------------------------------------------ any type
 
-    def write_values(self, ns: str, name: str, type_json, fv: int, rows: list[tuple]):
+    def write_values(
+        self, ns: str, name: str, type_json, fv: int, rows: list[tuple], fmt: str = "PARQUET"
+    ):
         """Create table ``(id long, v <type>)`` natively in format ``fv`` and append ``rows``.
 
         Covers every Iceberg type, also those PyIceberg 0.12 cannot write: nanosecond
@@ -414,9 +420,14 @@ class ReferenceWriter:
                 a list/struct object, ...).
             fv: Iceberg format version (2 or 3).
             rows: ``(id, python value)`` pairs (see ``_jvalue`` for the value forms).
+            fmt: Data file format (``PARQUET``, ``ORC``, ``AVRO``; also set as
+                ``write.format.default``).
 
         Returns:
             The Java table.
+
+        Raises:
+            JavaError: Iceberg Java refused (the catalog's answer from the Java exception).
         """
         schema = self.ice.SchemaParser.fromJson(
             json.dumps(
@@ -432,13 +443,14 @@ class ReferenceWriter:
         )
         props = self.jvm.java.util.HashMap()
         props.put("format-version", str(fv))
+        props.put("write.format.default", fmt.lower())
         try:
             table = self.catalog.createTable(
                 self.ident(ns, name), schema, self.ice.PartitionSpec.unpartitioned(), props
             )
             vtype = table.schema().findField("v").type()
-            writer = self._factory(table).newDataWriter(
-                self._files(table).newOutputFile(), table.spec(), None
+            writer = self._factory(table, fmt=fmt).newDataWriter(
+                self._files(table, fmt).newOutputFile(), table.spec(), None
             )
             for i, value in rows:
                 rec = self.ice.data.GenericRecord.create(table.schema())
@@ -469,11 +481,14 @@ class ReferenceWriter:
 
         Returns:
             The Java value.
+
+        Raises:
+            TypeError: no conversion for the type.
         """
         if v is None:
             return None
         tid = jtype.typeId().name()
-        if tid == "TIMESTAMP_NANO":
+        if tid in ("TIMESTAMP", "TIMESTAMP_NANO"):
             iso = v.isoformat()
             if jtype.shouldAdjustToUTC():
                 return self.jvm.java.time.OffsetDateTime.parse(iso)
@@ -539,6 +554,9 @@ class ReferenceWriter:
 
             Returns:
                 The Java VariantValue.
+
+            Raises:
+                TypeError: a Python value with no variant form.
             """
             if x is None:
                 return variants.Variants.ofNull()

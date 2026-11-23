@@ -112,6 +112,8 @@ flowchart LR
    uv run pytest -k duckdb            # one engine
    uv run pytest tests/engines/test_types.py  # type matrix (~10–15 min with all engines)
    CATALOG=polaris scripts/run_all.sh # full run on one catalog (cleans up first, ~1–3 h)
+   scripts/rerun.sh tests/x.py        # rerun tests on all catalogs, merged into their full runs
+   scripts/rerun.sh --flaky 5         # every intermittent gap 5 times (FIXED? when gone)
    git diff results/                  # after a full run: which tests changed against the reference
    ```
 4. Notebooks: open `notebooks/` directly in VS Code (kernel: `/home/vscode/.venv`) or

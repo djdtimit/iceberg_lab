@@ -1,6 +1,6 @@
 """The storage under every catalog: RustFS's S3 API where Iceberg clients rely on AWS semantics.
 
-Catalog-independent (the same RustFS for all four catalogs; run with every CATALOG so each
+Catalog-independent (the same RustFS under every catalog; run with every CATALOG so each
 report is complete). Expected answers are AWS S3's / STS's:
 
 checksums

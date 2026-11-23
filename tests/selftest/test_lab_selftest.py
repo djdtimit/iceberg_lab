@@ -105,6 +105,9 @@ def test_expect_gap_flaky_without_error_passes_and_is_recorded():
         pass
     assert [r for _, r in gaps._FLAKY_NOT_SEEN] == ["doc"]
     assert gaps._FIXED_GAPS == []
+    # The report classifies this test's own row before the fixture's teardown restores the
+    # list: left in, "doc" would make this self-test a gap (reporting._classify).
+    gaps._FLAKY_NOT_SEEN.clear()
 
 
 def test_expect_gap_without_reason_changes_nothing():

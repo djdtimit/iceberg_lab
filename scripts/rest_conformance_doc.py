@@ -5,17 +5,22 @@ uv run python scripts/rest_conformance_doc.py
 
 from __future__ import annotations
 
+import gzip
 import json
 import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+#: Comparison rows of the latest full run per catalog (scripts/export_reference.py).
 SOURCES = {
-    "Lakekeeper": ROOT / "reports/results.json",
-    "Polaris": ROOT / "reports/polaris/results.json",
-    "RustFS": ROOT / "reports/rustfs/results.json",
-    "Unity": ROOT / "reports/unity/results.json",
-    "Reference": ROOT / "reports/reference/results.json",
+    cat: ROOT / "results" / f"{name}.rows.json.gz"
+    for cat, name in (
+        ("Lakekeeper", "lakekeeper"),
+        ("Polaris", "polaris"),
+        ("RustFS", "rustfs"),
+        ("Unity", "unity"),
+        ("Reference", "reference"),
+    )
 }
 SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "—", "blocked": "·"}
 
@@ -24,15 +29,13 @@ def main() -> None:
     """Write docs/rest-conformance.md from the five catalogs' results."""
     cells: dict[str, dict[str, tuple[str, str]]] = {}
     for cat, path in SOURCES.items():
-        for r in json.loads(path.read_text()):
-            if r["file"] != "test_rest_conformance":
+        for r in json.loads(gzip.decompress(path.read_bytes())):
+            file, _, rest = r["test"].partition("::")
+            if not file.endswith("/test_rest_conformance.py"):
                 continue
-            m = re.search(r"\[(.*)\]$", r["nodeid"])
-            row = (
-                f"{r['test'].removeprefix('test_')}: {m[1]}"
-                if m
-                else r["test"].removeprefix("test_")
-            )
+            func = rest.split("[")[0]
+            m = re.search(r"\[(.*)\]$", rest)
+            row = f"{func.removeprefix('test_')}: {m[1]}" if m else func.removeprefix("test_")
             cells.setdefault(row, {})[cat] = (r["status"], r["detail"])
     lines = [
         "# REST conformance of the catalogs",

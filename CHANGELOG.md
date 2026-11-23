@@ -2,6 +2,99 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-23 (3): no lucky passes, forced races, neutral sources everywhere
+
+- **An intermittent gap that did not occur stays a gap**: the report used to show such a run as
+  "pass". Now the case keeps the gap; `flaky_history.json` / `results/<catalog>.flaky.json`
+  count the runs without it, and after 5 the summary says PROBABLY FIXED (`scripts/rerun.sh`
+  prints `FIXED?`). `scripts/rerun.sh --flaky [n]` reruns every intermittent gap n times.
+  History entries whose reason the register no longer has (a reworded cause) are dropped.
+- **`scripts/rerun.sh` survives being edited while it runs** (everything inside `main()`; bash
+  reads a script as it goes, an edit during a long rerun broke its last steps once).
+- **Races forced instead of hoped for** (`test_robustness.py`, two new scenarios for every engine):
+  the fault proxy lets another client commit right before the engine's commit, once
+  (`concurrent_commit`) or before each of 3 attempts (`repeated_conflicts`). Findings:
+  - **pg_lake ignores the 409** of Lakekeeper and Polaris: the INSERT succeeds, Postgres shows the
+    row, the catalog does not - the known DATA LOSS cause `pglake-ignores-refused-commit`, now
+    without any fault injection (bug report draft 02 extended).
+  - **DuckDB does retry**: 3 conflicts in a row pass, 5 fail - 4 retries, as many as Iceberg
+    Java's and PyIceberg's default. The old cause "DuckDB does not retry a commit after a
+    conflict" was wrong; split into `duckdb-commit-retries-exhausted` (intermittent, 4+ writers)
+    and `duckdb-compaction-conflict` (compaction while appending, reproducible).
+  - All other engines retry correctly.
+- **Unity's lost namespace property update is a stable gap**: the race is repeated up to 15
+  rounds and stops at the first loss (was: one round, lost in about 1 of 3 runs).
+- **Neutral sources for the last blocked read/write matrices** (`test_neutral_source.py`,
+  Iceberg Java writes, every engine reads or writes): `test_write_maintained` (append after
+  maintenance - counterpart of the 1740 blocked cells of `test_maintenance_cross_write`),
+  `test_read_format` (ORC/Avro files), `test_read_tz` (the time zone values). New facts from
+  cells that were blocked: Spark, Trino and Flink read ORC and Avro, PyIceberg and Polars read
+  ORC; every engine reads the time zone values unshifted; every engine but the PyIceberg family
+  on v3 appends after maintenance. The reference writer writes ORC/Avro and microsecond
+  timestamps.
+- **Views of engines without view DDL** (Polars, Daft, pg_lake) are "not offered" in the read
+  matrix instead of "not testable" - there is no such case.
+- **Skips that could hide a regression**: `test_listing_with_hidden_tables` fails (instead of
+  skipping) when alice may not list after `allow_listing`; `test_location_cannot_reach_another_table`
+  skips "no API" only when the catalog's API description lacks the endpoint too.
+- **Dashboard**: blocked cases are labelled "not run (a step before failed)" instead of "not
+  testable".
+- **Docs and docstrings**: CI checks that docstrings match the signatures (Args, Returns, Yields)
+  and that library code names what it raises; stale statements fixed (four -> five catalogs,
+  capability counts, the reference fixture in the findings summary, a selftest path).
+
+## Lab changes 2026-11-23 (2): tests that skipped too much, CI, reruns
+
+- **Hard-coded catalog skips removed where the catalog does offer the mechanism**:
+  - `test_idp_outage` skipped RustFS ("no bearer tokens"), although RustFS logs in through
+    Keycloak (token -> STS `AssumeRoleWithWebIdentity` -> temporary SigV4 keys). The proxy now
+    sits in front of Keycloak for RustFS as well; all six cases pass (keys obtained before the
+    outage keep working, a new login fails fast and recognisably, recovery works).
+  - `test_catalog_token_does_not_outlive_identity_token` skipped Polaris and RustFS. Polaris
+    (`mixed`) takes the Keycloak token itself: passes. RustFS' STS issues keys for up to 12 h
+    on a 1 h Keycloak token: **new SECURITY gap** `rustfs-sts-outlives-identity-token` (as
+    Unity's 24 h tokens).
+  - `test_storage_faults` gave the reference catalog Unity's reason; own reason now.
+  - Checked and kept: Unity has no roles (its API describes only SCIM `/Users` and `/Me`;
+    the reason now says so).
+  - `test_error_response_is_clean[traversal]` skipped RustFS because the lab could not sign
+    the path. Cause: the lab's SigV4 signer (`config.catalog_auth`) used botocore's S3 path
+    rule (path signed as sent), RustFS' catalog expects the standard SigV4 rule (each `%`
+    encoded again, as PyIceberg and Iceberg Java sign) - every raw REST request with an
+    encoded character (`%1F`, `%2F`, non-ASCII) got 403. Fixed; the case runs (400, clean).
+    DuckDB signs like the old lab signer (gap `duckdb` nested namespace on RustFS stays).
+- **Self-test against hard-coded catalog skips** (`tests/selftest/test_catalog_claims.py`, the
+  counterpart of the engine registry check): every skip that decides by catalog name alone
+  decides by a list checked against the feature inventory (`offered_by`, the admin adapters,
+  `USERS`/`BACKENDS`/`SERVICES`/`UIS`, name chains) or has a written reason; every catalog
+  whose API describes a capability runs one of its evidence tests.
+- **`scripts/rerun.sh --changed [ref]`** reruns the test files changed since `ref` (default
+  HEAD, incl. uncommitted and new ones) and names changed shared code it cannot map.
+- **Intermittent gaps**: the "runs in a row without the gap" counter is exported to
+  `results/<name>.flaky.json` and a run continues from it when `reports/` is gone.
+- **Generated docs from `results/`**: `rest_conformance_doc.py` and `engine_inventory_doc.py`
+  read `results/<name>.rows.json.gz` instead of `reports/`; the CI regenerates every generated
+  doc (findings, REST conformance, engine and feature inventory) and fails on a diff.
+- **Dashboard data encoded per column** (dictionary per column, the page's loader decodes it):
+  the results file shrinks from 19 MB to a few MB.
+- **Reference catalog in the feature inventory**: `docs/api/reference-c75374c.txt` (31 routes
+  of the fixture's `Route` enum, the same as its `/v1/config` endpoints); fifth column in
+  `docs/feature-inventory.md` and the dashboard. Unregister is described by two catalogs now,
+  so `test_lakekeeper_unregister` became the base test `test_unregister` (reference: works,
+  Lakekeeper: 404 gap).
+- **`scripts/rerun.sh`**: reruns tests on all (or `CATALOGS=...`) catalogs merged into each
+  catalog's full run, exports the references, runs the register self-tests on them, exports
+  again and regenerates the docs - the order that had to be done by hand.
+- **`export_reference`**: leaves out rows of tests that no longer exist (a merged rerun after a
+  rename kept the old name), writes the full comparison rows to `results/<name>.rows.json.gz`
+  (~110 kB; `reports/` is not kept), `--run-id` prints the id of a report's full run. The
+  dashboard builder falls back to these files.
+- **CI** (`.github/workflows/offline.yml`): ruff, format and the offline self-tests on push to
+  main and on pull requests. Renovate's checklist points to the gap register.
+- **Notebooks lint-clean**: unused imports of the setup cells removed, the interop matrix's
+  catch-all marked as intended.
+- **Run without help on RustFS** repeated (6574 tests, nothing new).
+
 ## Full runs 2026-11-23 (Polaris, Unity, RustFS, reference) and the gap register
 
 - **Five catalogs**: the Apache Iceberg REST fixture (`apache/iceberg-rest-fixture`, Iceberg

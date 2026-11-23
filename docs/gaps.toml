@@ -98,10 +98,9 @@ summary = "Unity refuses this invalid commit, but with 500 (ValidationException)
 seen_at = { unity = "0.7.0" }
 
 [unity-loses-namespace-property]
-summary = "Unity intermittently loses a concurrent namespace property update (confirmed, then gone)"
+summary = "Unity loses concurrent namespace property updates (confirmed, then gone; about 1 race of 8 writers in 3)"
 severity = "DATA LOSS"
 seen_at = { unity = "0.7.0" }
-flaky = true
 
 [unity-no-nested-namespaces]
 summary = "Unity Catalog has a fixed catalog.schema.table hierarchy: no nested namespaces (400)"
@@ -201,6 +200,11 @@ summary = "RustFS STS silently raises DurationSeconds=60 to 900 s instead of ref
 severity = "SECURITY"
 seen_at = { rustfs = "1.0.6" }
 bug_report = "14-rustfs-sts-duration-and-policy-wildcards.md"
+
+[rustfs-sts-outlives-identity-token]
+summary = "RustFS' STS (AssumeRoleWithWebIdentity) issues temporary keys for up to 12 h on a Keycloak token that lives 1 h - the key lifetime is not bounded by the identity token: a user disabled in Keycloak keeps access for up to 12 h"
+severity = "SECURITY"
+seen_at = { rustfs = "1.0.6", keycloak = "26.8.2" }
 
 [rustfs-sts-policy-wildcards]
 summary = "RustFS refuses wildcards in the actions of an STS session policy ('s3:Get*': invalid action) - AWS allows them; Unity's session policies use them (the lab's STS shim expands them)"
@@ -416,6 +420,15 @@ seen_at = { daft = "0.7.26" }
 
 # ============================== duckdb
 
+[duckdb-commit-retries-exhausted]
+summary = "DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)"
+seen_at = { duckdb = "2.0.1" }
+flaky = true
+
+[duckdb-compaction-conflict]
+summary = "DuckDB's compaction (iceberg_rewrite_data_files) while DuckDB appends to the same table fails on the conflict (409, or 'table snapshot changed between planning and execution') - Spark and Trino finish both"
+seen_at = { duckdb = "2.0.1" }
+
 [duckdb-drop-no-purge]
 summary = "DuckDB DROP TABLE does not request a purge (purgeRequested=false), so Lakekeeper keeps the data files"
 seen_at = { duckdb = "2.0.1" }
@@ -440,10 +453,6 @@ seen_at = { duckdb = "2.0.1" }
 
 [duckdb-no-primary-key]
 summary = "DuckDB: no PRIMARY KEY / identifier fields on Iceberg tables (only NOT NULL)"
-seen_at = { duckdb = "2.0.1" }
-
-[duckdb-no-retry-on-conflict]
-summary = "DuckDB does not retry a commit after a conflict (409): its write or compaction fails while other engines commit"
 seen_at = { duckdb = "2.0.1" }
 
 [duckdb-no-v3-rewrite]

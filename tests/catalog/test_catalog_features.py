@@ -593,7 +593,8 @@ def test_soft_delete_and_undrop(rest, table):
         * after setting the warehouse's delete profile to soft and dropping the table, it is
           listed in ``deleted-tabulars``;
         * after undrop it reads ids 1..3 again.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -640,7 +641,8 @@ def test_drop_protection(rest, table):
     Checks:
         * with protection on, the drop answers >= 400 and the table still exists;
         * with protection off, the drop with purge succeeds.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -669,7 +671,8 @@ def test_tags(rest, table):
         * a value outside the allowed values is refused (>= 400);
         * an allowed value is set and read back on the table;
         * the tag can be removed.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -710,7 +713,8 @@ def test_warehouse_statistics(rest, table):
 
     Checks:
         * the statistics endpoint answers with at least one entry counting >= 1 table.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -728,7 +732,8 @@ def test_search_tables(rest, table):
 
     Checks:
         * a search for the table's name returns a hit with exactly that name and namespace.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -752,7 +757,8 @@ def test_namespace_move(rest):
     Checks:
         * the move call answers 2xx;
         * the table under the new nested namespace reads ids 1..3.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -791,7 +797,8 @@ def test_format_version_policy(rest, namespace, table_name):
         * with the policy (allowed: [3]) set, creating a v2 table fails with a format-version
           refusal;
         * the policy is reset to v1-v3 afterwards.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -906,7 +913,8 @@ def test_policies(rest, table):
     Checks:
         * a policy is created and attached to the namespace (2xx);
         * the applicable policies of the table include it, marked as inherited.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
@@ -1124,7 +1132,8 @@ def test_federation_direct(lk_table):
     Checks:
         * an EXTERNAL catalog pointing at Lakekeeper is created;
         * the Lakekeeper table read through Polaris returns ids 1..3.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         lk_table: ``(Lakekeeper catalog, namespace)`` - table ``t`` (ids 1..3) created directly
@@ -1147,7 +1156,8 @@ def test_federation(lk_table, plain_proxy):
         * an append through Polaris shows up in Lakekeeper (ids twice);
         * a table created through Polaris exists in Lakekeeper, and is gone after a drop
           through Polaris.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         lk_table: ``(Lakekeeper catalog, namespace)`` - table ``t`` (ids 1..3) created directly
@@ -1217,7 +1227,8 @@ def test_rustfs_table_bucket_lifecycle():
         * enabling answers 2xx and the bucket reports enabled, with itself as warehouse;
         * a table in it reads ids 1..3;
         * disabling answers 2xx and the bucket reports not enabled.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("rustfs", what="table buckets (enable/disable a bucket as warehouse)")
     from botocore.exceptions import ClientError
@@ -1254,7 +1265,8 @@ def test_rustfs_compat_endpoint(namespace):
         * both ``/iceberg/v1`` and ``/_iceberg/v1`` list the namespaces (2xx);
         * the session namespace is in the compat listing;
         * both list exactly the same namespaces.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         namespace: Fresh namespace of the test session.
@@ -1278,7 +1290,8 @@ def test_rustfs_unknown_table_bucket_is_not_found():
     Checks:
         * GET of a missing table bucket answers 404;
         * DELETE of a missing table bucket answers 404.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("rustfs", what="table buckets (enable/disable a bucket as warehouse)")
     missing = f"missing-{uuid.uuid4().hex[:8]}"
@@ -1368,7 +1381,8 @@ def test_unity_volumes(uc_schema):
         * a file written with the volume's WRITE_VOLUME credentials is read back unchanged with
           READ_VOLUME credentials;
         * READ_VOLUME credentials cannot write (403 / AccessDenied).
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
@@ -1428,7 +1442,8 @@ def test_unity_functions(uc_schema):
         * creating the function answers 200;
         * reading it back returns its definition and data type INT;
         * it is in the schema's function list.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
@@ -1483,7 +1498,8 @@ def test_unity_models(uc_schema):
         * model and version are created (200);
         * the new version is PENDING_REGISTRATION;
         * after finalizing it is READY.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
@@ -1528,7 +1544,8 @@ def test_unity_temporary_path_credentials(table):
         * Unity issues PATH_READ credentials for the table's location (200);
         * with them a HEAD of the metadata file succeeds;
         * a PUT into the table's data directory is refused (403 / AccessDenied).
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
@@ -1586,7 +1603,8 @@ def test_rustfs_table_maintenance(table):
         * the maintenance config is readable, changed (background-enabled) and read back
           changed;
         * the maintenance metadata endpoint answers 2xx (known gap where it does not).
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
@@ -1608,7 +1626,8 @@ def test_rustfs_refs_api(table):
 
     Checks:
         * the refs answer contains the current snapshot id the Iceberg API serves.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
@@ -1626,7 +1645,8 @@ def test_rustfs_metadata_location_api(table):
     Checks:
         * the answer's metadata location equals the one the Iceberg API serves, and a version
           token is present.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
@@ -1646,7 +1666,8 @@ def test_rustfs_table_admin(table):
         * diagnostics and export answers name the table;
         * rollback to the earlier metadata file (with version token) makes it read ids 1..3;
         * the recovery endpoint answers 2xx (known gap where it does not).
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
@@ -1675,7 +1696,8 @@ def test_rustfs_catalog_backup():
         * the directory status answer has a ``phase``;
         * the warehouse-index backfill answers 2xx;
         * a backup can be read (2xx; known gap where not).
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("rustfs", what="catalog backup/restore/migration")
     base = f"{SETTINGS.catalog_uri}/v1/{WAREHOUSE}/catalog"
@@ -1857,7 +1879,8 @@ def test_lakekeeper_storage_validation():
     Checks:
         * the warehouse's own (working) profile validates as valid;
         * a profile with a wrong bucket validates as not valid, with a failed check listed.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="validating storage access")
     wid = _lk_wid()
@@ -1883,7 +1906,8 @@ def test_lakekeeper_permission_check():
         * read_data on t_select: allowed;
         * write_data on t_select: not allowed;
         * read_data on t_none: not allowed.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="checking allowed actions")
     from authz_backends import LakekeeperAuthz
@@ -1936,7 +1960,8 @@ def test_lakekeeper_projects():
         * a project is created (201) and renamed; its name reads back renamed;
         * it is in the project list;
         * after deletion it is no longer listed.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="projects (tenants)")
     name = f"lab-proj-{uuid.uuid4().hex[:6]}"
@@ -1961,7 +1986,8 @@ def test_lakekeeper_maintenance_mode():
         * in read-only mode listing namespaces works and creating one is refused
           (maintenance / read-only / 503 / 405 / forbidden);
         * after switching it off, creating and dropping a namespace works.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="a server maintenance mode")
     from authz_backends import LakekeeperAuthz, pyiceberg_for
@@ -1987,7 +2013,8 @@ def test_lakekeeper_endpoint_statistics(namespace):
 
     Checks:
         * after listing namespaces, the endpoint statistics mention the namespaces endpoint.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         namespace: Fresh namespace of the test session.
@@ -2011,7 +2038,8 @@ def test_lakekeeper_task_queue_config():
     Checks:
         * a changed max-seconds-since-last-heartbeat (1234) is read back; the previous value is
           restored afterwards.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="task queue configuration")
     wid = _lk_wid()
@@ -2042,7 +2070,8 @@ def test_lakekeeper_managed_by():
     Checks:
         * after setting ``managed-by: instance-admin`` the warehouse reports it;
         * setting it back to self-managed answers 2xx.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("lakekeeper", what="marking a warehouse as externally managed")
     from authz_backends import LakekeeperAuthz
@@ -2095,7 +2124,8 @@ def test_unity_schema_api(uc_schema):
         * a schema is created (200) and its comment changed and read back;
         * it is in the schema list and appears as namespace in Iceberg REST;
         * after deletion GET answers 404.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
@@ -2173,20 +2203,20 @@ def test_catalog_functions(rest, namespace):
             uc("DELETE", f"functions/{WAREHOUSE}.{namespace}.{name}")
 
 
-@pytest.mark.specific
-def test_lakekeeper_unregister(rest, table):
+def test_unregister(rest, table):
     """Unregister: the table leaves the catalog, its files stay (can be registered again).
 
     Checks:
         * after unregister the table no longer exists in the catalog;
         * registering its last metadata file again works and the table reads ids 1..3.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
     """
-    offered_by("lakekeeper", what="unregistering tables")
+    offered_by("lakekeeper", "reference", what="unregistering tables")
     ns, name, t = table
     location = t.metadata_location
     with gap("unregister"):
@@ -2208,7 +2238,8 @@ def test_polaris_openlineage():
 
     Checks:
         * a single run event and a batch of events are both accepted with 2xx.
-        Only the catalog named in ``offered_by`` offers it; the others: not offered.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
     """
     offered_by("polaris", what="receiving OpenLineage events")
     event = {

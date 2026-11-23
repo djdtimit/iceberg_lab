@@ -62,11 +62,12 @@ KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
     # RustFS: an alternative to the 409 entry below (the error picks the row).
     *(("test_append_during_compaction", "duckdb", "2", r"HTTP GET error reading 's3://labtables/\.rustfs-table/\S+/metadata/\d+-[0-9a-f-]+\.metadata\.json' \(HTTP 403 Forbidden\)", "rustfs-deletes-metadata-log")
       for _ in [1] if PROFILE.name == "rustfs"),
-    ("test_append_during_compaction", "duckdb", "2", r"Conflict_409", "duckdb-no-retry-on-conflict"),
+    ("test_append_during_compaction", "duckdb", "2", r"Conflict_409|table snapshot changed between planning \(\d+\) and execution \(\d+\)", "duckdb-compaction-conflict"),
     ("test_append_during_compaction", "duckdb", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
     ("test_append_during_compaction", "flink", "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures"),
-    # DuckDB does not retry a commit that lost the race; whether it loses depends on timing.
-    *((t, "duckdb", "*", r"Conflict_409", "duckdb-no-retry-on-conflict", True)
+    # DuckDB retries a conflicting commit 4 times (test_robustness repeated_conflicts: 3 forced
+    # conflicts in a row pass, 5 fail); with 4+ writers at once all attempts can conflict.
+    *((t, "duckdb", "*", r"Conflict_409", "duckdb-commit-retries-exhausted", True)
       for t in ("test_concurrent_appends", "test_all_engines_append_concurrently")),
     # Seen on Unity only: 8 writers race, PyIceberg's 4 default commit retries
     # (commit.retry.num-retries) can all lose - depends on timing.
@@ -324,7 +325,7 @@ def test_concurrent_appends(engine, fv, namespace, engine_pool, fresh_engine):
 
     Checks:
         * after the seed rows and the 4 concurrent appends, the engine reads exactly seed + the
-          4 rows (none lost, none twice); a commit conflict the engine does not retry is the
+          4 rows (none lost, none twice); an engine that runs out of commit retries is the
           documented (intermittent) gap.
 
     Args:
@@ -403,7 +404,7 @@ def test_all_engines_append_concurrently(engine, shared_append):
     The shared fixture starts all engines' appends together; this test checks one engine's part.
 
     Checks:
-        * the engine's append did not fail (a conflict it does not retry is a documented,
+        * the engine's append did not fail (running out of commit retries is a documented,
           intermittent gap);
         * its row is in the table as PyIceberg reads it.
         pg_lake: not offered (writes only tables it created).
