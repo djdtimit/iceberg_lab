@@ -27,6 +27,7 @@
   .ev .kpi .sub, .ev .kpi .row { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
   .ev .kpi .row b { color: var(--color-fg); font-weight: var(--cds-font-weight-medium); }
   .ev .kpi .row b.bad { color: var(--color-bad); }
+  .ev td.bad { color: var(--color-bad); } .ev td.ok { color: var(--color-ok); } .ev td.warn { color: var(--color-warn); }
   .ev .kpi .row b.warn { color: var(--color-warn); }
   /* heat cells */
   .ev .heat td.h { cursor: pointer; min-width: 4.5em; }
@@ -106,6 +107,12 @@
     <div class="scroll"><table data-draw="severe" data-source="severe"></table></div>
     <h3>New failures and fixed gaps</h3>
     <div class="scroll"><table data-draw="news" data-source="news"></table></div>
+  </section>
+
+  <section id="trend" class="card">
+    <h2>Over the runs</h2>
+    <p class="note">Every recorded full run per catalog, newest first; reruns update their run's row. Works counts passes and gaps that no longer occur. Gap causes: distinct documented causes in the run; added and gone are counted against the catalog's previous run. Point at a number of causes for their names.</p>
+    <div class="scroll"><table data-draw="trend" data-source="history" data-row-key="name,run"></table></div>
   </section>
 
   <section id="causes" class="card">
@@ -805,6 +812,37 @@
       }
     }
   });
+  dash.draw('trend', (table) => {
+    const d = dash.data('history');
+    if (placeholder(table, d, 'The run history')) return;
+    if (!d.data.length) { table.append(el('caption', 'empty', 'No run recorded yet.')); return; }
+    const fields = [['Catalog', 'name'], ['Run finished', 'finished'], ['Works', 'works'], ['Gaps', 'gaps'],
+      ['New failures', 'new'], ['Gap causes', 'causes'], ['Causes added', 'added'], ['Causes gone', 'gone']];
+    const tr0 = table.createTHead().insertRow();
+    for (const [label, field] of fields) { const th = el('th', null, label); th.dataset.field = field; tr0.append(th); }
+    const tb = table.createTBody();
+    const rows = [...d.data].sort((a, b) => d3.ascending(EV.catalogs.indexOf(a.name.replace('_nohelp', '')), EV.catalogs.indexOf(b.name.replace('_nohelp', '')))
+      || d3.ascending(EV.isHelp(a.name), EV.isHelp(b.name)) || d3.descending(a.finished, b.finished));
+    const count = (list) => (list ? list.split(', ').length : 0);
+    for (const r of rows) {
+      const tr = tb.insertRow();
+      tr.dataset.key = `${EV.enc(r.name)},${EV.enc(r.run)}`;
+      tr.insertCell().textContent = EV.catalogNames[r.name] || r.name;
+      tr.insertCell().textContent = String(r.finished).replace('T', ' ').replace('Z', ' UTC');
+      for (const f of ['works', 'gaps', 'new', 'causes']) {
+        const td = tr.insertCell();
+        td.textContent = EV.int(r[f]);
+        if (f === 'new' && r.new) td.className = 'warn';
+      }
+      for (const f of ['added', 'gone']) {
+        const td = tr.insertCell();
+        const n = count(r[f]);
+        td.textContent = n ? (f === 'added' ? `+${n}` : `−${n}`) : '–';
+        if (n) { td.title = r[f].split(', ').join('\n'); td.className = f === 'added' ? 'bad' : 'ok'; }
+      }
+    }
+  });
+
   dash.draw('runs', (table) => {
     const info = dash.data('run_info');
     const runs = dash.data('runs');

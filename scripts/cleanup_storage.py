@@ -14,7 +14,8 @@ Safety rules - nothing that is still in use is deleted:
 - objects younger than ``--min-age-hours`` (default 3) are kept;
 - only the roots of this catalog are swept; Unity's second (authz) instance shares the
   bucket path, so the managed storage of every other Unity catalog id is excluded;
-- if listing the catalog fails anywhere, phase 2 is skipped (no delete without a full view).
+- if listing the catalog fails anywhere, phase 2 is skipped (no delete without a full view);
+- a cloud catalog (``PROFILE.remote``) gets phase 1 only.
 
 Usage (dev container): ``CATALOG=polaris uv run python scripts/cleanup_storage.py [--apply]``
 Without ``--apply`` it only reports what it would do.
@@ -191,9 +192,6 @@ def main() -> int:
 
     Raises:
         RESTError: a warehouse cannot be opened for another reason than "not found".
-
-    Raises:
-        RESTError: a warehouse cannot be opened for another reason than "not found".
     """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--apply", action="store_true", help="really drop/delete (default: dry run)")
@@ -234,6 +232,9 @@ def main() -> int:
                 log(f"  {'.'.join(ns)}: not dropped ({type(e).__name__}: {str(e)[:120]})")
 
     # Phase 2: orphans in storage
+    if PROFILE.remote:  # a cloud catalog's storage is the provider's, not the lab's RustFS
+        log("storage: cloud catalog - only its test namespaces are dropped")
+        return 0
     if missing:
         log("  storage sweep skipped - not every warehouse exists yet")
         return 0

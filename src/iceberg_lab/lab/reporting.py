@@ -40,6 +40,8 @@ features, demo notebooks and lab self-tests are reported but not compared (``NOT
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -137,6 +139,11 @@ def pytest_runtest_logreport(report):
         status, detail = "self", "own result is verified in the producing test"
     if status is not None:
         rec["status"], rec["detail"] = status, detail
+        # The register id of the gap (the reported text is the register's current reason):
+        # lets the export reword the text without a rerun.
+        from iceberg_lab.lab.gap_register import cause_of_reason
+
+        rec["cause"] = (cause_of_reason(detail) or "") if status in ("gap", "fixed") else ""
 
 
 def _classify(report) -> tuple[str | None, str]:
@@ -207,16 +214,49 @@ def _marked(text: str, error: str, marker: str) -> str | None:
 # =========================================================================== output
 
 
+@contextlib.contextmanager
+def report_lock():
+    """Hold the report directory's lock while reading and rewriting its files.
+
+    Two pytest processes write into one report at the same time when ``scripts/run_all.sh``
+    runs a long waiting file (``test_sts_expiry.py``) beside the others; each merges its records
+    into ``results.json`` (read, merge, write), and without the lock one would drop the other's.
+
+    Yields:
+        Nothing; the caller's reads and writes run in between.
+    """
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(REPORT_DIR / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def pytest_sessionfinish(session):
     """Write results.json and comparison.md (only if anything ran).
 
     Args:
         session: The pytest session.
     """
+    from iceberg_lab.lab import rest_observed
+
     records = [r for r in _records.values() if r["status"] is not None]
-    if not records:
+    if not records and not rest_observed.OBSERVED:
         return
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    with report_lock():
+        rest_observed.write(REPORT_DIR)
+        if records:
+            _write_reports(records)
+
+
+def _write_reports(records: list[dict]) -> None:
+    """Merge ``records`` into the report directory's results and rewrite the derived files.
+
+    Args:
+        records: This session's records.
+    """
     # Merge this run's records into the existing results by test id (default), so a targeted
     # re-run updates the report instead of replacing it. REPORT_MERGE=0 starts from scratch;
     # scripts/run_all.sh deletes results.json before a full run.
@@ -375,6 +415,7 @@ def flat_rows(records: list[dict]) -> list[dict]:
             "capability": _capability(r),
             "status": r["status"],
             "detail": r["detail"],
+            "cause": r.get("cause", ""),
             "severity": severity(r) or "",
             "writer": (
                 p.get("engine")

@@ -43,6 +43,7 @@ from iceberg_lab.config import (
     WAREHOUSE_STS,
     catalog_auth,
     catalog_headers,
+    lab_port,
 )
 from iceberg_lab.engines import pyiceberg_catalog
 
@@ -968,7 +969,7 @@ def test_policies(rest, table):
             polaris("DELETE", f"{base}/{pol}", api="catalog", params={"detach-all": "true"})
 
 
-FED_PORT = 18282  # not 18181: that is test_robustness' fault proxy
+FED_PORT = lab_port(18282)  # not lab_port(18181): that is test_robustness' fault proxy
 LAKEKEEPER = "http://lakekeeper:8181"
 
 

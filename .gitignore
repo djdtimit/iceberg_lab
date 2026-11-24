@@ -9,3 +9,5 @@ spark-warehouse/
 scripts/dashboard/data/
 scripts/dashboard/check_*.js
 node_modules/
+.worktrees/
+.env.cloud

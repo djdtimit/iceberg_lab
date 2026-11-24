@@ -1280,23 +1280,43 @@ def name_parent():
         _raw_cleanup(parent)
 
 
+def _namespace_separator() -> str:
+    """The namespace separator the catalog asks for in ``/v1/config`` (``namespace-separator``,
+    URL-encoded; default ``%1F``). The REST fixture asks for ``%2E`` - a client must follow it.
+
+    Returns:
+        The encoded separator.
+    """
+    cfg = requests.get(
+        f"{SETTINGS.catalog_uri}/v1/config",
+        params={"warehouse": WAREHOUSE_STS},
+        headers=catalog_headers(),
+        auth=catalog_auth(),
+        timeout=10,
+    ).json()
+    sep = {**cfg.get("defaults", {}), **cfg.get("overrides", {})}.get("namespace-separator")
+    return sep or "%1F"
+
+
 def _namespace_roundtrip(ident: tuple[str, ...], nested: bool) -> None:
     """Load a namespace, list its tables (and children), drop it - each with one correct
-    encoding (path: parts percent-encoded, joined by %1F; query: encoded once by requests).
+    encoding (path: parts percent-encoded, joined by the catalog's separator; query: encoded
+    once by requests).
 
     Args:
         ident: Namespace as tuple.
         nested: Also list child namespaces.
     """
-    from urllib.parse import quote
+    from urllib.parse import quote, unquote
 
+    sep = _namespace_separator()
     base = f"{_base()}/namespaces"
-    path = "%1F".join(quote(part, safe="") for part in ident)
+    path = sep.join(quote(part, safe="") for part in ident)
     kw = {"headers": catalog_headers(), "auth": catalog_auth(), "timeout": 15}
     for method, url, params in (
         ("GET", f"{base}/{path}", None),
         ("GET", f"{base}/{path}/tables", None),
-        *((("GET", base, {"parent": "\x1f".join(ident)}),) if nested else ()),
+        *((("GET", base, {"parent": unquote(sep).join(ident)}),) if nested else ()),
         ("DELETE", f"{base}/{path}", None),
     ):
         r = requests.request(method, url, params=params, **kw)
@@ -1323,7 +1343,10 @@ def test_name_is_refused_or_safe(label, kind, name_parent):
     """
     cat, parent = name_parent
     name = NAMES[label]
-    nested = PROFILE.name in ("lakekeeper", "polaris")  # Unity and RustFS: one namespace level
+    # Unity and RustFS: one namespace level. Under the parent where nesting exists, so a name the
+    # catalog accepts but cannot address afterwards (the REST fixture) stays out of the top level
+    # - there it broke every later top-level listing (DuckDB: "empty namespace name").
+    nested = PROFILE.name in ("lakekeeper", "polaris", "reference")  # test_namespace[*-nested]
     ident = (parent, name) if kind == "table" or nested else (f"{name}_{uuid.uuid4().hex[:3]}",)
     try:
         if kind == "table":

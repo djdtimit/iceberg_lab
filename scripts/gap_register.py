@@ -44,16 +44,14 @@ def findings() -> None:
 def confirm() -> None:
     """Move ``seen_at`` forward for the causes the references reproduced."""
     causes = gr.load()
-    by_reason = {c.reason: c.id for c in causes.values()}
     hit = gr.hits(RESULTS)
     moved, fixed = 0, set()
     for path in sorted(RESULTS.glob("*.manifest.json")):
         ref = path.name.removesuffix(".manifest.json")
         versions = gr.versions_of(json.loads(path.read_text()))
-        for reason, per_ref in hit.items():
-            cid = by_reason.get(reason)
+        for cid, per_ref in hit.items():
             status = per_ref.get(ref, {})
-            if cid is None:
+            if cid not in causes:
                 continue
             if status.get("fixed"):
                 fixed.add(cid)

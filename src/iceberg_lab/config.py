@@ -1,7 +1,7 @@
 """Central connection settings for the lab.
 
 ``CATALOG`` selects one of the catalog profiles (:data:`PROFILES`: lakekeeper, polaris,
-rustfs, unity, reference) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
+rustfs, unity, reference; cloud catalogs only when configured, :func:`remote_profile`) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
 and storage location. Every other value can be overridden with an environment variable;
 inside the devcontainer they are set in ``.devcontainer/docker-compose.yml`` (service
 ``dev``) and the defaults below match them.
@@ -18,6 +18,8 @@ their tests once more without it (separate report, shown next to the comparison,
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,9 @@ class CatalogProfile:
     #: The catalog vends keys but no S3 endpoint (it assumes AWS): engines add the RustFS
     #: endpoint themselves.
     client_s3_endpoint: bool = False
+    #: A cloud catalog outside the lab (:func:`remote_profile`): only the tests in
+    #: ``conftest.REMOTE_SAFE`` run, with the engines in ``conftest.REMOTE_ENGINES``.
+    remote: bool = False
 
     @property
     def token_url(self) -> str | None:
@@ -143,11 +148,127 @@ PROFILES = {
         views_catalog="refsts",
     ),
 }
+
+#: Cloud catalogs the lab can run against, with their defaults (docs/cloud-catalogs.md). Each
+#: one is a profile only when ``LAB_<NAME>_URI`` is set (environment or ``.env.cloud``).
+REMOTE_DEFAULTS: dict[str, dict[str, str]] = {
+    # Snowflake Open Catalog (managed Apache Polaris): OAuth client credentials of a service
+    # connection, token endpoint below the REST URI, all principal roles.
+    "snowflake_open": {"SCOPE": "PRINCIPAL_ROLE:ALL"},
+    # Snowflake Horizon Catalog's Iceberg REST endpoint (same path as Open Catalog): the
+    # programmatic access token is the client secret (no client id), exchanged at
+    # <URI>/v1/oauth/tokens for the scope session:role:<ROLE>; WAREHOUSE is the database name.
+    "snowflake_horizon": {"SCOPE_TEMPLATE": "session:role:{ROLE}"},
+    # Databricks Unity Catalog (/api/2.1/unity-catalog/iceberg-rest): personal access token, or
+    # a service principal's OAuth M2M credentials (token endpoint /oidc/v1/token, all-apis).
+    "databricks": {"SCOPE": "all-apis", "TOKEN_PATH": "/oidc/v1/token"},
+}
+#: File with the cloud catalogs' variables (never committed: .gitignore).
+CLOUD_ENV = Path(__file__).resolve().parents[2] / ".env.cloud"
+
+
+def _cloud_env() -> dict[str, str]:
+    """``LAB_*`` variables from :data:`CLOUD_ENV` (``KEY=value`` lines), the environment winning.
+
+    Returns:
+        The variables.
+    """
+    values: dict[str, str] = {}
+    if CLOUD_ENV.is_file():
+        for line in CLOUD_ENV.read_text().splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key.startswith("LAB_") and not key.startswith("#"):
+                values[key.strip()] = value.strip().strip('"').strip("'")
+    return values | {k: v for k, v in os.environ.items() if k.startswith("LAB_")}
+
+
+def remote_profile(name: str, env: dict[str, str]) -> CatalogProfile | None:
+    """The profile of a cloud catalog from its ``LAB_<NAME>_*`` variables, or None if unset.
+
+    Variables: ``URI`` (the Iceberg REST URI clients get, without ``/v1``), ``WAREHOUSE``
+    (catalog/warehouse name sent to ``/v1/config``), and either ``TOKEN`` (bearer token) or
+    ``CREDENTIAL`` (``client_id:client_secret``, or a bare secret such as Snowflake's
+    programmatic access token; OAuth client credentials) with optional ``SCOPE`` (or ``ROLE``
+    where the catalog's ``SCOPE_TEMPLATE`` builds it) and ``TOKEN_URL`` (default:
+    ``<URI>/v1/oauth/tokens`` or the catalog's ``TOKEN_PATH`` in :data:`REMOTE_DEFAULTS`).
+
+    Args:
+        name: Profile name, a key of :data:`REMOTE_DEFAULTS`.
+        env: The variables (:func:`_cloud_env`).
+
+    Returns:
+        The profile, or None when ``LAB_<NAME>_URI`` is not set.
+
+    Raises:
+        ValueError: a variable is missing, or the token endpoint is on another host.
+    """
+    prefix = f"LAB_{name.upper()}_"
+    get = {
+        **REMOTE_DEFAULTS[name],
+        **{k.removeprefix(prefix): v for k, v in env.items() if k.startswith(prefix)},
+    }.get
+    if not get("URI"):
+        return None
+    uri = urlsplit(get("URI").rstrip("/"))
+    base = f"{uri.scheme}://{uri.netloc}"
+    if not get("WAREHOUSE") or not (get("TOKEN") or get("CREDENTIAL")):
+        raise ValueError(
+            f"{prefix}URI is set: {prefix}WAREHOUSE and {prefix}TOKEN or "
+            f"{prefix}CREDENTIAL are needed too (docs/cloud-catalogs.md)"
+        )
+    token_path, scope = None, get("SCOPE")
+    if get("CREDENTIAL") and not scope and get("SCOPE_TEMPLATE"):
+        if not get("ROLE"):
+            raise ValueError(f"{prefix}ROLE is needed for the scope {get('SCOPE_TEMPLATE')}")
+        scope = get("SCOPE_TEMPLATE").format(ROLE=get("ROLE"))
+    if get("CREDENTIAL"):
+        token_url = urlsplit(
+            get("TOKEN_URL") or f"{base}{get('TOKEN_PATH') or uri.path + '/v1/oauth/tokens'}"
+        )
+        if token_url.netloc != uri.netloc:
+            raise ValueError(f"{prefix}TOKEN_URL must be on {uri.netloc}")
+        token_path = token_url.path
+    return CatalogProfile(
+        name=name,
+        base_url=base,
+        path=uri.path,
+        warehouse_sts=get("WAREHOUSE"),
+        oauth_credential=get("CREDENTIAL") or None,
+        oauth_scope=scope if get("CREDENTIAL") else None,
+        token_path=token_path,
+        auth="oauth2" if get("CREDENTIAL") else "token",
+        token=None if get("CREDENTIAL") else get("TOKEN"),
+        trino_prefix="",
+        views_catalog=name,
+        remote=True,
+    )
+
+
+for _name in REMOTE_DEFAULTS:
+    if (_profile := remote_profile(_name, _cloud_env())) is not None:
+        PROFILES[_name] = _profile
+
 CATALOG = os.getenv("CATALOG", "lakekeeper")
 if CATALOG not in PROFILES:
     raise ValueError(f"CATALOG={CATALOG!r} unknown; choose one of {sorted(PROFILES)}")
 #: The catalog this process runs against.
 PROFILE = PROFILES[CATALOG]
+
+
+#: The in-process proxies of the tests (fault, storage, IdP, federation) listen on a port per
+#: catalog, so the runs of several catalogs can share the dev container (scripts/run_parallel.sh).
+#: The run without help uses its catalog's ports: it runs after that catalog's run, not beside it.
+def lab_port(base: int, catalog: str | None = None) -> int:
+    """The port of an in-process proxy for a catalog.
+
+    Args:
+        base: The proxy's port for the first catalog (Lakekeeper), e.g. 18181.
+        catalog: Profile name; default: this process's catalog.
+
+    Returns:
+        ``base`` plus 2 x the profile's position in :data:`PROFILES`.
+    """
+    return base + 2 * list(PROFILES).index(catalog or CATALOG)
 
 
 @dataclass(frozen=True)
@@ -434,6 +555,20 @@ def catalog_auth(s: Settings | None = None):
     return _SigV4()
 
 
+def oauth_client(credential: str) -> tuple[str | None, str]:
+    """Client id and secret of an OAuth ``credential``, as Iceberg clients read it.
+
+    Args:
+        credential: ``client_id:client_secret``, or a bare secret (Snowflake Horizon: the
+            programmatic access token, sent without a client id).
+
+    Returns:
+        ``(client_id or None, client_secret)``.
+    """
+    client_id, sep, secret = credential.partition(":")
+    return (client_id, secret) if sep else (None, credential)
+
+
 def catalog_headers(s: Settings | None = None) -> dict[str, str]:
     """HTTP headers for raw REST calls to the catalog (a bearer token if it uses OAuth2).
 
@@ -450,17 +585,13 @@ def catalog_headers(s: Settings | None = None) -> dict[str, str]:
     import requests
 
     base = (s.catalog_base if s else PROFILE.base_url).rstrip("/")
-    client_id, client_secret = PROFILE.oauth_credential.split(":", 1)
-    r = requests.post(
-        f"{base}{PROFILE.token_path}",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": PROFILE.oauth_scope,
-        },
-        timeout=10,
-    )
+    client_id, client_secret = oauth_client(PROFILE.oauth_credential)
+    data = {"grant_type": "client_credentials", "client_secret": client_secret}
+    if client_id is not None:
+        data["client_id"] = client_id
+    if PROFILE.oauth_scope:
+        data["scope"] = PROFILE.oauth_scope
+    r = requests.post(f"{base}{PROFILE.token_path}", data=data, timeout=10)
     r.raise_for_status()
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

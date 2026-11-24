@@ -52,9 +52,11 @@ docs/                   setup.md, tests.md (this file), findings.md, test-archit
                         features, themes), feature-inventory.md (generated), api/ (endpoint lists of the
                         five catalogs), bug-reports/ (drafts, not filed)
 results/                reference results of the latest full run per catalog + manifest (in git)
-scripts/                run_all.sh (full run per catalog), rerun.sh (rerun tests on all catalogs,
+scripts/                run_all.sh (full run per catalog), run_parallel.sh (several catalogs at once),
+                        smoke.sh (quick cross-section), rerun.sh (rerun tests on all catalogs,
                         merged into their full runs), export_reference.py (reports -> results/),
-                        cleanup_storage.py (remove test leftovers), dashboard/ (page + data builder)
+                        cleanup_storage.py (remove test leftovers), flaky_weekly.sh + systemd/
+                        (weekly rerun of the intermittent gaps), dashboard/ (page + data builder)
 authz/                  Keycloak realm (fixed service-account IDs) for the authz instances
 flink/                  Dockerfile (Flink 2.3 + Iceberg JARs), start-lab.sh (cluster + SQL Gateway)
 pg_lake/                Dockerfile (postgres:19.0 + pg_lake 3.7.0 built from source), entrypoint, init SQL
@@ -131,7 +133,10 @@ with (`seen_at`), bug report and upstream issue. The test files keep only *where
 their `KNOWN_GAPS` tables list selectors (engine, operation, format version, ...), the exact error
 regex and the cause id (`gap_table`, `find_gap`, `expect` in `iceberg_lab.lab.gap_register`).
 pydantic validates both when they are loaded. `docs/findings.md` ends with the list generated from
-the register (`uv run python scripts/gap_register.py findings`).
+the register (`uv run python scripts/gap_register.py findings`). Result rows keep the cause id
+(`cause` in `results/<catalog>.jsonl`), and the export writes the cause's current summary as their
+detail: after rewording a summary, `uv run python scripts/export_reference.py --refresh` updates
+every reference - no test has to run again.
 
 A known gap only counts if **exactly the documented error** occurs (a regex on the error message).
 If the same test fails differently, it shows up as a new failure – a gap therefore cannot hide

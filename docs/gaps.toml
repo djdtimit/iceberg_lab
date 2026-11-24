@@ -531,6 +531,7 @@ seen_at = { trino = "484" }
 [trino-hides-write-refusal]
 summary = "Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown"
 seen_at = { trino = "484" }
+flaky = true
 
 [trino-no-create-branch]
 summary = "Trino 484 cannot create branches ('This connector does not support creating branches'; no SQL for it) - so no write-audit-publish"
@@ -606,6 +607,7 @@ seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
 summary = "Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails"
 severity = "INCONSISTENT"
 seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
+flaky = true
 
 [flink-statement-set-per-table]
 summary = "Flink STATEMENT SET commits every table separately (no /transactions/commit)"
@@ -667,7 +669,7 @@ seen_at = { pg_lake = "3.7.0-pg19", lakekeeper = "0.15.1" }
 bug_report = "06-pg_lake-ignores-config-404.md"
 
 [pglake-ignores-refused-commit]
-summary = "pg_lake reports COMMIT success although the REST catalog refused the commit (e.g. Unity has no /transactions/commit: 404): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged"
+summary = "pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged"
 severity = "DATA LOSS"
 seen_at = { pg_lake = "3.7.0-pg19" }
 bug_report = "02-pg_lake-silent-commit-divergence.md"

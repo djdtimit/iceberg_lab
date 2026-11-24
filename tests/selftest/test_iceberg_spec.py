@@ -26,6 +26,7 @@ pytestmark = pytest.mark.offline
 ROOT = Path(__file__).resolve().parents[2]
 REST_SPEC = ROOT / "docs" / "api" / "iceberg-rest-spec.txt"
 TYPES_SPEC = ROOT / "docs" / "api" / "iceberg-types.txt"
+RESPONSES_SPEC = ROOT / "docs" / "api" / "iceberg-rest-responses.txt"
 RECORD = "uv run python scripts/iceberg_spec.py"
 
 
@@ -56,7 +57,7 @@ def _spec_type(case) -> str:
     return re.match(r"[a-z_]+", str(case.iceberg)).group()
 
 
-@pytest.mark.parametrize("path", [REST_SPEC, TYPES_SPEC], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [REST_SPEC, RESPONSES_SPEC, TYPES_SPEC], ids=lambda p: p.name)
 def test_recorded_spec_is_the_labs_iceberg_release(path):
     """The recorded spec belongs to the Iceberg release the lab runs.
 

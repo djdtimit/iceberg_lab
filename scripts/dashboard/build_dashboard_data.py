@@ -1,11 +1,11 @@
 """Build the dashboard's data files from the latest full runs (run in the dev container).
 
     testergebnisse.json  every comparison row of all five catalogs, with a "catalog" field
-                         (reports/comparison_rows.json = Lakekeeper, reports/<cat>/... = others),
+                         (results/<cat>.rows.json.gz, else the report directory),
                          plus the runs without lab help as catalog ``<cat>_nohelp`` (rows of
                          the helped engines only; shown next to the catalog, never counted).
                          Every row has its theme (src/iceberg_lab/lab/reporting.py THEMES), the id of
-                         the run that produced it and, for a "not testable" case, the engine
+                         the run that produced it and, for a case that did not run, the engine
                          (or "catalog") whose step failed before it (reporting.blocked_by). Left out, because the page shows them
                          nowhere: lab self-tests and cross-reads of an engine's own result.
                          Encoded per column (:func:`compact`); the page's loader decodes it.
@@ -13,6 +13,9 @@
                          start, end, git commit, versions of engines and images
     inventar.json        one row per capability of tests/lab/feature_inventory.py: title, kind and
                          ✓ / ◐ / – per catalog, plus the note
+    verlauf.json         one row per catalog and run (results/history/runs.jsonl): status counts, the
+                         number of gap causes, and the causes added and gone since the catalog's
+                         previous run
 
 Usage: uv run python scripts/dashboard/build_dashboard_data.py <out dir>
 """
@@ -50,8 +53,9 @@ def current_tests() -> set[str]:
 
 
 def comparison_rows(name: str) -> list[dict] | None:
-    """Comparison rows of a catalog or run without help: from its report directory, else from
-    the copy in ``results/<name>.rows.json.gz`` (scripts/export_reference.py).
+    """Comparison rows of a catalog or run without help: the exported copy in
+    ``results/<name>.rows.json.gz`` (scripts/export_reference.py: gap texts current, rows of
+    removed tests left out), else its report directory.
 
     Args:
         name: Catalog name, or ``<catalog>-nohelp``.
@@ -61,11 +65,11 @@ def comparison_rows(name: str) -> list[dict] | None:
     """
     import gzip
 
-    path = report_dir(name) / "comparison_rows.json"
-    if path.exists():
-        return json.loads(path.read_text())
     saved = ROOT / "results" / f"{name}.rows.json.gz"
-    return json.loads(gzip.decompress(saved.read_bytes())) if saved.exists() else None
+    if saved.exists():
+        return json.loads(gzip.decompress(saved.read_bytes()))
+    path = report_dir(name) / "comparison_rows.json"
+    return json.loads(path.read_text()) if path.exists() else None
 
 
 def report_dir(name: str) -> Path:
@@ -236,6 +240,40 @@ def compact(rows: list[dict]) -> str:
     return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
 
 
+def history() -> list[dict]:
+    """The trend rows: per catalog and run, the counts and the causes that changed.
+
+    Returns:
+        Rows ``name, run, finished, works, gaps, new, na, blocked, causes, added, gone``
+        (``added``/``gone``: cause ids separated by ", "; empty for a catalog's first run).
+    """
+    path = ROOT / "results" / "history" / "runs.jsonl"
+    if not path.exists():
+        return []
+    lines = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    out, previous = [], {}
+    for x in sorted(lines, key=lambda x: (x["name"], x["finished"])):
+        c, causes = x["counts"], set(x["causes"])
+        before = previous.get(x["name"])
+        out.append(
+            {
+                "name": x["name"].replace("-nohelp", "_nohelp"),
+                "run": x["run"],
+                "finished": x["finished"],
+                "works": c.get("pass", 0) + c.get("fixed", 0),
+                "gaps": c.get("gap", 0),
+                "new": c.get("new", 0),
+                "na": c.get("na", 0),
+                "blocked": c.get("blocked", 0),
+                "causes": len(causes),
+                "added": ", ".join(sorted(causes - before)) if before is not None else "",
+                "gone": ", ".join(sorted(before - causes)) if before is not None else "",
+            }
+        )
+        previous[x["name"]] = causes
+    return out
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
@@ -245,7 +283,9 @@ if __name__ == "__main__":
     (out / "runs.json").write_text(json.dumps(run_rows, ensure_ascii=False))
     inv_rows = inventory()
     (out / "inventar.json").write_text(json.dumps(inv_rows, ensure_ascii=False))
+    hist = history()
+    (out / "verlauf.json").write_text(json.dumps(hist, ensure_ascii=False))
     print(
         f"testergebnisse.json: {len(res)} rows; runs.json: {len(run_rows)} runs; "
-        f"inventar.json: {len(inv_rows)} capabilities"
+        f"inventar.json: {len(inv_rows)} capabilities; verlauf.json: {len(hist)} runs"
     )

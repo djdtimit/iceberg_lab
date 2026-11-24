@@ -375,12 +375,25 @@ def _update_flaky_history() -> list[tuple[str, str, int]]:
     Returns:
         ``(test, reason, runs without occurrence)`` at or above the threshold.
     """
-    import json
-
     from iceberg_lab.lab import reporting
 
     if not (_FLAKY_SEEN or _FLAKY_NOT_SEEN):
         return []
+    with reporting.report_lock():  # another pytest process may write the same report
+        return _update_flaky_history_locked()
+
+
+def _update_flaky_history_locked() -> list[tuple[str, str, int]]:
+    """:func:`_update_flaky_history` while holding the report lock.
+
+    Returns:
+        ``(test id, reason, runs without it)`` of the gaps not seen in
+        :data:`FLAKY_FIXED_AFTER` runs in a row.
+    """
+    import json
+
+    from iceberg_lab.lab import reporting
+
     path = reporting.REPORT_DIR / "flaky_history.json"
     # reports/ is not kept: without it, continue from the copy in results/ (export_reference).
     from iceberg_lab.config import PROFILE, WITH_HELP

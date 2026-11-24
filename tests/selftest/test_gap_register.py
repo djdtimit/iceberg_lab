@@ -173,16 +173,24 @@ def test_results_name_known_causes():
     """The references in ``results/`` match the register.
 
     Checks:
-        * every reason of a known or fixed gap in a reference is the reason of a cause.
+        * every known or fixed gap in a reference names a cause of the register (``cause``);
+        * its detail is that cause's current reason (the export writes it - a reworded cause
+          needs ``scripts/export_reference.py``, not a rerun).
     """
-    reasons = {c.reason for c in gr.register().values()}
-    unknown = {
-        (ref, reason)
-        for reason, per_ref in gr.hits(RESULTS).items()
-        if reason not in reasons
-        for ref in per_ref
-    }
-    assert not unknown, f"reference reasons without a cause: {sorted(unknown)[:10]}"
+    causes = gr.register()
+    unknown, stale = set(), set()
+    for path in sorted(RESULTS.glob("*.jsonl")):
+        for line in path.read_text().splitlines():
+            row = json.loads(line)
+            if row["status"] not in ("gap", "fixed"):
+                continue
+            cid = row.get("cause", "")
+            if cid not in causes:
+                unknown.add((path.stem, cid or row["detail"][:120]))
+            elif row["detail"] != causes[cid].reason:
+                stale.add((path.stem, cid))
+    assert not unknown, f"reference gaps without a known cause: {sorted(unknown)[:10]}"
+    assert not stale, f"reasons older than the register - re-export: {sorted(stale)[:10]}"
 
 
 def _base_ids(path: Path) -> set[str]:

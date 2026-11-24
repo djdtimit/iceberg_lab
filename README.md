@@ -48,7 +48,7 @@ flowchart LR
   UC -- "AssumeRole" --> STS[unity-sts-shim] --> RS
   RC --- RS
   RF --> RS
-  CP{{Catalog proxy :18181<br/>test_robustness}} -.-> Catalogs
+  CP{{Catalog proxy :18181+<br/>test_robustness}} -.-> Catalogs
   SPX{{Storage proxy :19000<br/>test_storage_faults}} -.-> RS
 ```
 
@@ -111,17 +111,23 @@ flowchart LR
    uv run pytest                      # everything that runs (engines that are not started are skipped)
    uv run pytest -k duckdb            # one engine
    uv run pytest tests/engines/test_types.py  # type matrix (~10–15 min with all engines)
-   CATALOG=polaris scripts/run_all.sh # full run on one catalog (cleans up first, ~1–3 h)
+   CATALOG=polaris scripts/run_all.sh # full run on one catalog (cleans up first, ~1–2 h)
+   scripts/run_parallel.sh            # full runs of all catalogs, 2 at a time (PARALLEL=n)
+   CATALOG=unity scripts/smoke.sh     # quick cross-section (~10 min), own report reports/smoke/
    scripts/rerun.sh tests/x.py        # rerun tests on all catalogs, merged into their full runs
    scripts/rerun.sh --flaky 5         # every intermittent gap 5 times (FIXED? when gone)
    git diff results/                  # after a full run: which tests changed against the reference
+   scripts/systemd/install.sh         # on the host: rerun the intermittent gaps every Sunday
    ```
+   Cloud catalogs (Snowflake Open Catalog and Horizon, Databricks Unity Catalog): see
+   [docs/cloud-catalogs.md](docs/cloud-catalogs.md).
 4. Notebooks: open `notebooks/` directly in VS Code (kernel: `/home/vscode/.venv`) or
    `uv run jupyter lab --ip 0.0.0.0` → port 8888. Pick the catalog with the environment variable
    at startup, e.g. `CATALOG=unity uv run jupyter lab --ip 0.0.0.0` (default Lakekeeper).
 
 > 15 GB RAM is enough, but not for everything at once: Spark + Trino + the type matrix + a parallel
-> compile job crashed WSL twice. Start heavy runs one after another.
+> compile job crashed WSL twice. Start heavy runs one after another; on such a machine run
+> `PARALLEL=1 scripts/run_parallel.sh` (each catalog in turn).
 
 ## Where to find what
 

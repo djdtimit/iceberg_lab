@@ -1,0 +1,23 @@
+{
+"DELETE /v1/{prefix}/namespaces/{namespace} 204": 29,
+"DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table} 204": 189,
+"DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table} 406": 189,
+"GET /v1/config 200": 1031,
+"GET /v1/config 403": 3,
+"GET /v1/{prefix}/namespaces 200": 47,
+"GET /v1/{prefix}/namespaces/{namespace}/tables 200": 29,
+"GET /v1/{prefix}/namespaces/{namespace}/tables/{table} 200": 643,
+"GET /v1/{prefix}/namespaces/{namespace}/tables/{table} 404": 82,
+"GET /v1/{prefix}/namespaces/{namespace}/views 200": 27,
+"HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table} 204": 183,
+"POST /v1/{prefix}/namespaces 200": 29,
+"POST /v1/{prefix}/namespaces 400": 5,
+"POST /v1/{prefix}/namespaces/{namespace}/tables 200": 141,
+"POST /v1/{prefix}/namespaces/{namespace}/tables 400": 390,
+"POST /v1/{prefix}/namespaces/{namespace}/tables 406": 84,
+"POST /v1/{prefix}/namespaces/{namespace}/tables/{table} 200": 66,
+"POST /v1/{prefix}/namespaces/{namespace}/tables/{table} 400": 15,
+"POST /v1/{prefix}/namespaces/{namespace}/tables/{table} 406": 22,
+"POST /v1/{prefix}/namespaces/{namespace}/tables/{table} 409": 7,
+"POST /v1/{prefix}/namespaces/{namespace}/views 400": 1
+}

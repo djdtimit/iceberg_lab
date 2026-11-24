@@ -461,21 +461,52 @@ def outdated(
 # =========================================================================== reference results
 
 
+def cause_of_reason(reason: str) -> str | None:
+    """Id of the cause whose reason is exactly ``reason`` (the text a test reports).
+
+    Result rows keep the id (``cause``): the text can then be reworded in the register without
+    re-running the tests - the export writes the current text (scripts/export_reference.py).
+
+    Args:
+        reason: A reported gap reason.
+
+    Returns:
+        The cause id, or None.
+    """
+    return {c.reason: c.id for c in register().values()}.get(reason)
+
+
+def row_cause(row: dict) -> str | None:
+    """Cause id of a result row: its ``cause`` field, or (rows written before it existed) the
+    cause whose reason is the row's detail.
+
+    Args:
+        row: A result row (``status``, ``detail``, optional ``cause``).
+
+    Returns:
+        The cause id, or None (not a gap, or a reason no cause has).
+    """
+    if row.get("status") not in ("gap", "fixed"):
+        return None
+    return row.get("cause") or cause_of_reason(row.get("detail", ""))
+
+
 def hits(results_dir: Path) -> dict[str, dict[str, dict[str, int]]]:
-    """How often each reason was reported, per reference and status (``gap``/``fixed``).
+    """How often each cause was reported, per reference and status (``gap``/``fixed``).
 
     Args:
         results_dir: ``results/`` with ``<name>.jsonl``.
 
     Returns:
-        ``{reason: {reference: {status: count}}}``.
+        ``{cause id: {reference: {status: count}}}``.
     """
     out: dict[str, dict[str, dict[str, int]]] = {}
     for path in sorted(results_dir.glob("*.jsonl")):
         for line in path.read_text().splitlines():
             row = json.loads(line)
-            if row["status"] in ("gap", "fixed"):
-                per = out.setdefault(row["detail"], {}).setdefault(path.stem, {})
+            cid = row_cause(row)
+            if cid:
+                per = out.setdefault(cid, {}).setdefault(path.stem, {})
                 per[row["status"]] = per.get(row["status"], 0) + 1
     return out
 
@@ -518,7 +549,7 @@ def findings_markdown(causes: dict[str, Cause], hit: dict[str, dict[str, dict[st
                 meta.append(f"[bug report](bug-reports/{c.bug_report})")
             if c.upstream:
                 meta.append(f"upstream {c.upstream}")
-            where = hit.get(c.reason, {})
+            where = hit.get(c.id, {})
             if where:
                 meta.append(
                     "hit in " + ", ".join(f"{r} ({sum(s.values())})" for r, s in where.items())

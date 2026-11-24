@@ -297,7 +297,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - RustFS catalog rejects DROP with purge (purgeRequested=true -> 406), and clients may not delete table files themselves (403) - Spark, Trino and Flink DROP fails — rustfs 1.0.6 · hit in rustfs (9) `rustfs-drop-purge-refused`
 - RustFS refuses DuckDB's SigV4-signed request for a nested namespace (separator %1F in the path) with 403 - PyIceberg's signed requests for the same path work — rustfs 1.0.6, duckdb 2.0.1 · hit in rustfs (1) `rustfs-duckdb-nested-namespace-403`
 - RustFS cannot list table buckets (GET /iceberg/v1/buckets answers 501 Not Implemented) — rustfs 1.0.6 · hit in rustfs (1) `rustfs-list-buckets-501`
-- RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction') — rustfs 1.0.6 · hit in rustfs-nohelp (223), rustfs (871) `rustfs-no-v3`
+- RustFS catalog does not support format v3 (406 unsupported format-version: 3; Trino only reports 'Failed to create transaction') — rustfs 1.0.6 · hit in rustfs-nohelp (239), rustfs (871) `rustfs-no-v3`
 - RustFS registers or syncs only metadata inside its own table layout (.rustfs-table/...) - a table another catalog or system wrote cannot be adopted — rustfs 1.0.6 · hit in rustfs (2) `rustfs-own-layout-only`
 - RustFS keeps a hidden entry for the old name of a renamed table: after dropping the table the namespace stays 'not empty' (nothing listed) until the old name is re-created and dropped — rustfs 1.0.6 · hit in rustfs (1) `rustfs-rename-hidden-entry`
 - RustFS refuses a rollback to an earlier metadata file ('last-sequence-number must not decrease') - the rollback endpoint cannot restore an earlier table state — rustfs 1.0.6 · hit in rustfs (1) `rustfs-rollback-refused`
@@ -332,14 +332,14 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - PyIceberg 0.12 expire_snapshots only removes snapshots from the metadata; data files, manifests and manifest lists stay in storage — pyiceberg 0.12.0 · hit in lakekeeper (1), polaris (1), reference (1), rustfs (1), unity (1) `pyiceberg-expire-keeps-files`
 - PyIceberg 0.12 cannot parse the spec form geometry(OGC:CRS84) / geography(OGC:CRS84, spherical) that Iceberg 1.12 writes (it expects the CRS in quotes) - the table cannot be loaded (also by Polars and Daft) — pyiceberg 0.12.0 · [bug report](bug-reports/09-pyiceberg-unquoted-geometry-crs.md) · hit in polaris (19), reference (19) `pyiceberg-geo-crs-parse`
 - PyIceberg ignores the table's sort order when writing (Polars and Daft write through it) — pyiceberg 0.12.0 · hit in lakekeeper (3), polaris (3), reference (3), rustfs (3), unity (3) `pyiceberg-ignores-sort-order`
-- PyIceberg 0.12 cannot read Avro data files (ORC works) - Polars plans through it — pyiceberg 0.12.0 · hit in lakekeeper (8), polaris (8), reference (8), rustfs-nohelp (6), rustfs (8), unity (8) `pyiceberg-no-avro-read`
+- PyIceberg 0.12 cannot read Avro data files (ORC works) - Polars plans through it — pyiceberg 0.12.0 · hit in lakekeeper (8), polaris (8), reference (8), rustfs-nohelp (8), rustfs (8), unity (8) `pyiceberg-no-avro-read`
 - PyIceberg 0.12: a loaded table keeps its vended keys - no refresh via client.refresh-credentials-endpoint after expiry (Polars and Daft read held PyIceberg table objects) — pyiceberg 0.12.0 · [bug report](bug-reports/05-pyiceberg-vended-credentials-refresh.md) · hit in lakekeeper (3), polaris (3), unity (3) `pyiceberg-no-credential-refresh`
 - PyIceberg cannot apply equality deletes - tables with Flink upserts or other equality-delete writers are unreadable (also for Polars and Daft) — pyiceberg 0.12.0 · upstream apache/iceberg#6568 · hit in lakekeeper (12), polaris (12), reference (12), rustfs-nohelp (3), rustfs (3), unity (12) `pyiceberg-no-equality-deletes`
 - PyIceberg 0.12 cannot read geometry/geography columns — pyiceberg 0.12.0 `pyiceberg-no-geo-read`
 - PyIceberg 0.12 cannot parse a schema with variant (Polars and Daft load tables through it) — pyiceberg 0.12.0 · hit in lakekeeper (12), polaris (12), reference (12), unity (12) `pyiceberg-no-variant`
 - PyIceberg 0.12 writes only Parquet data files (refuses ORC/Avro) - Polars writes through it — pyiceberg 0.12.0 · hit in lakekeeper (4), polaris (4), reference (4), rustfs (4), unity (4) `pyiceberg-parquet-only-write`
-- PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403) — pyiceberg 0.12.0 · intermittent · hit in lakekeeper (1) `pyiceberg-signer-race`
-- PyIceberg's SigV4 adapter sends x-amz-content-sha256 only for empty bodies; the RustFS catalog rejects every signed POST without it (AWS S3 Tables does not) — pyiceberg 0.12.0, rustfs 1.0.6 · hit in rustfs-nohelp (393), rustfs (6) `pyiceberg-sigv4-content-sha256`
+- PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403) — pyiceberg 0.12.0 · intermittent · hit in lakekeeper (2) `pyiceberg-signer-race`
+- PyIceberg's SigV4 adapter sends x-amz-content-sha256 only for empty bodies; the RustFS catalog rejects every signed POST without it (AWS S3 Tables does not) — pyiceberg 0.12.0, rustfs 1.0.6 · hit in rustfs-nohelp (411), rustfs (6) `pyiceberg-sigv4-content-sha256`
 - PyIceberg 0.12: upsert compares against pre-rename physical column names — pyiceberg 0.12.0 · hit in lakekeeper (2), polaris (1), reference (1), rustfs (1), unity (1) `pyiceberg-upsert-renamed-columns`
 - PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: 'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work - Polars and Daft write through it — pyiceberg 0.12.0 · hit in lakekeeper (221), polaris (221), reference (221), unity (210) `pyiceberg-v3-data-write`
 
@@ -364,7 +364,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - Daft cannot apply v3 deletion vectors (reads the Puffin file as Parquet) — daft 0.7.26 · hit in lakekeeper (18), polaris (18), reference (18), unity (18) `daft-dv-as-parquet`
 - Daft has no geometry type: reads geometry as Binary — daft 0.7.26 `daft-geo-as-binary`
 - Daft ignores write.format.default and writes Parquet instead — daft 0.7.26 · hit in lakekeeper (2), polaris (2), reference (2), rustfs (2), unity (2) `daft-ignores-write-format`
-- Daft reads only Parquet data files — daft 0.7.26 · hit in lakekeeper (8), polaris (8), reference (8), rustfs-nohelp (6), rustfs (8), unity (8) `daft-parquet-only-read`
+- Daft reads only Parquet data files — daft 0.7.26 · hit in lakekeeper (8), polaris (8), reference (8), rustfs-nohelp (8), rustfs (8), unity (8) `daft-parquet-only-read`
 
 **duckdb** (14 causes, 1 severe)
 
@@ -379,9 +379,9 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - DuckDB 2.0: iceberg_rewrite_data_files does not support v3 tables - no compaction, and a data file cannot be taken out of a v3 table (a full DELETE only adds deletion vectors) — duckdb 2.0.1 · hit in lakekeeper (4), polaris (4), reference (4), unity (4) `duckdb-no-v3-rewrite`
 - DuckDB reads only Parquet data files — duckdb 2.0.1 · hit in lakekeeper (8), polaris (8), reference (8), rustfs (8), unity (8) `duckdb-parquet-only-read`
 - DuckDB 2.0.1 writes only Parquet data files (refuses ORC/Avro; 2.0.0 wrote Parquet instead of the requested format) — duckdb 2.0.1 · hit in lakekeeper (2), polaris (2), reference (2), rustfs (2), unity (2) `duckdb-parquet-only-write`
-- DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached — duckdb 2.0.1, rustfs 1.0.6 · hit in rustfs-nohelp (330), rustfs (12) `duckdb-sigv4-aws-host`
+- DuckDB derives the SigV4 service from an AWS host name - SigV4 catalogs on other hosts (RustFS) cannot be attached — duckdb 2.0.1, rustfs 1.0.6 · hit in rustfs-nohelp (344), rustfs (12) `duckdb-sigv4-aws-host`
 - The 'manifests' metadata table of Spark and Trino crashes on DuckDB-written v3 manifests (null partition summaries) — duckdb 2.0.1, trino 484, spark 4.1.4+iceberg1.12.0 · hit in lakekeeper (2), polaris (2), reference (2), unity (1) `duckdb-v3-null-partition-summaries`
-- DuckDB only runs views that have a 'duckdb' SQL representation — duckdb 2.0.1 `duckdb-view-dialect`
+- DuckDB only runs views that have a 'duckdb' SQL representation — duckdb 2.0.1 · hit in lakekeeper (3), polaris (3), reference (3), rustfs (1) `duckdb-view-dialect`
 
 **spark** (7 causes, 1 severe)
 
@@ -400,15 +400,15 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - Trino table_changes reports copy-on-write carry-over rows as delete + insert (no net changes) — trino 484 · hit in lakekeeper (1), polaris (1), reference (1), rustfs (1), unity (1) `trino-changelog-carry-over`
 - Trino represents fixed(4) as varbinary — trino 484 · hit in lakekeeper (2), polaris (2), reference (2), rustfs (1), unity (2) `trino-fixed-as-varbinary`
 - Trino reports a refused table load (403) only as 'Failed to load table' / 'Failed to load view' / 'Cannot obtain metadata' - the refusal is not shown — trino 484 · hit in polaris (1), rustfs (1), unity (1) `trino-hides-load-refusal`
-- Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown — trino 484 · hit in lakekeeper (1), polaris (1), rustfs (1), unity (1) `trino-hides-write-refusal`
+- Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown — trino 484 · intermittent · hit in lakekeeper (1), polaris (1), rustfs (1), unity (1) `trino-hides-write-refusal`
 - Trino 484 cannot create branches ('This connector does not support creating branches'; no SQL for it) - so no write-audit-publish — trino 484 · hit in lakekeeper (4), polaris (4), reference (4), rustfs (2), unity (4) `trino-no-create-branch`
 - Trino 484 reads Iceberg 'unknown' columns but cannot write them — trino 484 · hit in lakekeeper (1), polaris (1), reference (1) `trino-no-unknown-write`
-- Trino only runs views that have a 'trino' SQL representation — trino 484 `trino-view-dialect`
+- Trino only runs views that have a 'trino' SQL representation — trino 484 · hit in lakekeeper (3), polaris (3), reference (3), rustfs (1) `trino-view-dialect`
 
 **flink** (19 causes, 5 severe)
 
 - **DATA LOSS** Flink truncates TIME to seconds when writing — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · hit in lakekeeper (14), polaris (14), reference (12), rustfs-nohelp (3), rustfs (6) `flink-time-seconds-write`
-- **INCONSISTENT** Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · hit in lakekeeper (1), polaris (1), reference (1), rustfs (1), unity (1) `flink-statement-set-not-atomic`
+- **INCONSISTENT** Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · intermittent · hit in lakekeeper (1), polaris (1), reference (1), rustfs (1), unity (1) `flink-statement-set-not-atomic`
 - **WRONG RESULT** Flink (Iceberg 1.12) ignores initial-default and returns NULL — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · hit in lakekeeper (1), polaris (1), reference (1), unity (1) `flink-ignores-initial-default`
 - **WRONG RESULT** Flink 2.3 parses the literal CAST('-0.0' AS DOUBLE) as +0.0 and stores that (-CAST(0.0 AS DOUBLE) keeps the sign) — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · hit in lakekeeper (16), polaris (16), reference (14), rustfs-nohelp (3), rustfs (7), unity (16) `flink-neg-zero-literal`
 - **WRONG RESULT** Flink 2.3 reads TIME with millisecond precision only (Iceberg time has microseconds) — flink 2.3.0-iceberg1.12.0-hadoop3.5.0 · hit in lakekeeper (9), polaris (9), reference (8), rustfs (5) `flink-time-millis-read`
@@ -429,7 +429,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 
 **pg_lake** (29 causes, 4 severe)
 
-- **DATA LOSS** pg_lake reports COMMIT success although the REST catalog refused the commit (e.g. Unity has no /transactions/commit: 404): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged — pg_lake 3.7.0-pg19 · [bug report](bug-reports/02-pg_lake-silent-commit-divergence.md) · hit in lakekeeper (3), polaris (3), unity (93) `pglake-ignores-refused-commit`
+- **DATA LOSS** pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged — pg_lake 3.7.0-pg19 · [bug report](bug-reports/02-pg_lake-silent-commit-divergence.md) · hit in lakekeeper (3), polaris (3), unity (93) `pglake-ignores-refused-commit`
 - **DATA LOSS** pg_lake truncates timestamp_ns to microseconds and maps the type to a microsecond timestamp (Postgres timestamps have microsecond precision) — pg_lake 3.7.0-pg19 · hit in lakekeeper (5), polaris (5) `pglake-timestamp-ns-truncated`
 - **WRONG RESULT** pg_lake does not see commits by other clients to a table it created (keeps its own metadata pointer; attached tables do follow - test_pglake.py) — pg_lake 3.7.0-pg19 · hit in lakekeeper (1), polaris (1) `pglake-no-external-commits`
 - **WRONG RESULT** pg_lake resolves struct fields by name, not by field id - a renamed struct field reads as NULL; with no field name in common the read fails ('STRUCT to STRUCT cast must have at least one matching member') — pg_lake 3.7.0-pg19 · hit in lakekeeper (11), polaris (11), unity (11) `pglake-struct-by-name`

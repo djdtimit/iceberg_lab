@@ -31,12 +31,12 @@ import pytest
 from authz_backends import Conn, backend, pyiceberg_for
 from storage_proxy import StorageProxy
 
-from iceberg_lab.config import PROFILE
+from iceberg_lab.config import PROFILE, lab_port
 from iceberg_lab.keycloak import KC
 
 from conftest import expect, find_gap, gap_table
 
-PORT = 19100
+PORT = lab_port(19100)
 CLIENTS = ["pyiceberg", "spark"]
 
 # Filled from observed results only: (client, case, regex, cause).

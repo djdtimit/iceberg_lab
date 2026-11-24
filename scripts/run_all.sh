@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Full run, one pytest process per test file (fresh JVMs, a hang or crash stays local).
 # Starts with an empty report; each file's results are merged in; per-file logs in <out>/logs/.
+# Files that mostly wait (LONG_FILES: vended keys expiring, ~1 h) run beside the others; the
+# report is written under a lock (reporting.report_lock), so both merge their results.
 # Usage (in the dev container): [CATALOG=polaris] scripts/run_all.sh [extra pytest args]
 # Without help (only the tests of the engines with a lab help, iceberg_lab.config.HELPS -
 # RustFS, Lakekeeper, Unity): CATALOG=rustfs LAB_NO_HELP=1 scripts/run_all.sh
@@ -19,7 +21,7 @@ if [ "${LAB_NO_HELP:-0}" = 1 ]; then
   echo "run without help on $catalog: tests of $helped"
 fi
 mkdir -p "$out/logs"
-rm -f "$out/results.json" "$out"/logs/*.log   # logs of earlier runs (and of renamed tests) would mix into the summary
+rm -f "$out/results.json" "$out/rest_observed.json" "$out"/logs/*.log   # logs of earlier runs (and of renamed tests) would mix into the summary
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
 # One run id for all pytest processes of this run: every result row names it, and
 # <out>/runs.json records what the run was produced with (src/iceberg_lab/lab/manifest.py).
@@ -29,12 +31,31 @@ if [ "${CLEANUP:-1}" = 1 ]; then
   uv run python scripts/cleanup_storage.py --apply || echo "cleanup failed - continuing with the leftovers"
   echo
 fi
+LONG_FILES="tests/security/test_sts_expiry.py"
+summary() {  # pytest's summary line (a native library may print after it, e.g. nanobind leak warnings)
+  grep -E "[0-9]+ (passed|failed|skipped|errors?)( |,|$)" "$1" | tail -1 | grep . || tail -1 "$1"
+}
+long_pids=()
+for f in $LONG_FILES; do
+  name=$(basename "$f" .py)
+  echo "$name: started beside the others"
+  uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1 &
+  long_pids+=($!)
+done
 for f in $(find tests -name 'test_*.py' | sort); do
+  case " $LONG_FILES " in *" $f "*) continue ;; esac
   name=$(basename "$f" .py)
   printf '%-32s ' "$name"
   uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1
-  # pytest's summary line (a native library may print after it, e.g. nanobind leak warnings)
-  grep -E "[0-9]+ (passed|failed|skipped|errors?)( |,|$)" "$out/logs/$name.log" | tail -1 | grep . || tail -1 "$out/logs/$name.log"
+  summary "$out/logs/$name.log"
+done
+for i in "${!long_pids[@]}"; do
+  wait "${long_pids[$i]}"
+done
+for f in $LONG_FILES; do
+  name=$(basename "$f" .py)
+  printf '%-32s ' "$name"
+  summary "$out/logs/$name.log"
 done
 echo
 echo "NEW / unexpected failures:"

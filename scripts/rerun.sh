@@ -64,8 +64,10 @@ print("\n".join(sorted(i for i in ids if os.path.exists(i.split("::")[0]))))' "r
   fi
   for i in $(seq 1 "$repeat"); do
     [ "$repeat" -gt 1 ] && echo "--- run $i of $repeat"
+    # The register self-tests read results/, which the export below has not updated yet - they
+    # run after it (step 3); here they would only report the old references.
     CATALOG=$c LAB_RUN_ID=${run[$c]} uv run pytest "${tests[@]}" -p no:cacheprovider --tb=line -q \
-      > "$out/logs/rerun.log" 2>&1
+      --deselect tests/selftest/test_gap_register.py > "$out/logs/rerun.log" 2>&1
     grep -E "[0-9]+ (passed|failed|skipped|errors?)( |,|$)" "$out/logs/rerun.log" | tail -1
     if awk '/NEW \/ unexpected failures/{on=1; next} /known gaps reproduced|FIXED gaps|intermittent gaps|PROBABLY FIXED/{on=0} on && /^  tests\//' "$out/logs/rerun.log" | sed 's/^/NEW /' | grep .; then
       new=1

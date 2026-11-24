@@ -1,7 +1,7 @@
 """Robustness against catalog faults: lost commit responses, transient 503, catalog down.
 
-A small fault-injecting HTTP proxy runs inside the test process (port 18181, reachable as
-``dev:18181`` from the Trino/Flink/pg_lake containers) and forwards to the catalog under test
+A small fault-injecting HTTP proxy runs inside the test process (port 18181 + the catalog's
+offset, ``config.lab_port``; reachable as ``dev:<port>`` from the Trino/Flink/pg_lake containers) and forwards to the catalog under test
 (every catalog; SigV4 requests to RustFS keep their headers unchanged, so the signature
 stays valid). Every engine talks to
 the catalog through it (Trino via catalog ``<prefix>_proxy``, Spark via a runtime catalog
@@ -52,13 +52,13 @@ import requests
 import test_operations as base
 
 from iceberg_lab import engines
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS
+from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSE_STS, lab_port
 from iceberg_lab.engines import pyiceberg_catalog
 
 from conftest import ENGINES, engine_param, expect, find_gap, gap_table, require_engine
 
 WAREHOUSE = WAREHOUSE_STS
-PORT = 18181
+PORT = lab_port(18181)  # trino/catalog/<prefix>_proxy.properties name the same port
 UPSTREAM = SETTINGS.catalog_base  # e.g. http://lakekeeper:8181
 COMMIT = re.compile(
     # The prefix may contain slashes (Unity: "catalogs/lab").
@@ -86,7 +86,7 @@ class Proxy:
     """Forwarding proxy with one-shot faults on commit requests (and a "down" mode)."""
 
     def __init__(self):
-        """Start the proxy on port 18181 in a background thread."""
+        """Start the proxy on :data:`PORT` in a background thread."""
         #: None | "lost_response" | "transient_503" | "down" | "fail_table" (see ``target``)
         #: | "concurrent_commit" / "repeated_conflicts" (see ``rival`` and ``CONFLICTS``)
         self.mode: str | None = None
@@ -98,6 +98,8 @@ class Proxy:
         self.target: str | None = None
         #: path of every commit request since the last arm() (shows per-table vs. multi-table)
         self.commit_paths: list[str] = []
+        #: "METHOD path" of every request since the last arm() (for failure messages)
+        self.seen: list[str] = []
         self.fired = 0
         self.commits = 0
         self.lock = threading.Lock()
@@ -129,6 +131,7 @@ class Proxy:
                 path = self.path.split("?", 1)[0]
                 is_commit = self.command == "POST" and bool(COMMIT.match(path))
                 with proxy.lock:
+                    proxy.seen.append(f"{self.command} {path}")
                     mode = proxy.mode
                     if is_commit:
                         proxy.commits += 1
@@ -228,6 +231,7 @@ class Proxy:
         with self.lock:
             self.mode, self.fired, self.target, self.rival = mode, 0, target, rival
             self.commit_paths = []
+            self.seen = []
 
     def close(self):
         """Stop the proxy."""
@@ -270,7 +274,9 @@ def proxied_engine(engine, request):
         return engines.FlinkEngine(WAREHOUSE, s=s)
     if engine == "pg_lake":
         saved = dict(engines.PGLAKE_SERVERS)
-        engines.PGLAKE_SERVERS[WAREHOUSE] = f"{PROFILE.trino_prefix}_proxy"
+        # The port is part of the name: pg_lake keeps a server's endpoint (it refuses to change
+        # it while user mappings exist), so a server per proxy port.
+        engines.PGLAKE_SERVERS[WAREHOUSE] = f"{PROFILE.trino_prefix}_proxy_{PORT}"
         try:
             return engines.PgLakeEngine(WAREHOUSE, s=s)
         finally:
@@ -447,7 +453,7 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
         scenario: ``lost_response``, ``transient_503``, ``catalog_down``,
             ``concurrent_commit`` or ``repeated_conflicts``.
         namespace: Fresh namespace of the test session.
-        proxy: Fault-injecting HTTP proxy in front of the catalog (port 18181).
+        proxy: Fault-injecting HTTP proxy in front of the catalog (:data:`PORT`).
         request: pytest request, to fetch engine fixtures (SparkSession, ...) lazily.
     """
     table = f"rb_{engine}_{scenario}_{uuid.uuid4().hex[:6]}"
@@ -496,9 +502,13 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
                 append(engine, adapter, namespace, table, [row])
             except Exception as exc:  # noqa: BLE001 - the outcome is checked below
                 error = exc
-            fired = proxy.fired
+            fired, seen = proxy.fired, list(proxy.seen)
             proxy.arm(None)
-            assert fired >= 1, "fault was not triggered"
+            assert fired >= 1, (
+                f"fault was not triggered - the proxy saw {len(seen)} requests since arming, "
+                f"no commit among them (engine error: {error!r}); last: {seen[-6:]}"
+            )
+            posts = [r for r in seen if r.startswith("POST ")]  # commits the engine sent
             assert_intact(namespace, table)
             rows = direct_rows(namespace, table)
             n = rows.count(row)
@@ -507,14 +517,16 @@ def test_catalog_fault(engine, scenario, namespace, proxy, request):
                 gone = [r for r in rivals[:fired] if rows.count(r) != 1]
                 assert not gone, f"competing commits gone or doubled: {gone}"
                 if error is not None and conflicts == 1:
-                    raise AssertionError(f"conflict not retried: {type(error).__name__}: {error}")
+                    raise AssertionError(
+                        f"conflict not retried: {type(error).__name__}: {error} (POSTs: {posts})"
+                    )
                 if error is not None:
                     raise AssertionError(
                         f"gave up after {fired} conflicting commit attempts of {conflicts}: "
                         f"{type(error).__name__}: {error}"
                     )
             if error is None:
-                assert n == 1, "client reported success but the row is missing"
+                assert n == 1, f"client reported success but the row is missing (POSTs: {posts})"
             elif scenario == "transient_503":
                 assert n == 0, "client reported an error but the row was committed"
             if conflicts:  # a success means it retried until the last conflict was behind it
@@ -535,7 +547,7 @@ def test_proxy_is_transparent(proxy, namespace):
         * the proxy saw at least one commit.
 
     Args:
-        proxy: Fault-injecting HTTP proxy in front of the catalog (port 18181).
+        proxy: Fault-injecting HTTP proxy in front of the catalog (:data:`PORT`).
         namespace: Fresh namespace of the test session.
     """
     proxy.arm(None)

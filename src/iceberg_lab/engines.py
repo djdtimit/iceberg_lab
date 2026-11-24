@@ -63,6 +63,7 @@ from iceberg_lab.config import (
     catalog_auth,
     catalog_auth_props,
     catalog_headers,
+    oauth_client,
 )
 
 #: How an engine obtains S3 access - see the module docstring.
@@ -779,10 +780,10 @@ class DuckDBEngine(Engine):
             auth = f"SECRET {self.alias}_auth"
         elif PROFILE.oauth_credential:
             # OAuth2 client credentials (e.g. Polaris) through an iceberg secret.
-            client_id, client_secret = PROFILE.oauth_credential.split(":", 1)
+            client_id, client_secret = oauth_client(PROFILE.oauth_credential)
             self.con.execute(f"""
                 CREATE SECRET {self.alias}_auth (
-                    TYPE iceberg, CLIENT_ID '{client_id}', CLIENT_SECRET '{client_secret}',
+                    TYPE iceberg, CLIENT_ID '{client_id or ""}', CLIENT_SECRET '{client_secret}',
                     OAUTH2_SERVER_URI '{s.catalog_base.rstrip("/")}{PROFILE.token_path}',
                     OAUTH2_SCOPE '{PROFILE.oauth_scope}'
                 )""")
@@ -1222,9 +1223,9 @@ class PgLakeEngine(Engine):
         #                     warehouse's storage prefix or Lakekeeper rejects the location
         if PROFILE.oauth_credential:
             auth = f"oauth_endpoint '{s.catalog_base.rstrip('/')}{PROFILE.token_path}',"
-            client_id, client_secret = PROFILE.oauth_credential.split(":", 1)
+            client_id, client_secret = oauth_client(PROFILE.oauth_credential)
             mapping = f"""CREATE USER MAPPING FOR PUBLIC SERVER {self.server}
-                  OPTIONS (client_id '{client_id}', client_secret '{client_secret}');"""
+                  OPTIONS (client_id '{client_id or ""}', client_secret '{client_secret}');"""
         else:
             self.server += "_noauth"
             auth, mapping = "rest_auth_type 'none',", ""

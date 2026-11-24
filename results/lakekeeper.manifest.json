@@ -9,9 +9,9 @@
   "json": "v2.0.1",
   "parquet": "v2.0.1"
  },
- "finished": "2026-11-23T21:14:39Z",
+ "finished": "2026-11-24T18:20:49Z",
  "git": {
-  "commit": "d6b23ad687a5aa2df638857286807a0e67310ee6",
+  "commit": "c919b03034fb209ac1ad601143d3736cca8296a0",
   "dirty": true
  },
  "images_declared": {
@@ -51,7 +51,7 @@
   "pyspark": "4.1.4",
   "trino": "0.340.0"
  },
- "run": "2026-11-23T05:32:49Z",
- "started": "2026-11-23T05:32:55Z",
+ "run": "2026-11-24T06:34:56Z",
+ "started": "2026-11-24T06:35:05Z",
  "with_help": true
 }

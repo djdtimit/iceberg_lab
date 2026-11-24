@@ -11,6 +11,7 @@ by themselves.
 | [`test_engine_inventory.py`](test_engine_inventory.py) | Engine inventory: what each engine offers for Iceberg, read from the engine itself. | 1 |
 | [`test_feature_inventory.py`](test_feature_inventory.py) | The feature inventory (tests/lab/feature_inventory.py) is complete and current. | 8 |
 | [`test_lab_adapters.py`](test_lab_adapters.py) | Lab self-test: the lab's own adapters between the catalogs and Keycloak / RustFS. | 9 |
+| [`test_lab_infrastructure.py`](test_lab_infrastructure.py) | Lab self-test: the run infrastructure fits together (ports, cloud profiles, smoke run). | 10 |
 | [`test_lab_selftest.py`](test_lab_selftest.py) | Self-tests of the lab itself: its mechanisms must never hide a failure they do not document. | 34 |
 | [`test_na_claims.py`](test_na_claims.py) | Lab self-test: every "not offered" claim is still true. | 6 |
 

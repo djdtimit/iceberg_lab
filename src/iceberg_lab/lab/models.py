@@ -27,6 +27,8 @@ class ResultRow(BaseModel):
     test: str = Field(pattern=r"^tests/\S+\.py::\S")
     status: Status
     detail: str = ""
+    #: Gap register cause of a gap / fixed row (docs/gaps.toml); ``detail`` is its reason.
+    cause: str = ""
 
 
 class GitState(BaseModel):

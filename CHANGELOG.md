@@ -2,6 +2,82 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-24 (2): cloud catalogs, parallel runs, spec responses, trend
+
+- **Cloud catalogs** (`docs/cloud-catalogs.md`): Snowflake Open Catalog, Snowflake Horizon
+  Catalog and Databricks Unity Catalog are profiles once their `LAB_<NAME>_*` variables are set
+  (environment or `.env.cloud`, which git ignores). Horizon follows Snowflake's documentation:
+  - the programmatic access token is the client secret, sent without a client id;
+  - the scope is `session:role:<ROLE>`;
+  - `warehouse` is the database name.
+
+  A cloud catalog runs only REST conformance, namespaces, operations, types, evolution and
+  the read/write matrix, with PyIceberg, Polars, Daft, DuckDB and Spark. It runs no
+  attack-like security tests and nothing that disturbs the catalog; the other tests are
+  deselected. **Not yet run against a real account.**
+- **Several catalogs at once**: every in-process proxy (fault, federation, storage, IdP) listens
+  on a port per catalog (`config.lab_port`). The Trino `*_proxy` catalogs name these ports.
+  pg_lake's proxy server has the port in its name, because pg_lake refuses to change the
+  endpoint of a server with user mappings. `scripts/run_parallel.sh` runs the full
+  runs in lanes (default 2; `PARALLEL=n`).
+- **`scripts/run_all.sh` runs `test_sts_expiry.py` beside the other files**: it mostly waits
+  for vended keys to expire (about 1 h on Polaris and Unity). Reports are written under a lock
+  (`reporting.report_lock`), so both processes merge their results.
+- **Smoke run** `scripts/smoke.sh`: a cross-section of about 10 minutes on one catalog, with its
+  own report in `reports/smoke/<catalog>/`.
+- **Responses the spec defines**: `scripts/iceberg_spec.py` also records each operation's
+  status codes (`docs/api/iceberg-rest-responses.txt`, 300 for Iceberg 1.12.0). Every run counts
+  the codes the catalog gives the lab's own requests (`iceberg_lab.lab.rest_observed`,
+  `results/<catalog>.rest.json`). `docs/rest-conformance.md` shows for each operation which
+  defined codes were provoked, and lists any answer the spec does not define.
+- **Trend**: `results/history/runs.jsonl` gets one line per catalog and run, with status counts and
+  gap causes (`export_reference.py`; `--history` rebuilds it from git). The dashboard shows it in
+  "Over the runs", with the causes added and gone since the previous run.
+- **Weekly check of the intermittent gaps**: `scripts/flaky_weekly.sh` runs
+  `scripts/rerun.sh --flaky 5`, scheduled by a systemd user timer (`scripts/systemd/install.sh`,
+  Sundays 03:00). It skips when the lab is down, another run is active, or `results/` has
+  uncommitted changes.
+- **Flink's non-atomic STATEMENT SET is an intermittent gap** (`flink-statement-set-not-atomic`,
+  `flaky = true`). The tables commit in parallel: when B's refusal comes before A's commit, A is
+  not committed either. Run alone, the gap reproduces every time (3 of 3). In the parallel full
+  run on Polaris it did not, once.
+- **Trino's hidden write refusal is an intermittent gap** (`trino-hides-write-refusal`,
+  `flaky = true`). On Unity the error once named the S3 AccessDenied (parallel full run). Run
+  alone, it hides it every time (3 of 3).
+- **Bare-secret OAuth credentials** (`config.oauth_client`): the token request, DuckDB's secret
+  and pg_lake's user mapping work without a client id.
+- **Full runs of 2026-11-24** with `scripts/run_parallel.sh` (two lanes): Lakekeeper and Polaris
+  62 min each, RustFS 51 min, Unity 2 h 17 min, about 4 h in all instead of about 12 h in a row.
+  No new failures on any catalog. The first reference run broke off when the disk ran full (the
+  JVMs died with SIGBUS) and was run again in full after space was freed.
+- **A candidate to remove** on the reference: DuckDB's exhausted commit retries
+  (`test_all_engines_append_concurrently[v2/v3-duckdb]`) did not occur in 5 runs and are listed
+  as PROBABLY FIXED. The cause stays in the register until it is confirmed.
+- The weekly timer is not installed by default; `scripts/systemd/install.sh` does that.
+
+## Lab changes 2026-11-24: cause ids, the reference's separator, proxy diagnostics
+
+- **Result rows keep the gap register's cause id** (`cause`, next to the reason text): rewording
+  a cause in `docs/gaps.toml` no longer needs test reruns - `scripts/export_reference.py
+  --refresh` rewrites every `results/<catalog>.jsonl` and `.rows.json.gz` with the current
+  reasons. The register self-test refuses a gap row without a known cause or with a stale reason.
+  Used right away: the pg_lake cause now also names the 409 of a concurrent commit.
+- **Dangerous namespace names on the reference fixture** are created under the test's parent
+  namespace (as on Lakekeeper and Polaris), so DuckDB's catalog listing no longer meets an
+  "empty namespace name" left at the top level. The name tests follow the catalog's
+  `namespace-separator` from `/v1/config` (the reference fixture: `%2E`; the lab used `%1F`,
+  which it refuses with 400).
+- **`scripts/rerun.sh`** runs the register self-tests only after the export, not also in the
+  per-catalog loop (where they read the old references and reported a false NEW).
+- **The fault proxy reports what it saw**: "fault was not triggered" now lists the requests since
+  arming and the engine's error; the conflict assertions list the engine's POSTs.
+- **The dashboard builder** reads the comparison rows from `results/<catalog>.rows.json.gz` first
+  (the reruns' merged state), the report directory only as fallback.
+- **Retry intervals after a conflict, 5 runs each on Lakekeeper (4 conflicts in a row)**:
+  PyIceberg (about 440 / 600 / 780 ms) and Trino (about 230 / 290 / 510 ms) wait longer every
+  time; DuckDB scatters (318-503 ms for the first wait, 259-1284 ms after that) without a clear
+  growth - not recorded as a gap, the evidence does not decide it.
+
 ## Lab changes 2026-11-23 (3): no lucky passes, forced races, neutral sources everywhere
 
 - **An intermittent gap that did not occur stays a gap**: the report used to show such a run as

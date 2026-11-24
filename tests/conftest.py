@@ -80,7 +80,7 @@ from iceberg_lab.engines import (
     TrinoEngine,
     pyiceberg_catalog,
 )
-from iceberg_lab.lab import gaps
+from iceberg_lab.lab import gaps, rest_observed
 
 # Re-exported: tests import these from conftest (``from conftest import expect_gap``).
 from iceberg_lab.lab.capabilities import (  # noqa: F401
@@ -111,6 +111,9 @@ from iceberg_lab.lab.gaps import (  # noqa: F401
     gap_severity,
 )
 from iceberg_lab.lab.results import NOT_RUN, keep_if_content_ok, skip_if_not_produced  # noqa: F401
+
+#: Count the catalog's answers to the lab's raw requests per spec operation (docs/rest-conformance.md).
+rest_observed.install(SETTINGS.catalog_uri)
 
 
 def pytest_configure(config):
@@ -159,10 +162,63 @@ def help_run_involves(item, helped: set[str]) -> bool:
     return bool(parts & helped)
 
 
-def pytest_collection_modifyitems(config, items):
-    """Run without help (``LAB_NO_HELP=1``): keep only the tests of the helped engines.
+#: Test files that run against a cloud catalog (``PROFILE.remote``): REST conformance and the
+#: engines' read/write behaviour. Not the attack-like security tests (a provider's terms decide
+#: whether they are allowed), nothing that rebuilds or disturbs the catalog (fault proxies, IdP
+#: outage, the lab's users and roles), nothing that needs the lab's storage (RustFS).
+REMOTE_SAFE = (
+    "tests/catalog/test_rest_conformance.py",
+    "tests/catalog/test_namespaces.py",
+    "tests/engines/test_operations.py",
+    "tests/engines/test_types.py",
+    "tests/engines/test_evolution.py",
+    "tests/engines/test_interop.py",
+)
+#: Engines that reach a cloud catalog from their client settings alone; Trino, Flink and
+#: pg_lake are configured in their containers for the lab's catalogs.
+REMOTE_ENGINES = {"pyiceberg", "polars", "daft", "duckdb", "spark"}
 
-    Its report is shown next to the same tests of the normal run; the other tests would only
+
+def item_engines(item) -> set[str]:
+    """The engines a test involves: its engine parameters and its file's own engine.
+
+    Args:
+        item: Collected pytest item.
+
+    Returns:
+        Engine names (empty for a test of the lab's own client).
+    """
+    module = item.nodeid.split("::", 1)[0].rsplit("/", 1)[-1].removesuffix(".py")
+    found = set(_MODULE_ENGINES.get(module, set()))
+    callspec = getattr(item, "callspec", None)
+    if callspec is not None:
+        found |= set(callspec.id.split("-")) | {
+            v for v in callspec.params.values() if isinstance(v, str)
+        }
+    return found & set(AVAILABILITY)
+
+
+def remote_safe(item) -> bool:
+    """Whether a test runs against a cloud catalog (:data:`REMOTE_SAFE`, :data:`REMOTE_ENGINES`).
+
+    Args:
+        item: Collected pytest item.
+
+    Returns:
+        True if its file is listed and every engine it involves reaches a cloud catalog.
+    """
+    path = item.nodeid.split("::", 1)[0]
+    return path in REMOTE_SAFE and item_engines(item) <= REMOTE_ENGINES
+
+
+def pytest_collection_modifyitems(config, items):
+    """Narrow the session for a cloud catalog and for the run without help.
+
+    A cloud catalog (``PROFILE.remote``) keeps only :func:`remote_safe` tests; the others are
+    deselected (not run, not reported as "not offered").
+
+    The run without help (``LAB_NO_HELP=1``) keeps only the tests of the helped engines. Its
+    report is shown next to the same tests of the normal run; the other tests would only
     repeat it. A catalog without helps keeps nothing (the run has nothing to show).
 
     Args:
@@ -171,6 +227,11 @@ def pytest_collection_modifyitems(config, items):
     """
     from iceberg_lab.config import WITH_HELP, helped_engines
 
+    if PROFILE.remote:
+        dropped = [i for i in items if not remote_safe(i)]
+        if dropped:
+            config.hook.pytest_deselected(items=dropped)
+            items[:] = [i for i in items if remote_safe(i)]
     if WITH_HELP:
         return
     helped = helped_engines()
@@ -474,10 +535,12 @@ def _bootstrap(request):
     """
     if all(item.get_closest_marker("offline") for item in request.session.items):
         return
-    host, _, port = SETTINGS.catalog_base.split("//")[1].partition(":")
-    if not _reachable(host, int(port or 80)):
+    scheme, _, rest = SETTINGS.catalog_base.partition("//")
+    host, _, port = rest.split("/", 1)[0].partition(":")
+    if not _reachable(host, int(port or (443 if scheme == "https:" else 80))):
         pytest.exit(f"catalog {PROFILE.name} at {SETTINGS.catalog_base} is not reachable", 2)
-    bootstrap.main()
+    if not PROFILE.remote:  # a cloud catalog and its warehouse exist already
+        bootstrap.main()
 
 
 @pytest.fixture(scope="session")

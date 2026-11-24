@@ -1,5 +1,9 @@
 """docs/rest-conformance.md from the last results of tests/catalog/test_rest_conformance.py (all catalogs).
 
+A second part shows, per spec operation, which of the status codes the specification defines
+the catalogs gave the lab's raw requests (results/<catalog>.rest.json,
+src/iceberg_lab/lab/rest_observed.py), and every answer the specification does not define.
+
 uv run python scripts/rest_conformance_doc.py
 """
 
@@ -9,6 +13,8 @@ import gzip
 import json
 import pathlib
 import re
+
+from iceberg_lab.lab import rest_observed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: Comparison rows of the latest full run per catalog (scripts/export_reference.py).
@@ -22,6 +28,9 @@ SOURCES = {
         ("Reference", "reference"),
     )
 }
+#: Codes the spec defines for (nearly) every operation and that a catalog gives only in rare
+#: states (expired auth, overload, server fault) - listed, but not counted as "not provoked".
+GENERIC = {"419", "503", "5XX", "default"}
 SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "—", "blocked": "·"}
 
 
@@ -64,8 +73,87 @@ def main() -> None:
         lines.append(f"| `{row}` | " + " | ".join(out) + " |")
     if notes:
         lines += ["", "## Deviations", "", *notes]
+    lines += responses_section()
     (ROOT / "docs/rest-conformance.md").write_text("\n".join(lines) + "\n")
     print(f"{len(cells)} rows")
+
+
+def _short(op: str) -> str:
+    """``GET /v1/{prefix}/namespaces/{namespace}`` -> ``GET /namespaces/{ns}``.
+
+    Args:
+        op: Spec operation.
+
+    Returns:
+        The short form used in the tables.
+    """
+    return op.replace("/v1/{prefix}", "").replace("{namespace}", "{ns}")
+
+
+def _matches(code: str, defined: list[str]) -> bool:
+    """Whether a status code is one the operation defines (``5XX`` covers 500-599).
+
+    Args:
+        code: Observed status, e.g. ``"404"``.
+        defined: The operation's defined codes.
+
+    Returns:
+        True if defined (or covered by ``default``).
+    """
+    return code in defined or f"{code[0]}XX" in defined or "default" in defined
+
+
+def responses_section() -> list[str]:
+    """The part on the spec's status codes per operation.
+
+    Returns:
+        Markdown lines.
+    """
+    spec = rest_observed.spec_responses()
+    seen: dict[str, dict[str, set[str]]] = {}  # op -> catalog -> codes
+    for cat, path in SOURCES.items():
+        observed = path.with_name(path.name.replace(".rows.json.gz", ".rest.json"))
+        if not observed.exists():
+            continue
+        for key in json.loads(observed.read_text()):
+            op, code = key.rsplit(" ", 1)
+            seen.setdefault(op, {}).setdefault(cat, set()).add(code)
+    lines = [
+        "",
+        "## Responses the specification defines",
+        "",
+        "Per operation, the status codes of the OpenAPI document",
+        "(`docs/api/iceberg-rest-responses.txt`) and which of them each catalog gave the lab's own",
+        "requests in its last run (REST client, conformance and security tests; not the engines).",
+        f"**Not provoked**: defined codes no catalog gave (without {', '.join(sorted(GENERIC))},",
+        "which only rare states produce). Answers the specification does not define follow below.",
+        "",
+    ]
+    if not seen:
+        return lines + ["No recording yet: the next run writes `results/<catalog>.rest.json`."]
+    lines += [
+        "| Operation | Defined | " + " | ".join(SOURCES) + " | Not provoked |",
+        "|---|---|" + "---|" * len(SOURCES) + "---|",
+    ]
+    undefined = []
+    for op in sorted(spec, key=lambda o: (o.split(" ", 1)[1], o)):
+        defined = spec[op]
+        cells, provoked = [], set()
+        for cat in SOURCES:
+            codes = sorted(seen.get(op, {}).get(cat, set()))
+            ok = [c for c in codes if _matches(c, defined)]
+            provoked |= set(ok) | {f"{c[0]}XX" for c in ok}
+            cells.append(" ".join(ok) or "·")
+            undefined += [f"- **{cat}**, `{_short(op)}`: {c}" for c in codes if c not in ok]
+        missing = [c for c in defined if c not in provoked and c not in GENERIC]
+        lines.append(
+            f"| `{_short(op)}` | {' '.join(defined)} | "
+            + " | ".join(cells)
+            + f" | {' '.join(missing) or '-'} |"
+        )
+    lines += ["", "### Answers the specification does not define", ""]
+    lines += undefined or ["None."]
+    return lines
 
 
 if __name__ == "__main__":

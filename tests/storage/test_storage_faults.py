@@ -1,12 +1,12 @@
 """Storage faults seen by the catalog: what does it do when RustFS fails under it?
 
 The counterpart of test_robustness.py (faults in front of the catalog). A fault-injecting proxy
-(``storage_proxy.py``, port 19000, reachable as ``dev:19000``) sits between the catalog and RustFS
+(``storage_proxy.py``, port 19000 + the catalog's offset, ``config.lab_port``) sits between the catalog and RustFS
 - in a warehouse/catalog of its own, so no other test is affected:
 
     Lakekeeper  warehouse ``fault-sts`` with storage and STS endpoint ``http://dev:19000``; the
                 engines get the same endpoint, so faults only hit requests from Lakekeeper's IP
-    Polaris     catalog ``polaris_fault`` with ``endpointInternal``/``stsEndpoint`` = proxy; the
+    Polaris     catalog ``polaris_fault_<port>``, ``endpointInternal``/``stsEndpoint`` = proxy; the
                 engines get RustFS directly
     Unity       reaches RustFS only through the Envoy gateway for the AWS host names - not
                 re-routable per catalog in the lab (not testable)
@@ -37,12 +37,14 @@ import pytest
 import requests
 from storage_proxy import StorageProxy
 
-from iceberg_lab.config import PROFILE, SETTINGS, catalog_headers
+from iceberg_lab.config import PROFILE, SETTINGS, catalog_headers, lab_port
 from iceberg_lab.engines import pyiceberg_catalog
 
 from conftest import expect, find_gap, gap_table
 
-PROXY = "http://dev:19000"
+#: The storage proxy's port for this catalog (Lakekeeper 19000; config.lab_port).
+PROXY_PORT = lab_port(19000)
+PROXY = f"http://dev:{PROXY_PORT}"
 SCENARIOS = ["commit_503", "commit_down", "commit_slow", "load_down", "vend_down"]
 SCHEMA = pa.schema([("id", pa.int64())])
 LIMIT = 120  # seconds an operation may take under a fault
@@ -71,7 +73,7 @@ def _lakekeeper_warehouse() -> str:
     """
     from iceberg_lab.bootstrap import warehouse_payload
 
-    name = "fault-sts"
+    name = "fault-sts"  # created with PROXY (Lakekeeper's port is 19000, offset 0)
     existing = requests.get(f"{SETTINGS.lakekeeper_url}/management/v1/warehouse", timeout=10).json()
     if any(w.get("name") == name for w in existing.get("warehouses", [])):
         return name
@@ -85,12 +87,14 @@ def _lakekeeper_warehouse() -> str:
 
 
 def _polaris_catalog() -> str:
-    """Polaris catalog ``polaris_fault`` whose storage runs through the proxy.
+    """Polaris catalog ``polaris_fault_<port>`` whose storage runs through the proxy.
+
+    The proxy's port is part of the name: a catalog keeps the endpoint it was created with.
 
     Returns:
         Its name.
     """
-    name, base, headers = "polaris_fault", SETTINGS.catalog_base, catalog_headers()
+    name, base, headers = f"polaris_fault_{PROXY_PORT}", SETTINGS.catalog_base, catalog_headers()
     location = f"s3://{SETTINGS.s3_bucket}/{name}"
     r = requests.post(
         f"{base}/api/management/v1/catalogs",
@@ -143,7 +147,7 @@ def fault_setup():
             "a warehouse cannot point it at the fault proxy",
         }.get(PROFILE.name, "no fault proxy setup for this catalog")
         pytest.skip(f"not testable on {PROFILE.name}: {reason}")
-    proxy = StorageProxy()
+    proxy = StorageProxy(port=PROXY_PORT)
     try:
         if PROFILE.name == "lakekeeper":
             warehouse, sources = _lakekeeper_warehouse(), {socket.gethostbyname("lakekeeper")}
