@@ -67,8 +67,11 @@ KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
     ("test_append_during_compaction", "flink", "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures"),
     # DuckDB retries a conflicting commit 4 times (test_robustness repeated_conflicts: 3 forced
     # conflicts in a row pass, 5 fail); with 4+ writers at once all attempts can conflict.
+    # Not on the reference: it answers a losing /transactions/commit with 204 instead of 409
+    # (reference-tx-commit-loses-updates), so DuckDB never retries there (0 of 10 runs).
     *((t, "duckdb", "*", r"Conflict_409", "duckdb-commit-retries-exhausted", True)
-      for t in ("test_concurrent_appends", "test_all_engines_append_concurrently")),
+      for t in ("test_concurrent_appends", "test_all_engines_append_concurrently")
+      if PROFILE.name != "reference"),
     # Seen on Unity only: 8 writers race, PyIceberg's 4 default commit retries
     # (commit.retry.num-retries) can all lose - depends on timing.
     *(("test_all_engines_append_concurrently", e, "2", r"CommitFailedException: (Requirement failed: branch main has changed|Metadata location for \S+ changed concurrently)", "pyiceberg-commit-retries-exhausted", True)

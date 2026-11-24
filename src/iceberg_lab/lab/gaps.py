@@ -45,6 +45,9 @@ _KNOWN_GAP_HITS: list[tuple[str, str]] = []
 _FIXED_GAPS: list[tuple[str, str]] = []
 _FLAKY_NOT_SEEN: list[tuple[str, str]] = []
 _FLAKY_SEEN: list[tuple[str, str]] = []
+#: Tests whose call passed this run (conftest's report hook): a passing test that no longer
+#: declares an intermittent gap drops that gap's counter from flaky_history.json.
+_PASSED: set[str] = set()
 
 #: An intermittent gap that has not occurred in this many runs in a row (per catalog, kept in
 #: <report dir>/flaky_history.json) is listed as "probably fixed" - check and remove it.
@@ -353,6 +356,15 @@ def write_summary(terminalreporter) -> None:
             tr.write_line(f"  {tid}: {reason} (not seen in {n} runs)")
 
 
+def record_passed(test_id: str) -> None:
+    """Note that a test's call passed (from conftest's report hook).
+
+    Args:
+        test_id: Node id of the test.
+    """
+    _PASSED.add(test_id)
+
+
 def flaky_not_seen(test_id: str) -> str | None:
     """Reason of the intermittent gap that did not occur in this test (this run).
 
@@ -377,7 +389,7 @@ def _update_flaky_history() -> list[tuple[str, str, int]]:
     """
     from iceberg_lab.lab import reporting
 
-    if not (_FLAKY_SEEN or _FLAKY_NOT_SEEN):
+    if not (_FLAKY_SEEN or _FLAKY_NOT_SEEN or _PASSED):
         return []
     with reporting.report_lock():  # another pytest process may write the same report
         return _update_flaky_history_locked()
@@ -412,12 +424,23 @@ def _update_flaky_history_locked() -> list[tuple[str, str, int]]:
     from iceberg_lab.lab import gap_register
 
     reasons = {c.reason for c in gap_register.register().values()}
+    loaded = dict(history)
     history = {k: n for k, n in history.items() if k.split(" :: ", 1)[-1] in reasons}
+    # A test that passed this run went through all its checks: an intermittent gap it did not
+    # declare (neither seen nor "not seen") no longer applies to it here - otherwise its counter
+    # stays and rerun.sh --flaky keeps repeating the test. A failed test may have stopped
+    # before its expect_gap, so its counters are kept.
+    declared = {f"{tid} :: {reason}" for tid, reason in _FLAKY_SEEN + _FLAKY_NOT_SEEN}
+    history = {
+        k: n for k, n in history.items() if k in declared or k.split(" :: ", 1)[0] not in _PASSED
+    }
     for tid, reason in _FLAKY_SEEN:
         history[f"{tid} :: {reason}"] = 0
     for tid, reason in _FLAKY_NOT_SEEN:
         key = f"{tid} :: {reason}"
         history[key] = history.get(key, 0) + 1
+    if not (_FLAKY_SEEN or _FLAKY_NOT_SEEN) and history == loaded:
+        return []  # no intermittent gap in this run and nothing dropped: leave the file alone
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(history, indent=1, ensure_ascii=False, sort_keys=True))
     return [

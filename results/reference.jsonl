@@ -191,7 +191,7 @@
 {"test": "tests/engines/test_branch_isolation.py::test_write_to_main_leaves_branch[spark]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_branch_isolation.py::test_write_to_main_leaves_branch[trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-daft]", "status": "pass", "detail": ""}
-{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-duckdb]", "status": "gap", "detail": "DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)", "cause": "duckdb-commit-retries-exhausted"}
+{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-duckdb]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-flink]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-pg_lake]", "status": "na", "detail": "pg_lake has no API for writing tables it did not create (read-only attach) (proven by tests/specific/test_pglake.py::test_attached_table_is_read_only)"}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-polars]", "status": "pass", "detail": ""}
@@ -199,7 +199,7 @@
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-spark]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v2-trino]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-daft]", "status": "gap", "detail": "PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: 'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work - Polars and Daft write through it", "cause": "pyiceberg-v3-data-write"}
-{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-duckdb]", "status": "gap", "detail": "DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)", "cause": "duckdb-commit-retries-exhausted"}
+{"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-duckdb]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-flink]", "status": "pass", "detail": ""}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-pg_lake]", "status": "na", "detail": "pg_lake has no API for writing tables it did not create (read-only attach) (proven by tests/specific/test_pglake.py::test_attached_table_is_read_only)"}
 {"test": "tests/engines/test_concurrency.py::test_all_engines_append_concurrently[v3-polars]", "status": "gap", "detail": "PyIceberg 0.12 cannot write DATA to v3 tables (manifest writers exist only for v1/v2: 'Cannot write manifest for table version: 3'); create/read/metadata changes on v3 work - Polars and Daft write through it", "cause": "pyiceberg-v3-data-write"}
@@ -11052,7 +11052,7 @@
 {"test": "tests/specific/test_pyiceberg.py::test_partitioning_prunes_files[reference]", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_pyiceberg.py::test_upsert_after_rename[reference]", "status": "gap", "detail": "PyIceberg 0.12: upsert compares against pre-rename physical column names", "cause": "pyiceberg-upsert-renamed-columns"}
 {"test": "tests/specific/test_spark.py::test_drop_table_purge[signing]", "status": "na", "detail": "catalog reference has no API for remote signing"}
-{"test": "tests/specific/test_spark.py::test_drop_table_purge[sts]", "status": "gap", "detail": "Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException)", "cause": "lakekeeper-hard-delete-race"}
+{"test": "tests/specific/test_spark.py::test_drop_table_purge[sts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-catalog_down]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-lost_response]", "status": "pass", "detail": ""}

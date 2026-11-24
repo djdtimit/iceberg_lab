@@ -6,6 +6,8 @@ Runs without catalog or engines. Covered:
   through unchanged; a gap that no longer reproduces fails as "gap fixed"; a gap without
   pattern or with one that also matches unrelated errors (outage, timeout, wrong result) is
   refused; a reason that sounds like a defect needs a severity prefix.
+* intermittent gaps: the run counter in ``flaky_history.json`` counts the runs without them,
+  and a passing test that no longer declares one drops its counter.
 * central catalog rules (``CATALOG_GAPS``): they apply only to the engines/files named in the
   rule, only on their catalog, and only with the required traceback frames; they are specific
   and classified.
@@ -22,6 +24,7 @@ Runs without catalog or engines. Covered:
 
 from __future__ import annotations
 
+import json
 import types
 
 import pytest
@@ -45,6 +48,7 @@ def _isolated_summary(monkeypatch):
     """
     for name in ("_KNOWN_GAP_HITS", "_FIXED_GAPS", "_FLAKY_NOT_SEEN", "_FLAKY_SEEN"):
         monkeypatch.setattr(gaps, name, [])
+    monkeypatch.setattr(gaps, "_PASSED", set())
     monkeypatch.setattr(gaps, "KNOWN_GAPS_MODE", "fail")
 
 
@@ -110,6 +114,41 @@ def test_expect_gap_flaky_without_error_passes_and_is_recorded():
     gaps._FLAKY_NOT_SEEN.clear()
 
 
+def test_flaky_history_drops_gaps_a_passing_test_no_longer_declares(monkeypatch, tmp_path):
+    """The run counter of an intermittent gap follows what the tests declare.
+
+    Checks:
+        * a declared gap that did not occur counts one run more;
+        * a passing test that no longer declares a gap drops its counter (otherwise
+          ``rerun.sh --flaky`` keeps repeating it, and it never gets reported);
+        * a failing test keeps its counters: it may have stopped before its expect_gap;
+        * a run without intermittent gaps and nothing to drop leaves the file alone.
+
+    Args:
+        monkeypatch: points the report directory at ``tmp_path``.
+        tmp_path: holds the run's ``flaky_history.json``.
+    """
+    from iceberg_lab.lab import gap_register
+
+    monkeypatch.setattr(reporting, "REPORT_DIR", tmp_path)
+    reason = gap_register.register()["duckdb-commit-retries-exhausted"].reason
+    path = tmp_path / "flaky_history.json"
+    path.write_text(
+        f'{{"t.py::declared :: {reason}": 3, "t.py::dropped :: {reason}": 2,'
+        f' "t.py::failed :: {reason}": 2}}'
+    )
+    gaps._FLAKY_NOT_SEEN.append(("t.py::declared", reason))
+    gaps._PASSED.update({"t.py::declared", "t.py::dropped"})
+    gaps._update_flaky_history_locked()
+    history = {k.split(" :: ")[0]: n for k, n in json.loads(path.read_text()).items()}
+    assert history == {"t.py::declared": 4, "t.py::failed": 2}
+    gaps._FLAKY_NOT_SEEN.clear()  # see the test above
+    path.write_text("{}")
+    mtime = path.stat().st_mtime_ns
+    gaps._update_flaky_history_locked()
+    assert path.stat().st_mtime_ns == mtime and path.read_text() == "{}"
+
+
 def test_expect_gap_without_reason_changes_nothing():
     """Without a documented gap the block runs normally.
 
@@ -142,7 +181,9 @@ def _central(monkeypatch, catalog: str, nodeid: str, exc: BaseException):
         raise exc
     except BaseException:  # noqa: BLE001 - captures whatever the fake test raised
         excinfo = pytest.ExceptionInfo.from_current()
-    report = types.SimpleNamespace(failed=True, longrepr="original", longreprtext="original")
+    report = types.SimpleNamespace(
+        failed=True, passed=False, longrepr="original", longreprtext="original"
+    )
     outcome = types.SimpleNamespace(get_result=lambda: report)
     call = types.SimpleNamespace(when="call", excinfo=excinfo)
     hook = conftest.pytest_runtest_makereport(types.SimpleNamespace(nodeid=nodeid), call)

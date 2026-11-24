@@ -10,9 +10,11 @@ PURGE`` through Spark (on Lakekeeper an intermittent conflict with its own hard 
 # DELETE read by other engines -> test_operations delete_merge_on_read + cross reads.
 # Left here: Spark's own PURGE behaviour on Lakekeeper.
 
+import contextlib
+
 import pytest
 
-from iceberg_lab.config import WAREHOUSE_SIGNING
+from iceberg_lab.config import PROFILE, WAREHOUSE_SIGNING
 from iceberg_lab.engines import SPARK_CATALOGS
 
 from conftest import expect_cause, warehouse_params
@@ -60,7 +62,10 @@ def test_drop_table_purge(spark, namespace, table_name, warehouse):
             "lakekeeper-signer-refuses-purge",
             r"Table does not exist or user does not have permission to view it at location",
         )
-    else:
+    elif PROFILE.name == "lakekeeper":
+        # Lakekeeper deletes the files itself; Spark's PURGE can then miss one.
         gap = expect_cause("lakekeeper-hard-delete-race", r"NoSuchKeyException")
+    else:
+        gap = contextlib.nullcontext()
     with gap:
         spark.sql(f"DROP TABLE {fq} PURGE")

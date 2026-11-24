@@ -9,9 +9,9 @@
   "json": "v2.0.1",
   "parquet": "v2.0.1"
  },
- "finished": "2026-11-24T18:20:54Z",
+ "finished": "2026-11-24T18:48:30Z",
  "git": {
-  "commit": "c919b03034fb209ac1ad601143d3736cca8296a0",
+  "commit": "65757044583dc5625a6f22f36df723a467723a47",
   "dirty": true
  },
  "images_declared": {

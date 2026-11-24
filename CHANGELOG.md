@@ -50,9 +50,21 @@ What changed in the lab and what each run found, by date. Current findings by to
   62 min each, RustFS 51 min, Unity 2 h 17 min, about 4 h in all instead of about 12 h in a row.
   No new failures on any catalog. The first reference run broke off when the disk ran full (the
   JVMs died with SIGBUS) and was run again in full after space was freed.
-- **A candidate to remove** on the reference: DuckDB's exhausted commit retries
-  (`test_all_engines_append_concurrently[v2/v3-duckdb]`) did not occur in 5 runs and are listed
-  as PROBABLY FIXED. The cause stays in the register until it is confirmed.
+- **Two intermittent gaps were expected where they cannot occur**, so they always ended up as
+  PROBABLY FIXED:
+  - DuckDB's exhausted commit retries (`duckdb-commit-retries-exhausted`) on the reference. The
+    fixture answers a losing `/transactions/commit` with 204 instead of 409
+    (`reference-tx-commit-loses-updates`), so DuckDB never retries there: not seen in 10 runs,
+    while the data loss reproduced in 5 of 5. No longer expected on the reference; the cause
+    stays for the other catalogs.
+  - Spark PURGE racing Lakekeeper's hard delete (`lakekeeper-hard-delete-race`) was expected on
+    every catalog. Now on Lakekeeper only.
+- **Counters of intermittent gaps follow the tests**: when a test passes without declaring an
+  intermittent gap it has a counter for, `flaky_history.json` drops that counter
+  (`gaps._update_flaky_history`). Before, the counter stayed: never reported again, but
+  `rerun.sh --flaky` kept repeating the test. A failed test keeps its counters, since it may
+  have stopped before its check. A run with no intermittent gap and nothing to drop leaves the
+  file untouched.
 - The weekly timer is not installed by default; `scripts/systemd/install.sh` does that.
 
 ## Lab changes 2026-11-24: cause ids, the reference's separator, proxy diagnostics

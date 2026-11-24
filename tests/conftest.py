@@ -496,6 +496,8 @@ def pytest_runtest_makereport(item, call):
     """
     outcome = yield
     report = outcome.get_result()
+    if call.when == "call" and report.passed:
+        gaps.record_passed(item.nodeid)
     # "setup" too: an engine that cannot connect may fail in a fixture already.
     if call.when not in ("setup", "call") or not report.failed or call.excinfo is None:
         return

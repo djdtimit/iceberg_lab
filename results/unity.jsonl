@@ -11052,7 +11052,7 @@
 {"test": "tests/specific/test_pyiceberg.py::test_partitioning_prunes_files[lab]", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_pyiceberg.py::test_upsert_after_rename[lab]", "status": "gap", "detail": "PyIceberg 0.12: upsert compares against pre-rename physical column names", "cause": "pyiceberg-upsert-renamed-columns"}
 {"test": "tests/specific/test_spark.py::test_drop_table_purge[signing]", "status": "na", "detail": "catalog unity has no API for remote signing"}
-{"test": "tests/specific/test_spark.py::test_drop_table_purge[sts]", "status": "gap", "detail": "Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException)", "cause": "lakekeeper-hard-delete-race"}
+{"test": "tests/specific/test_spark.py::test_drop_table_purge[sts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-catalog_down]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-concurrent_commit]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[daft-lost_response]", "status": "pass", "detail": ""}
