@@ -232,7 +232,7 @@ CATALOG_GAPS = [
     # Spark/Flink resolve "ns.table.snapshots" by first trying table "snapshots" in namespace
     # "ns.table"; they fall back to the metadata table only on NoSuchTable.
     ("unity", "spark|flink", r"NoSuchNamespaceException: Schema not found: lab\.test_\w+\.\w+", (), "unity-nosuchnamespace-for-metadata-tables"),
-    ("unity", "pg_lake|pglake", r"pg_lake commits writes through POST /v1/\{prefix\}/transactions/commit", (), "pglake-ignores-refused-commit"),
+    ("unity|gravitino", "pg_lake|pglake", r"pg_lake commits writes through POST /v1/\{prefix\}/transactions/commit", (), "pglake-ignores-refused-commit"),
     # Only without help (LAB_NO_HELP=1, test_stock_connection): the lab's workaround
     # (engines._add_content_sha256) is off while PyIceberg/Polars/Daft is under test.
     ("rustfs", "pyiceberg|polars|daft|dataframes", r"missing header: x-amz-content-sha256", ("pyiceberg/catalog/rest",), "pyiceberg-sigv4-content-sha256"),

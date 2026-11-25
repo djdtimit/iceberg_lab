@@ -103,6 +103,20 @@ def describe_catalog() -> None:
             f"Iceberg REST fixture: no management API; /v1/config defaults={c.get('defaults')} "
             f"overrides={c.get('overrides')}, data under {PROFILE.location}"
         )
+    elif PROFILE.name == "gravitino":
+        from iceberg_lab.bootstrap import GRAVITINO_ACCEPT, GRAVITINO_API, GRAVITINO_METALAKE
+
+        c = requests.get(
+            f"{GRAVITINO_API}/api/metalakes/{GRAVITINO_METALAKE}/catalogs/{WAREHOUSE_STS}",
+            headers=catalog_headers(SETTINGS) | {"Accept": GRAVITINO_ACCEPT},
+            timeout=10,
+        ).json()["catalog"]
+        p = c["properties"]
+        print(
+            f"Gravitino catalog {c['name']} ({c['provider']}) in metalake {GRAVITINO_METALAKE}: "
+            f"backend {p.get('catalog-backend')}, warehouse {p.get('warehouse')}, "
+            f"credentials {p.get('credential-providers')}"
+        )
     else:
         print(f"Catalog {PROFILE.name}: no description available")
 

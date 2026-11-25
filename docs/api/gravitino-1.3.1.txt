@@ -1,0 +1,161 @@
+# Apache Gravitino 1.3.1 (apache/gravitino:1.3.1): JAX-RS resources read by reflection from
+# gravitino-server-1.3.1.jar (own API under /api, Jetty context) and
+# gravitino-iceberg-rest-server-1.3.1.jar (Iceberg REST service under /iceberg; the same list as
+# advertised-gravitino.txt plus GET /v1/config and the health check). Recorded 2026-11-25, not yet
+# classified in tests/lab/feature_inventory.py.
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}  # CatalogOperations.dropCatalog
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}  # SchemaOperations.dropSchema
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}  # FilesetOperations.dropFileset
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}  # FunctionOperations.dropFunction
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}  # ModelOperations.deleteModel
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}  # ModelOperations.deleteModelVersionByAlias
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}  # ModelOperations.deleteModelVersion
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}  # TableOperations.dropTable
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions/{partition}  # PartitionOperations.dropPartition
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}  # TopicOperations.dropTopic
+DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}  # ViewOperations.dropView
+DELETE /api/metalakes/{metalake}/groups/{group}  # GroupOperations.removeGroup
+DELETE /api/metalakes/{metalake}/jobs/templates/{name}  # JobOperations.deleteJobTemplate
+DELETE /api/metalakes/{metalake}/policies/{policy}  # PolicyOperations.deletePolicy
+DELETE /api/metalakes/{metalake}/roles/{role}  # RoleOperations.deleteRole
+DELETE /api/metalakes/{metalake}/tags/{tag}  # TagOperations.deleteTag
+DELETE /api/metalakes/{metalake}/users/{user}  # UserOperations.removeUser
+DELETE /api/metalakes/{name}  # MetalakeOperations.dropMetalake
+GET /api/authn/me  # AuthnOperations.me
+GET /api/health  # HealthOperations.health
+GET /api/health/live  # HealthOperations.live
+GET /api/health/ready  # HealthOperations.ready
+GET /api/metalakes  # MetalakeOperations.listMetalakes
+GET /api/metalakes/{metalake}/catalogs  # CatalogOperations.listCatalogs
+GET /api/metalakes/{metalake}/catalogs/{catalog}  # CatalogOperations.loadCatalog
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas  # SchemaOperations.listSchemas
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}  # SchemaOperations.loadSchema
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets  # FilesetOperations.listFilesets
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}  # FilesetOperations.loadFileset
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}/files  # FilesetOperations.listFiles
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}/location  # FilesetOperations.getFileLocation
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions  # FunctionOperations.listFunctions
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}  # FunctionOperations.getFunction
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models  # ModelOperations.listModels
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}  # ModelOperations.getModel
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}  # ModelOperations.getModelVersionByAlias
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}/uri  # ModelOperations.getModelVersionUriByAlias
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions  # ModelOperations.listModelVersions
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}  # ModelOperations.getModelVersion
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}/uri  # ModelOperations.getModelVersionUri
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables  # TableOperations.listTables
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}  # TableOperations.loadTable
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions  # PartitionOperations.listPartitionNames
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions/{partition}  # PartitionOperations.getPartition
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics  # TopicOperations.listTopics
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}  # TopicOperations.loadTopic
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views  # ViewOperations.listViews
+GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}  # ViewOperations.loadView
+GET /api/metalakes/{metalake}/groups  # GroupOperations.listGroups
+GET /api/metalakes/{metalake}/groups/{group}  # GroupOperations.getGroup
+GET /api/metalakes/{metalake}/jobs/runs  # JobOperations.listJobs
+GET /api/metalakes/{metalake}/jobs/runs/{jobId}  # JobOperations.getJob
+GET /api/metalakes/{metalake}/jobs/templates  # JobOperations.listJobTemplates
+GET /api/metalakes/{metalake}/jobs/templates/{name}  # JobOperations.getJobTemplate
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/credentials  # MetadataObjectCredentialOperations.getCredentials
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/policies  # MetadataObjectPolicyOperations.listPoliciesForMetadataObject
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/policies/{policy}  # MetadataObjectPolicyOperations.getPolicyForObject
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/roles  # MetadataObjectRoleOperations.listRoles
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics  # StatisticOperations.listStatistics
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions  # StatisticOperations.listPartitionStatistics
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/tags  # MetadataObjectTagOperations.listTagsForMetadataObject
+GET /api/metalakes/{metalake}/objects/{type}/{fullName}/tags/{tag}  # MetadataObjectTagOperations.getTagForObject
+GET /api/metalakes/{metalake}/owners/{metadataObjectType}/{fullName}  # OwnerOperations.getOwnerForObject
+GET /api/metalakes/{metalake}/policies  # PolicyOperations.listPolicies
+GET /api/metalakes/{metalake}/policies/{policy}  # PolicyOperations.getPolicy
+GET /api/metalakes/{metalake}/policies/{policy}/objects  # PolicyOperations.listMetadataObjectsForPolicy
+GET /api/metalakes/{metalake}/roles  # RoleOperations.listRoles
+GET /api/metalakes/{metalake}/roles/{role}  # RoleOperations.getRole
+GET /api/metalakes/{metalake}/tags  # TagOperations.listTags
+GET /api/metalakes/{metalake}/tags/{tag}  # TagOperations.getTag
+GET /api/metalakes/{metalake}/tags/{tag}/objects  # TagOperations.listMetadataObjectsForTag
+GET /api/metalakes/{metalake}/tags/{type}/{fullName}  # TagOperations.listTagsForMetadataObject
+GET /api/metalakes/{metalake}/tags/{type}/{fullName}/{tag}  # TagOperations.getTagForObject
+GET /api/metalakes/{metalake}/users  # UserOperations.listUsers
+GET /api/metalakes/{metalake}/users/{user}  # UserOperations.getUser
+GET /api/metalakes/{name}  # MetalakeOperations.loadMetalake
+GET /api/system/iceberg-rest  # IcebergRESTServiceOperations.getIcebergRestServiceUri
+GET /api/version  # VersionOperations.getVersion
+PATCH /api/metalakes/{metalake}/catalogs/{catalog}  # CatalogOperations.setCatalog
+PATCH /api/metalakes/{metalake}/policies/{policy}  # PolicyOperations.setPolicy
+PATCH /api/metalakes/{name}  # MetalakeOperations.setMetalake
+POST /api/metalakes  # MetalakeOperations.createMetalake
+POST /api/metalakes/{metalake}/catalogs  # CatalogOperations.createCatalog
+POST /api/metalakes/{metalake}/catalogs/testConnection  # CatalogOperations.testConnection
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas  # SchemaOperations.createSchema
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets  # FilesetOperations.createFileset
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions  # FunctionOperations.registerFunction
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models  # ModelOperations.registerModel
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions  # ModelOperations.linkModelVersion
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables  # TableOperations.createTable
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions  # PartitionOperations.addPartitions
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics  # TopicOperations.createTopic
+POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views  # ViewOperations.createView
+POST /api/metalakes/{metalake}/catalogs/{catalog}/testConnection  # CatalogOperations.testExistingConnection
+POST /api/metalakes/{metalake}/groups  # GroupOperations.addGroup
+POST /api/metalakes/{metalake}/jobs/runs  # JobOperations.runJob
+POST /api/metalakes/{metalake}/jobs/runs/{jobId}  # JobOperations.cancelJob
+POST /api/metalakes/{metalake}/jobs/templates  # JobOperations.registerJobTemplate
+POST /api/metalakes/{metalake}/objects/{type}/{fullName}/policies  # MetadataObjectPolicyOperations.associatePoliciesForObject
+POST /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics  # StatisticOperations.dropStatistics
+POST /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions  # StatisticOperations.dropPartitionStatistics
+POST /api/metalakes/{metalake}/objects/{type}/{fullName}/tags  # MetadataObjectTagOperations.associateTagsForObject
+POST /api/metalakes/{metalake}/policies  # PolicyOperations.createPolicy
+POST /api/metalakes/{metalake}/roles  # RoleOperations.createRole
+POST /api/metalakes/{metalake}/tags  # TagOperations.createTag
+POST /api/metalakes/{metalake}/tags/{type}/{fullName}  # TagOperations.associateTagsForObject
+POST /api/metalakes/{metalake}/users  # UserOperations.addUser
+PUT /api/metalakes/{metalake}/catalogs/{catalog}  # CatalogOperations.alterCatalog
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}  # SchemaOperations.alterSchema
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}  # FilesetOperations.alterFileset
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}  # FunctionOperations.alterFunction
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}  # ModelOperations.alterModel
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}  # ModelOperations.alterModelVersionByAlias
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}  # ModelOperations.alterModelVersion
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}  # TableOperations.alterTable
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}  # TopicOperations.alterTopic
+PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}  # ViewOperations.alterView
+PUT /api/metalakes/{metalake}/jobs/templates/{name}  # JobOperations.alterJobTemplate
+PUT /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics  # StatisticOperations.updateStatistics
+PUT /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions  # StatisticOperations.updatePartitionStatistics
+PUT /api/metalakes/{metalake}/owners/{metadataObjectType}/{fullName}  # OwnerOperations.setOwnerForObject
+PUT /api/metalakes/{metalake}/permissions/groups/{group}/grant  # PermissionOperations.grantRolesToGroup
+PUT /api/metalakes/{metalake}/permissions/groups/{group}/revoke  # PermissionOperations.revokeRolesFromGroup
+PUT /api/metalakes/{metalake}/permissions/roles/{role}  # PermissionOperations.overrideRolePrivileges
+PUT /api/metalakes/{metalake}/permissions/roles/{role}/{type}/{fullName}/grant  # PermissionOperations.grantPrivilegeToRole
+PUT /api/metalakes/{metalake}/permissions/roles/{role}/{type}/{fullName}/revoke  # PermissionOperations.revokePrivilegeFromRole
+PUT /api/metalakes/{metalake}/permissions/users/{user}/grant  # PermissionOperations.grantRolesToUser
+PUT /api/metalakes/{metalake}/permissions/users/{user}/revoke  # PermissionOperations.revokeRolesFromUser
+PUT /api/metalakes/{metalake}/policies/{policy}  # PolicyOperations.alterPolicy
+PUT /api/metalakes/{metalake}/tags/{tag}  # TagOperations.alterTag
+PUT /api/metalakes/{name}  # MetalakeOperations.alterMetalake
+GET /iceberg/v1/config  # IcebergConfigOperations.getConfig
+DELETE /iceberg/v1/{prefix}/namespaces/{namespace}
+DELETE /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}
+DELETE /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}
+GET /iceberg/v1/{prefix}/namespaces
+GET /iceberg/v1/{prefix}/namespaces/{namespace}
+GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables
+GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}
+GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials
+GET /iceberg/v1/{prefix}/namespaces/{namespace}/views
+GET /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}
+HEAD /iceberg/v1/{prefix}/namespaces/{namespace}
+HEAD /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}
+HEAD /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}
+POST /iceberg/v1/{prefix}/namespaces
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/properties
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/register
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/views
+POST /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}
+POST /iceberg/v1/{prefix}/tables/rename
+POST /iceberg/v1/{prefix}/views/rename

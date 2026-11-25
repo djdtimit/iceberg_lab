@@ -7,6 +7,7 @@
 * Polaris (external identity provider next to its own broker): ``scope=polaris`` adds
   audience "polaris"; the scope itself becomes the role PRINCIPAL_ROLE:ALL, a scope
   ``polaris-role-<name>`` the role PRINCIPAL_ROLE:<name>.
+* Gravitino: ``scope=gravitino`` adds audience "gravitino" (its serviceAudience).
 * RustFS: own clients ``rustfs-alice`` / ``rustfs-bob`` with ONLY audience "rustfs" plus the
   IAM policy as claim "rustfs_policy". RustFS rejects a token that also names another
   service (strict OIDC audience check: "`lakekeeper` is not a trusted audience"), and the
@@ -14,6 +15,8 @@
 * Roles only the identity provider assigns (tests/security/test_rbac.py::test_idp_role_is_a_catalog_role):
   client ``rbac-idp`` (claim ``lab_roles`` for Lakekeeper, scope ``polaris-role-lab_readers``
   for Polaris) and ``rustfs-rbac-idp`` (claim ``rustfs_policy``).
+* Lakekeeper UI login (``ensure_ui_login``): public client ``lakekeeper-ui`` (browser login with
+  PKCE, audience "lakekeeper") and the human user ``lab-ui``.
 
 Scopes and these clients are created here, not in realm.json: a realm import that defines
 client scopes does not create Keycloak's built-in ones (``basic`` carries ``sub``).
@@ -25,7 +28,7 @@ import requests
 
 KC = "http://keycloak:8080"
 LAB_CLIENTS = ("lab-admin", "alice", "bob")
-SERVICE_SCOPES = ("unity", "polaris")
+SERVICE_SCOPES = ("unity", "polaris", "gravitino")
 #: RustFS identities: client -> IAM policy (claim "rustfs_policy"); only audience "rustfs".
 RUSTFS_CLIENTS = {"rustfs-alice": "az-alice", "rustfs-bob": "az-bob"}
 #: Roles that only the identity provider assigns (tests/security/test_rbac.py::test_idp_role_is_a_catalog_role):
@@ -37,6 +40,12 @@ POLARIS_IDP_SCOPE = "polaris-role-lab_readers"
 IDP_CLIENT = "rbac-idp"
 #: RustFS: the identity provider names the IAM policy (claim rustfs_policy).
 RUSTFS_IDP_CLIENT, RUSTFS_IDP_POLICY = "rustfs-rbac-idp", "rbac-idp-readers"
+#: Browser login to the Lakekeeper UI of lakekeeper-authz (http://localhost:8282/ui/): public
+#: client with PKCE, and a human lab user (lab only - user name = password).
+UI_CLIENT, UI_USER = "lakekeeper-ui", "lab-ui"
+UI_ORIGIN = "http://localhost:8282"
+#: Keycloak as the host's browser reaches it: tokens it issues there name this issuer.
+BROWSER_ISSUER = "http://localhost:30080/realms/iceberg"
 
 
 def admin_headers() -> dict:
@@ -162,7 +171,13 @@ def ensure_idp_role_clients(h: dict) -> list[str]:
             for s in requests.get(f"{base}/client-scopes", headers=h, timeout=10).json()
         }
     if ensure_client(
-        h, IDP_CLIENT, [audience_mapper("lakekeeper"), roles_claim_mapper([IDP_ROLE])]
+        h,
+        IDP_CLIENT,
+        [
+            audience_mapper("lakekeeper"),
+            audience_mapper("gravitino"),
+            roles_claim_mapper([IDP_ROLE]),
+        ],
     ):
         changed.append(f"client {IDP_CLIENT}")
     (client,) = requests.get(
@@ -351,5 +366,93 @@ def token(client: str, scope: str | None = None, realm: str = "iceberg", base: s
     if scope:
         data["scope"] = scope
     r = requests.post(f"{base}/realms/{realm}/protocol/openid-connect/token", data=data, timeout=10)
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+def ensure_ui_login(h: dict | None = None) -> list[str]:
+    """Browser login to the Lakekeeper UI: public client and human user (idempotent).
+
+    The UI runs in the host's browser and reaches Keycloak as ``localhost:30080``; the client
+    allows only redirects back to the UI there. Keycloak 26's user profile wants e-mail and
+    names, or the first login stops at "update your account".
+
+    Args:
+        h: Keycloak admin headers (default: fetched).
+
+    Returns:
+        What was changed (for the script's output).
+    """
+    h = h or admin_headers()
+    base = f"{KC}/admin/realms/iceberg"
+    changed = []
+    if not requests.get(
+        f"{base}/clients", params={"clientId": UI_CLIENT}, headers=h, timeout=10
+    ).json():
+        requests.post(
+            f"{base}/clients",
+            json={
+                "clientId": UI_CLIENT,
+                "enabled": True,
+                "protocol": "openid-connect",
+                "publicClient": True,
+                "standardFlowEnabled": True,
+                # Password grant for the lab's own check (test_ui) - the browser uses the code flow.
+                "directAccessGrantsEnabled": True,
+                "redirectUris": [f"{UI_ORIGIN}/ui/*"],
+                "webOrigins": [UI_ORIGIN],
+                "attributes": {
+                    "pkce.code.challenge.method": "S256",
+                    "post.logout.redirect.uris": f"{UI_ORIGIN}/ui/*",
+                },
+                "protocolMappers": [audience_mapper("lakekeeper")],
+            },
+            headers=h,
+            timeout=10,
+        ).raise_for_status()
+        changed.append(f"client {UI_CLIENT}")
+    if not requests.get(
+        f"{base}/users", params={"username": UI_USER, "exact": "true"}, headers=h, timeout=10
+    ).json():
+        requests.post(
+            f"{base}/users",
+            json={
+                "username": UI_USER,
+                "enabled": True,
+                "email": f"{UI_USER}@lab.invalid",
+                "emailVerified": True,
+                "firstName": "Lab",
+                "lastName": "UI",
+                "credentials": [{"type": "password", "value": UI_USER, "temporary": False}],
+            },
+            headers=h,
+            timeout=10,
+        ).raise_for_status()
+        changed.append(f"user {UI_USER}")
+    return changed
+
+
+def ui_user_token(browser: bool = False) -> str:
+    """Token of the UI user ``lab-ui`` (password grant of client ``lakekeeper-ui``).
+
+    Args:
+        browser: Ask Keycloak as the host's browser does (``localhost:30080``): the token then
+            names :data:`BROWSER_ISSUER`, as one from the UI's login would.
+
+    Returns:
+        The access token.
+    """
+    r = requests.post(
+        f"{KC}/realms/iceberg/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": UI_CLIENT,
+            "username": UI_USER,
+            "password": UI_USER,
+            "scope": "openid",
+        },
+        headers={"Host": "localhost:30080"} if browser else {},
+        timeout=10,
+    )
     r.raise_for_status()
     return r.json()["access_token"]

@@ -9,11 +9,12 @@ Sources (the running images; run on the HOST, needs docker):
     unity       the ``Privilege`` enum of the server model jar
     rustfs      IAM actions: candidates found in the binary (``admin:...``, ``s3:...``), kept
                 only if RustFS itself accepts them in an IAM policy (it refuses unknown actions)
+    gravitino   the ``Privilege.Name`` enum of the API jar
 
 Each file starts with ``# image: <compose image>``; tests/security/test_privileges.py fails when the
 compose file names another image - re-run this script after every catalog update.
 
-Usage: python3 scripts/privilege_inventory.py
+Usage: python3 scripts/privilege_inventory.py [<catalog> ...]   (default: all)
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ COMPOSE = ROOT / ".devcontainer" / "docker-compose.yml"
 OUT = ROOT / "docs" / "api"
 POLARIS_JAR = "/deployments/lib/main/org.apache.polaris.polaris-api-management-model-1.9.0.jar"
 UNITY_JAR = "/home/unitycatalog/server/target/models/target/unitycatalog-servermodels-0.7.0.jar"
+GRAVITINO_JAR = "/opt/gravitino/libs/gravitino-api-1.3.1.jar"
 
 
 def image(service: str) -> str:
@@ -187,11 +189,23 @@ def rustfs() -> list[str]:
     return sorted(set(accepted))
 
 
+def gravitino() -> list[str]:
+    """Gravitino: the API's ``Privilege.Name`` enum.
+
+    Returns:
+        The inventory lines.
+    """
+    z = _jar("iceberg-lab-gravitino-1", GRAVITINO_JAR)
+    data = z.read("org/apache/gravitino/authorization/Privilege$Name.class")
+    return sorted(enum_constants(data))
+
+
 SOURCES = {
     "lakekeeper": ("lakekeeper-authz", lakekeeper),
     "polaris": ("polaris", polaris),
     "unity": ("unitycatalog-authz", unity),
     "rustfs": ("rustfs", rustfs),
+    "gravitino": ("gravitino", gravitino),
 }
 
 
@@ -222,9 +236,15 @@ def validate_rustfs() -> None:
     print(json.dumps(ok))
 
 
-def main() -> None:
-    """Write docs/api/privileges-<catalog>.txt for all four catalogs."""
+def main(only: list[str]) -> None:
+    """Write docs/api/privileges-<catalog>.txt for the given catalogs (default: all).
+
+    Args:
+        only: Catalog names; empty for all.
+    """
     for catalog, (service, read) in SOURCES.items():
+        if only and catalog not in only:
+            continue
         lines = read()
         path = OUT / f"privileges-{catalog}.txt"
         path.write_text(f"# image: {image(service)}\n" + "\n".join(lines) + "\n")
@@ -234,4 +254,4 @@ def main() -> None:
 if __name__ == "__main__":
     import sys
 
-    validate_rustfs() if "--validate-rustfs" in sys.argv else main()
+    validate_rustfs() if "--validate-rustfs" in sys.argv else main(sys.argv[1:])

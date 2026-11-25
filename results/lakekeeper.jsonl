@@ -151,7 +151,7 @@
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[daft]", "status": "na", "detail": "daft has no API for multi-table transactions (checked: no /commit_transactions|multi_table/ in its API)"}
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[duckdb]", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[flink]", "status": "gap", "detail": "INCONSISTENT: Flink STATEMENT SET is not atomic across tables: A stays committed when B's commit fails", "cause": "flink-statement-set-not-atomic"}
-{"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[pg_lake]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
+{"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[pg_lake]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity and Gravitino have no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[polars]", "status": "na", "detail": "polars has no API for multi-table transactions (checked: no /commit_transactions|multi_table/ in its API)"}
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[pyiceberg]", "status": "na", "detail": "pyiceberg has no API for multi-table transactions (checked: no /commit_transactions|multi_table/ in its API)"}
 {"test": "tests/catalog/test_transactions.py::test_multi_table_atomicity[spark]", "status": "na", "detail": "spark has no API for multi-table transactions (checked: no /commit_transactions|multi_table/ in its API)"}
@@ -10773,6 +10773,8 @@
 {"test": "tests/security/test_sts_scope.py::test_write_outside_own_table_is_denied[sibling_prefix]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_ui.py::test_catalog_has_ui", "status": "pass", "detail": ""}
 {"test": "tests/security/test_ui.py::test_ui_data_needs_login", "status": "pass", "detail": ""}
+{"test": "tests/security/test_ui.py::test_ui_login_reaches_the_data", "status": "pass", "detail": ""}
+{"test": "tests/security/test_ui.py::test_ui_works_in_the_host_browser", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_every_missing_capability_is_checked_or_proven", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[branch_and_tag]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[computing partition statistics]", "status": "pass", "detail": ""}
@@ -10953,6 +10955,7 @@
 {"test": "tests/selftest/test_lab_infrastructure.py::test_rest_observed_maps_paths_to_spec_operations[POST-/v1/catalogs/lab/namespaces/a%1Fb/tables/t-POST /v1/{prefix}/namespaces/{namespace}/tables/{table}]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_smoke_files_exist", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_snowflake_horizon_pat_and_role", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[polaris]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[reference]", "status": "pass", "detail": ""}
@@ -10982,6 +10985,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_no_error_means_fixed", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_other_error_comes_through_unchanged", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_without_reason_changes_nothing", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_flaky_history_drops_gaps_a_passing_test_no_longer_declares", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_foreign_blocked_cases_leave_the_engines_coverage", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_after_correct_content_still_feeds_the_reads", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_with_severity_is_accepted_and_classified", "status": "pass", "detail": ""}
@@ -11035,7 +11039,7 @@
 {"test": "tests/specific/test_dataframes.py::test_polars_lazy_groupby", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_duckdb.py::test_three_part_schema_name_creates_the_right_namespace", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_flink.py::test_join_across_warehouses", "status": "pass", "detail": ""}
-{"test": "tests/specific/test_pglake.py::test_attached_table_follows_external_commits[signing]", "status": "gap", "detail": "PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)", "cause": "pyiceberg-signer-race"}
+{"test": "tests/specific/test_pglake.py::test_attached_table_follows_external_commits[signing]", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_pglake.py::test_attached_table_follows_external_commits[sts]", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_pglake.py::test_attached_table_is_read_only[signing]", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_pglake.py::test_attached_table_is_read_only[sts]", "status": "pass", "detail": ""}
@@ -11071,9 +11075,9 @@
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-repeated_conflicts]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[flink-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-catalog_down]", "status": "pass", "detail": ""}
-{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-concurrent_commit]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-concurrent_commit]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity and Gravitino have no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-lost_response]", "status": "pass", "detail": ""}
-{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-repeated_conflicts]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
+{"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-repeated_conflicts]", "status": "gap", "detail": "DATA LOSS: pg_lake reports COMMIT success although the REST catalog refused the commit (Unity and Gravitino have no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged", "cause": "pglake-ignores-refused-commit"}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[pg_lake-transient_503]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-catalog_down]", "status": "pass", "detail": ""}
 {"test": "tests/storage/test_robustness.py::test_catalog_fault[polars-concurrent_commit]", "status": "pass", "detail": ""}

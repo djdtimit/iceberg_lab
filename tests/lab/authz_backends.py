@@ -28,6 +28,9 @@ How each catalog implements this:
 * **Unity** - second instance ``unitycatalog-authz`` (compose profile ``unity``) with
   authorization on; Keycloak identities exchanged for Unity tokens by ``unity-token-shim``,
   so every engine uses plain OAuth2 client credentials. No roles or groups.
+* **Gravitino** - the main instance (authorization on): Keycloak identities (users
+  ``service-account-<client>`` in metalake ``lab``); privileges on catalog/schema/table go
+  to roles, roles to users.
 
 What a catalog does not offer (roles, namespace grants, single privileges, vended credentials,
 remote signing) is reported as "not offered" with a reason the backend checks on every run.
@@ -583,6 +586,33 @@ class LakekeeperAuthz(Backend):
             self.user_ids[u] = requests.get(
                 f"{self.base}/management/v1/whoami", headers=self._h(u), timeout=10
             ).json()["id"]
+
+    def ensure_ui_user(self) -> str:
+        """The UI's login user ``lab-ui``: in Keycloak, registered here, project admin (idempotent).
+
+        Project admin, so the UI shows the identity and role management - the feature the
+        permission tests exercise through the API.
+
+        Returns:
+            The user's Lakekeeper id.
+        """
+        from iceberg_lab import keycloak as kc
+
+        kc.ensure_ui_login()
+        h = {"Authorization": f"Bearer {kc.ui_user_token()}"}
+        requests.post(f"{self.base}/management/v1/user", json={}, headers=h, timeout=10)
+        uid = requests.get(f"{self.base}/management/v1/whoami", headers=h, timeout=10).json()["id"]
+        r = requests.post(
+            f"{self.base}/management/v1/permissions/project/assignments",
+            json={"writes": [{"type": "project_admin", "user": uid}]},
+            headers=self._h(),
+            timeout=10,
+        )
+        # Writing an assignment that exists already is refused - that is the idempotent case.
+        assert r.ok or "exist" in r.text.lower(), (
+            f"project_admin for {uid}: {r.status_code} {r.text}"
+        )
+        return uid
 
     def rest_prefix(self, warehouse: str) -> str:
         """Lakekeeper's REST prefix is the warehouse id (known from :meth:`ensure`).
@@ -2056,11 +2086,457 @@ class UnityAuthz(Backend):
         )
 
 
+# =========================================================================== Gravitino
+
+
+@dataclass
+class GravitinoAuthz(Backend):
+    """Gravitino permission backend: the main instance (authorization on), Keycloak identities.
+
+    A user is the token's ``preferred_username`` (``service-account-<client>``) and must be a
+    member of metalake ``lab``; privileges go to roles (one per lab user, ``az_<user>``), roles
+    to users. Using a table needs ``USE_CATALOG`` and ``USE_SCHEMA`` on its parents.
+    """
+
+    name: str = "gravitino"
+    trino: dict = field(default_factory=lambda: {"alice": "grv_alice", "bob": "grv_bob"})
+
+    @property
+    def api(self) -> str:
+        """Base URL of metalake ``lab`` in Gravitino's own API.
+
+        Returns:
+            The URL.
+        """
+        from iceberg_lab.bootstrap import GRAVITINO_API, GRAVITINO_METALAKE
+
+        return f"{GRAVITINO_API}/api/metalakes/{GRAVITINO_METALAKE}"
+
+    @staticmethod
+    def user(client: str) -> str:
+        """Gravitino user name of a Keycloak client (principal field preferred_username).
+
+        Args:
+            client: Keycloak client id.
+
+        Returns:
+            The user name.
+        """
+        return f"service-account-{client}"
+
+    def _h(self, client="lab-admin"):
+        """Headers for Gravitino's API with a Keycloak token (scope gravitino) of ``client``.
+
+        Args:
+            client: Keycloak client id.
+
+        Returns:
+            The headers.
+        """
+        from iceberg_lab.bootstrap import GRAVITINO_ACCEPT
+
+        r = requests.post(
+            SETTINGS.token_endpoint,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client,
+                "client_secret": f"{client}-secret",
+                "scope": "gravitino",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        return {
+            "Authorization": f"Bearer {r.json()['access_token']}",
+            "Accept": GRAVITINO_ACCEPT,
+            "Content-Type": "application/json",
+        }
+
+    def _call(self, method, path, body=None, client="lab-admin", ok=(200,)):
+        """One call of Gravitino's API; asserts the status.
+
+        Args:
+            method: HTTP method.
+            path: Path below the metalake.
+            body: JSON body.
+            client: Keycloak client whose token is sent.
+            ok: Accepted status codes.
+
+        Returns:
+            The response.
+        """
+        r = requests.request(
+            method, f"{self.api}/{path}", json=body, headers=self._h(client), timeout=15
+        )
+        assert r.status_code in ok, f"{method} {path}: {r.status_code} {r.text[:300]}"
+        return r
+
+    @staticmethod
+    def _privs(*names):
+        """Privilege list of Gravitino's API (all ALLOW).
+
+        Args:
+            *names: Privilege names.
+
+        Returns:
+            The list.
+        """
+        return [{"name": n, "condition": "ALLOW"} for n in names]
+
+    def _object(self, kind, ns=None, table=None):
+        """``(type, fullName)`` of a securable object.
+
+        Args:
+            kind: ``metalake``, ``catalog``, ``schema`` or ``table``.
+            ns: Namespace (schema and table).
+            table: Table name (table).
+
+        Returns:
+            The pair.
+        """
+        from iceberg_lab.bootstrap import GRAVITINO_METALAKE
+
+        return kind, {
+            "metalake": GRAVITINO_METALAKE,
+            "catalog": WAREHOUSE_STS,
+            "schema": f"{WAREHOUSE_STS}.{ns}",
+            "table": f"{WAREHOUSE_STS}.{ns}.{table}",
+        }[kind]
+
+    def _role_privileges(self, role, kind, ns, table, privs, revoke=False, client="lab-admin"):
+        """Grant (or revoke) privileges on one object to a role.
+
+        Args:
+            role: Role name.
+            kind: Object kind (see ``_object``).
+            ns: Namespace.
+            table: Table name.
+            privs: Privilege names.
+            revoke: Revoke instead of grant.
+            client: Keycloak client that calls.
+
+        Returns:
+            The response.
+        """
+        typ, full = self._object(kind, ns, table)
+        return self._call(
+            "PUT",
+            f"permissions/roles/{role}/{typ}/{full}/{'revoke' if revoke else 'grant'}",
+            {"privileges": self._privs(*privs)},
+            client=client,
+        )
+
+    def _use(self, role, ns):
+        """USE_CATALOG and USE_SCHEMA for a role (needed to reach any table of ``ns``).
+
+        Args:
+            role: Role name.
+            ns: Namespace.
+        """
+        self._role_privileges(role, "catalog", None, None, ["USE_CATALOG"])
+        self._role_privileges(role, "schema", ns, None, ["USE_SCHEMA"])
+
+    def _ensure_user(self, client):
+        """Make a Keycloak client's user a member of the metalake (idempotent).
+
+        Args:
+            client: Keycloak client id.
+        """
+        self._call("POST", "users", {"name": self.user(client)}, ok=(200, 409))
+
+    def ensure(self):
+        """Users alice and bob in the metalake, each with an (initially empty) role ``az_<user>``."""
+        try:
+            url = f"{self.api.split('/api/')[0]}/api/version"
+            ok = requests.get(url, timeout=3).status_code in (200, 401)  # 401: OAuth on
+        except requests.RequestException:
+            ok = False
+        require(ok, "gravitino not running (compose profile gravitino)")
+        for u in USERS:
+            self._ensure_user(u)
+            self._call(
+                "POST",
+                "roles",
+                {"name": f"az_{u}", "properties": {}, "securableObjects": []},
+                ok=(200, 409),
+            )
+            self._call("PUT", f"permissions/users/{self.user(u)}/grant", {"roleNames": [f"az_{u}"]})
+
+    def _conn(self, client, scope="gravitino"):
+        """OAuth2 connection of a Keycloak client.
+
+        Args:
+            client: Keycloak client id.
+            scope: Token scope (the lab clients get audience gravitino through it).
+
+        Returns:
+            The connection.
+        """
+        return Conn(
+            uri=SETTINGS.catalog_uri,
+            warehouse=WAREHOUSE_STS,
+            auth="oauth2",
+            credential=f"{client}:{client}-secret",
+            token_url=SETTINGS.token_endpoint,
+            scope=scope,
+        )
+
+    def conn(self, user):
+        """Connection of a lab user.
+
+        Args:
+            user: Lab user (``alice`` or ``bob``).
+
+        Returns:
+            The connection.
+        """
+        return self._conn(user)
+
+    def admin(self):
+        """Connection of ``lab-admin`` (the service admin, creator and owner of the objects).
+
+        Returns:
+            The connection.
+        """
+        return self._conn("lab-admin")
+
+    def grant(self, ns, table, write, user="alice", revoke=False):
+        """USE_CATALOG/USE_SCHEMA and SELECT_TABLE (+ MODIFY_TABLE) to the user's role.
+
+        Args:
+            ns: Namespace of the table.
+            table: Table name.
+            write: Read + write (True) or read only (False).
+            user: Lab user (``alice`` or ``bob``).
+            revoke: Take the table privileges away instead of giving them.
+        """
+        role = f"az_{user}"
+        if not revoke:
+            self._use(role, ns)
+        privs = ["SELECT_TABLE", "MODIFY_TABLE"] if write else ["SELECT_TABLE"]
+        self._role_privileges(role, "table", ns, table, privs, revoke=revoke)
+
+    def anonymous_config(self):
+        """``GET /v1/config`` without credentials.
+
+        Returns:
+            The response.
+        """
+        return requests.get(
+            f"{SETTINGS.catalog_uri}/v1/config", params={"warehouse": WAREHOUSE_STS}, timeout=10
+        )
+
+    def role_create(self, name):
+        """A role without privileges.
+
+        Args:
+            name: Role name.
+
+        Returns:
+            The role name.
+        """
+        self._call("POST", "roles", {"name": name, "properties": {}, "securableObjects": []})
+        return name
+
+    def role_member(self, role, user, remove=False):
+        """Grant the role to the user (or revoke it).
+
+        Args:
+            role: Role name.
+            user: Lab user (``alice`` or ``bob``).
+            remove: Revoke instead of grant.
+        """
+        self._call(
+            "PUT",
+            f"permissions/users/{self.user(user)}/{'revoke' if remove else 'grant'}",
+            {"roleNames": [role]},
+        )
+
+    def role_grant_table(self, role, ns, table):
+        """USE_CATALOG, USE_SCHEMA and SELECT_TABLE on one table to the role.
+
+        Args:
+            role: Role name.
+            ns: Namespace of the table.
+            table: Table name.
+        """
+        self._use(role, ns)
+        self._role_privileges(role, "table", ns, table, ["SELECT_TABLE"])
+
+    def role_drop(self, role):
+        """Delete the role.
+
+        Args:
+            role: Role name.
+        """
+        self._call("DELETE", f"roles/{role}")
+
+    def idp_role_grant(self, ns, table):
+        """A group named like the token-only role, holding a role with read on the table.
+
+        Gravitino takes a user's groups from the token claim ``lab_roles``
+        (``gravitino.authenticator.oauth.groupsFields``); the role is granted to the group,
+        nobody is made a member in Gravitino. The IdP client's user is added to the metalake
+        (else every call is refused before any role counts) - not to the group or the role.
+
+        Args:
+            ns: Namespace of the table.
+            table: Table name.
+        """
+        from iceberg_lab.keycloak import IDP_CLIENT, IDP_ROLE
+
+        self._ensure_user(IDP_CLIENT)
+        self._call("POST", "groups", {"name": IDP_ROLE}, ok=(200, 409))
+        self._call(
+            "POST",
+            "roles",
+            {"name": IDP_ROLE, "properties": {}, "securableObjects": []},
+            ok=(200, 409),
+        )
+        self.idp_role = IDP_ROLE
+        self.role_grant_table(IDP_ROLE, ns, table)
+        self._call("PUT", f"permissions/groups/{IDP_ROLE}/grant", {"roleNames": [IDP_ROLE]})
+
+    def idp_role_conn(self):
+        """Connection of the Keycloak client whose token carries the role.
+
+        Returns:
+            The connection.
+        """
+        from iceberg_lab.keycloak import IDP_CLIENT
+
+        return self._conn(IDP_CLIENT, scope="openid")  # audience gravitino from its own mapper
+
+    def idp_role_cleanup(self):
+        """Delete the token-only role and its group."""
+        if getattr(self, "idp_role", None):
+            self.role_drop(self.idp_role)
+            self._call("DELETE", f"groups/{self.idp_role}", ok=(200, 404))
+
+    #: privilege -> (object kind, Gravitino privilege); always with USE_CATALOG and USE_SCHEMA
+    PRIV: ClassVar[dict] = {
+        "list_tables": ("schema", "USE_SCHEMA"),
+        "create_table": ("schema", "CREATE_TABLE"),
+        "alter_table": ("table", "MODIFY_TABLE"),
+        "manage_grants": ("metalake", "MANAGE_GRANTS"),
+    }
+    #: Gravitino privileges that would grant the missing ones (none of them exists - checked)
+    MISSING: ClassVar[dict] = {
+        "describe": ("DESCRIBE_TABLE", "READ_METADATA", "BROWSE"),
+        "drop_table": ("DROP_TABLE", "MANAGE_TABLE", "OWNERSHIP"),
+    }
+
+    def privilege_not_offered(self, priv):
+        """Checked against the recorded privilege list of the image.
+
+        Args:
+            priv: Privilege key.
+
+        Returns:
+            None, or the reason.
+        """
+        if priv in self.PRIV:
+            return None
+        import pathlib
+
+        path = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / "docs"
+            / "api"
+            / "privileges-gravitino.txt"
+        )
+        known = set(path.read_text().split())
+        found = [p for p in self.MISSING[priv] if p in known]
+        assert not found, f"claim outdated: Gravitino knows {found} now"
+        return (
+            f"catalog gravitino has no API for {priv.replace('_', ' ')}: Gravitino 1.3 has no "
+            f"privilege for it (none of {', '.join(self.MISSING[priv])} in Privilege.Name) - "
+            + (
+                "loading a table needs SELECT_TABLE or MODIFY_TABLE, which open the data too"
+                if priv == "describe"
+                else "only the owner may do it"
+            )
+        )
+
+    def privilege_grant(self, priv, ns, table, user="bob"):
+        """A fresh role of the user holding USE_CATALOG, USE_SCHEMA and the privilege.
+
+        Args:
+            priv: Privilege key.
+            ns: Namespace.
+            table: Table name.
+            user: Lab user.
+
+        Returns:
+            Cleanup callable (revokes and deletes the role).
+        """
+        kind, privilege = self.PRIV[priv]
+        role = self.role_create(f"priv_{priv}_{uuid.uuid4().hex[:6]}")
+        self._use(role, ns)
+        if privilege != "USE_SCHEMA":
+            self._role_privileges(role, kind, ns, table, [privilege])
+        self.role_member(role, user)
+
+        def cleanup():
+            """Revoke the role from the user and delete it."""
+            with contextlib.suppress(AssertionError):
+                self.role_member(role, user, remove=True)
+            with contextlib.suppress(AssertionError):
+                self.role_drop(role)
+
+        return cleanup
+
+    def grant_read_as(self, user, ns, table, grantee="alice"):
+        """``user`` grants read on the table to the grantee's role, with own credentials.
+
+        Args:
+            user: Lab user who grants.
+            ns: Namespace.
+            table: Table in it.
+            grantee: Lab user who receives the grant.
+
+        Returns:
+            The HTTP status of the grant call.
+        """
+        # Reading needs USE_CATALOG and USE_SCHEMA as well: all three grants with own credentials.
+        headers = self._h(user)
+        for kind, priv in (
+            ("catalog", "USE_CATALOG"),
+            ("schema", "USE_SCHEMA"),
+            ("table", "SELECT_TABLE"),
+        ):
+            typ, full = self._object(kind, ns, table)
+            r = requests.put(
+                f"{self.api}/permissions/roles/az_{grantee}/{typ}/{full}/grant",
+                json={"privileges": self._privs(priv)},
+                headers=headers,
+                timeout=15,
+            )
+            if not r.ok:
+                break
+        return r.status_code
+
+    def grant_namespace(self, ns, user):
+        """A fresh role with USE_CATALOG, USE_SCHEMA and SELECT_TABLE on the schema (inherited
+        by its tables) for the user; listed in ``namespace_roles`` for cleanup.
+
+        Args:
+            ns: Namespace of the table.
+            user: Lab user (``alice`` or ``bob``).
+        """
+        role = self.role_create(f"ns_{user}_{uuid.uuid4().hex[:6]}")
+        self._use(role, ns)
+        self._role_privileges(role, "schema", ns, None, ["SELECT_TABLE"])
+        self.role_member(role, user)
+        self.namespace_roles = [*getattr(self, "namespace_roles", []), role]
+
+
 BACKENDS = {
     "lakekeeper": LakekeeperAuthz,
     "polaris": PolarisAuthz,
     "rustfs": RustFSAuthz,
     "unity": UnityAuthz,
+    "gravitino": GravitinoAuthz,
 }
 
 

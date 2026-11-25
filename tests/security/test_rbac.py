@@ -237,10 +237,16 @@ def test_namespace_grant_covers_its_tables(rb):
     if reason := b.namespace_grant_not_offered(a):
         pytest.skip(reason)
     b.grant_namespace(a, "bob")
-    _table(b.catalog("admin"), a, "t_later")  # created AFTER the grant
-    assert reads(b, "bob", a, "t1"), "the namespace grant does not cover its table"
-    assert reads(b, "bob", a, "t_later"), "the grant does not cover a table created later"
-    assert not reads(b, "bob", other, "t1"), "the grant opened a table of another namespace"
+    try:
+        _table(b.catalog("admin"), a, "t_later")  # created AFTER the grant
+        assert reads(b, "bob", a, "t1"), "the namespace grant does not cover its table"
+        assert reads(b, "bob", a, "t_later"), "the grant does not cover a table created later"
+        assert not reads(b, "bob", other, "t1"), "the grant opened a table of another namespace"
+    finally:
+        # Where the grant is a role, drop it now: later tests on A must not read through it.
+        for r in getattr(b, "namespace_roles", []):
+            b.role_drop(r)
+        b.namespace_roles = []
 
 
 def test_idp_role_is_a_catalog_role(rb):

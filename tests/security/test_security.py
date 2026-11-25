@@ -126,6 +126,15 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
       for c in ("missing_table", "huge_name")),
     *(("reference", f"error_{c}", r"server error for a client error: 500 <html>", "reference-client-error-500")
       for c in ("broken_json", "wrong_types", "unknown_update")),
+    # Gravitino checks no location against other tables and vends keys for whatever it accepted.
+    *(("gravitino", c, r"keys issued for the new table read table A's file", "gravitino-no-location-checks")
+      for c in ("create_same", "create_inside", "create_parent", "set_location", "register_metadata", "register_outside", "write_data_path")),
+    *(("gravitino", f"error_{c}", r"internal names in the error: org\.(apache|glassfish)\.", "gravitino-error-stack-traces")
+      for c in ("missing_table", "broken_json", "wrong_types", "unknown_update", "huge_name")),
+    ("gravitino", "error_traversal", r"server error for a client error: 500 .*Authorization failed due to system internal error", "gravitino-dotted-names"),
+    ("gravitino", "name_table_backslash", r"refused name 'a\\\\b' was created anyway", "gravitino-backslash-table-refused-created"),
+    *(("gravitino", f"name_namespace_{n}", r"refused name .{1,40} (was created anyway|broke the listing)", "gravitino-dotted-names")
+      for n in ("dotdot", "traversal")),
     *(("reference", f"name_{n}", r"accepted name .{1,80} cannot be loaded again: (BadRequestError|HTTPError|NoSuchNamespaceError)", "reference-names-unaddressable")
       for n in ("namespace_traversal", "table_slash", "namespace_slash", "table_backslash", "namespace_backslash", "namespace_newline", "table_percent", "namespace_percent")),
 ])
@@ -1323,6 +1332,62 @@ def _namespace_roundtrip(ident: tuple[str, ...], nested: bool) -> None:
         r.raise_for_status()
 
 
+def _refusal_left_nothing(cat, ident: tuple[str, ...], kind: str) -> None:
+    """A refused name must not exist anyway, and the listing of its parent must still work.
+
+    Gravitino answers a namespace name with a dot with 400 but creates it nevertheless; every
+    top-level listing then fails. Such a leftover is removed from the backend right away, so
+    later tests still find a usable catalog.
+
+    Args:
+        cat: PyIceberg catalog.
+        ident: The refused identifier.
+        kind: ``table`` or ``namespace``.
+    """
+    parent, name = ident[:-1], ident[-1]
+    where = ".".join(parent) or "the top level"
+    try:
+        listed = cat.list_tables(parent) if kind == "table" else cat.list_namespaces(parent)
+    except Exception as exc:
+        _drop_from_backend(ident, kind)
+        raise AssertionError(
+            f"refused name {name!r} broke the listing of {where}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if tuple(ident) in {tuple(x) for x in listed}:
+        _drop_from_backend(ident, kind)
+        raise AssertionError(f"refused name {name!r} was created anyway in {where}")
+
+
+def _drop_from_backend(ident: tuple[str, ...], kind: str) -> None:
+    """Delete an object the catalog cannot address any more directly in its database.
+
+    Only Gravitino (JDBC backend in Postgres database ``gravitino``, one ``catalog_name`` per
+    lab catalog); elsewhere nothing to do here.
+
+    Args:
+        ident: The identifier.
+        kind: ``table`` or ``namespace``.
+    """
+    if PROFILE.name != "gravitino":
+        return
+    import psycopg
+
+    with psycopg.connect(
+        host="db", dbname="gravitino", user="postgres", password="postgres", autocommit=True
+    ) as conn:
+        if kind == "namespace":
+            conn.execute(
+                "DELETE FROM iceberg_namespace_properties WHERE catalog_name = %s AND namespace = %s",
+                (WAREHOUSE_STS, ".".join(ident)),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM iceberg_tables WHERE catalog_name = %s AND table_namespace = %s"
+                " AND table_name = %s",
+                (WAREHOUSE_STS, ".".join(ident[:-1]), ident[-1]),
+            )
+
+
 @pytest.mark.parametrize("kind", ["table", "namespace"])
 @pytest.mark.parametrize("label", list(NAMES))
 def test_name_is_refused_or_safe(label, kind, name_parent):
@@ -1332,7 +1397,8 @@ def test_name_is_refused_or_safe(label, kind, name_parent):
     Unicode, 300 characters.
 
     Checks:
-        * either the catalog refuses the name,
+        * either the catalog refuses the name - and then it does not exist anyway and the
+      listing of its parent still works,
         * or the object's location stays inside the warehouse (no ``/../``) and it can be loaded
           again under its name.
 
@@ -1354,6 +1420,8 @@ def test_name_is_refused_or_safe(label, kind, name_parent):
         else:
             cat.create_namespace(ident)
     except Exception:  # noqa: BLE001 - refused: expected for most of these names
+        with _gap(f"name_{kind}_{label}"):
+            _refusal_left_nothing(cat, ident, kind)
         return
     with _gap(f"name_{kind}_{label}"):
         if kind == "table":
@@ -1454,6 +1522,14 @@ def _self_grant(b, ns):
         return requests.patch(
             f"{b.base}/api/2.1/unity-catalog/permissions/table/{b.catalog_name}.{ns}.t_none",
             json={"changes": [{"principal": "alice@lab.local", "add": ["SELECT", "MODIFY"]}]},
+            headers=b._h("alice"),
+            timeout=10,
+        )
+    if cat == "gravitino":  # alice grants her own role read + write on t_none
+        typ, full = b._object("table", ns, "t_none")
+        return requests.put(
+            f"{b.api}/permissions/roles/az_alice/{typ}/{full}/grant",
+            json={"privileges": b._privs("SELECT_TABLE", "MODIFY_TABLE")},
             headers=b._h("alice"),
             timeout=10,
         )

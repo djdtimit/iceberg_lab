@@ -10773,6 +10773,8 @@
 {"test": "tests/security/test_sts_scope.py::test_write_outside_own_table_is_denied[sibling_prefix]", "status": "na", "detail": "catalog reference has no API for vended storage credentials"}
 {"test": "tests/security/test_ui.py::test_catalog_has_ui", "status": "na", "detail": "catalog reference has no API for a web UI"}
 {"test": "tests/security/test_ui.py::test_ui_data_needs_login", "status": "na", "detail": "catalog reference has no API for a web UI"}
+{"test": "tests/security/test_ui.py::test_ui_login_reaches_the_data", "status": "na", "detail": "catalog reference has no API for a web UI"}
+{"test": "tests/security/test_ui.py::test_ui_works_in_the_host_browser", "status": "na", "detail": "catalog reference has no API for a web UI"}
 {"test": "tests/selftest/test_capability_registry.py::test_every_missing_capability_is_checked_or_proven", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[branch_and_tag]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[computing partition statistics]", "status": "pass", "detail": ""}
@@ -10953,6 +10955,7 @@
 {"test": "tests/selftest/test_lab_infrastructure.py::test_rest_observed_maps_paths_to_spec_operations[POST-/v1/catalogs/lab/namespaces/a%1Fb/tables/t-POST /v1/{prefix}/namespaces/{namespace}/tables/{table}]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_smoke_files_exist", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_snowflake_horizon_pat_and_role", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[polaris]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[reference]", "status": "pass", "detail": ""}
@@ -10982,6 +10985,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_no_error_means_fixed", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_other_error_comes_through_unchanged", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_without_reason_changes_nothing", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_flaky_history_drops_gaps_a_passing_test_no_longer_declares", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_foreign_blocked_cases_leave_the_engines_coverage", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_after_correct_content_still_feeds_the_reads", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_with_severity_is_accepted_and_classified", "status": "pass", "detail": ""}

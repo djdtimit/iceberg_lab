@@ -14,7 +14,7 @@
 ARG PG_IMAGE=postgres:19.0-trixie
 
 FROM ${PG_IMAGE} AS build
-ARG PG_LAKE_REF=v3.7.0
+ARG PG_LAKE_REF=v3.7.1
 ARG VCPKG_VERSION=2025.10.17
 ARG JOBS=2
 # Build dependencies (pg_lake docs/building-from-source.md, Debian list).

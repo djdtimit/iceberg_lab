@@ -20,9 +20,12 @@ Steps (all catalogs share RustFS):
          (Polaris keeps everything in memory: after a restart this recreates it);
        * RustFS: enable the table bucket ``labtables`` as catalog warehouse;
        * Unity: bucket, storage credential, external location and catalog ``lab`` with
-         managed storage (``ensure_unity`` also serves the permission instance).
+         managed storage (``ensure_unity`` also serves the permission instance);
+       * Gravitino: Keycloak scope ``gravitino``, metalake ``lab`` and the lakehouse-iceberg
+         catalog ``gravitino_sts`` (JDBC backend on Postgres, S3 on RustFS, STS vending).
 """
 
+import os
 import time
 from dataclasses import replace
 
@@ -343,6 +346,97 @@ def ensure_unity(
     print(f"unity catalog {PROFILE.warehouse_sts} ready")
 
 
+#: Gravitino's own REST API (metalakes, catalogs, users, roles) and the media type it wants.
+GRAVITINO_API = os.getenv("GRAVITINO_API", "http://gravitino:8090")
+GRAVITINO_ACCEPT = "application/vnd.gravitino.v1+json"
+GRAVITINO_METALAKE = "lab"
+
+
+def gravitino_catalog_properties(
+    s: Settings, name: str | None = None, location: str | None = None
+) -> dict[str, str]:
+    """Properties of the lakehouse-iceberg catalog that backs warehouse ``gravitino_sts``.
+
+    The Iceberg catalog behind it is a JDBC catalog in database ``gravitino`` of the lab's
+    Postgres (compose service gravitino-db-init creates it); data files live on RustFS below
+    :attr:`CatalogProfile.location`. Gravitino vends credentials through STS AssumeRole on
+    RustFS (credential provider ``s3-token``); RustFS ignores the role ARN, Gravitino requires one.
+    ``catalog-backend-name`` keeps the catalogs apart: by default (documented) every JDBC-backed
+    catalog passes the name "jdbc" to Iceberg's JdbcCatalog, so all of them share one set of
+    namespaces and tables in the database.
+
+    Args:
+        s: Connection settings of the lab.
+        name: Catalog name (default: the profile's warehouse).
+        location: Root of the catalog's data (default: the profile's location).
+
+    Returns:
+        The catalog properties.
+    """
+    return {
+        "catalog-backend": "jdbc",
+        "catalog-backend-name": name or PROFILE.warehouse_sts,
+        "uri": "jdbc:postgresql://db:5432/gravitino",
+        "jdbc-driver": "org.postgresql.Driver",
+        "jdbc-user": "postgres",
+        "jdbc-password": "postgres",
+        "jdbc-initialize": "true",
+        "warehouse": location or PROFILE.location,
+        "io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
+        "s3-endpoint": s.s3_endpoint,
+        "s3-region": s.s3_region,
+        "s3-path-style-access": "true",
+        "s3-access-key-id": s.s3_access_key,
+        "s3-secret-access-key": s.s3_secret_key,
+        "credential-providers": "s3-token",
+        "s3-role-arn": "arn:aws:iam::000000000000:role/lab",
+        "s3-token-service-endpoint": s.s3_endpoint,
+    }
+
+
+def ensure_gravitino(s: Settings) -> None:
+    """Gravitino: audience scope in Keycloak, metalake ``lab``, catalog ``gravitino_sts``.
+
+    Idempotent (409 = exists). lab-admin's service account is Gravitino's service admin
+    (gravitino/gravitino.conf), so it may create the metalake and owns it and the catalog.
+
+    Args:
+        s: Connection settings of the lab.
+    """
+    from iceberg_lab import keycloak
+
+    wait_for(f"{keycloak.KC}/realms/iceberg")
+    keycloak.ensure_service_scopes()
+    headers = {
+        "Authorization": f"Bearer {keycloak.token('lab-admin', scope='gravitino')}",
+        "Accept": GRAVITINO_ACCEPT,
+    }
+    api = f"{GRAVITINO_API}/api/metalakes"
+    r = requests.post(
+        api,
+        json={"name": GRAVITINO_METALAKE, "comment": "iceberg lab", "properties": {}},
+        headers=headers,
+        timeout=30,
+    )
+    if r.status_code != 409:
+        r.raise_for_status()
+    r = requests.post(
+        f"{api}/{GRAVITINO_METALAKE}/catalogs",
+        json={
+            "name": PROFILE.warehouse_sts,
+            "type": "RELATIONAL",
+            "provider": "lakehouse-iceberg",
+            "comment": "Iceberg on RustFS, STS credential vending",
+            "properties": gravitino_catalog_properties(s),
+        },
+        headers=headers,
+        timeout=60,
+    )
+    if r.status_code != 409:
+        r.raise_for_status()
+    print(f"gravitino catalog {PROFILE.warehouse_sts} ready")
+
+
 def main(s: Settings = SETTINGS) -> None:
     """Run all bootstrap steps for the catalog under test (``CATALOG``, see config).
 
@@ -363,6 +457,9 @@ def main(s: Settings = SETTINGS) -> None:
         # The fixture writes below its CATALOG_WAREHOUSE (s3://reference/wh): only the bucket.
         ensure_bucket(replace(s, s3_bucket=PROFILE.location.split("/")[2]))
         wait_for(f"{s.catalog_base}/v1/config")
+    elif PROFILE.name == "gravitino":
+        wait_for(f"{GRAVITINO_API}/api/version", timeout=180)
+        ensure_gravitino(s)
     else:
         wait_for(f"{s.lakekeeper_url}/health")
         ensure_bootstrapped(s)

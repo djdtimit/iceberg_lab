@@ -26,6 +26,7 @@ SOURCES = {
         ("RustFS", "rustfs"),
         ("Unity", "unity"),
         ("Reference", "reference"),
+        ("Gravitino", "gravitino"),
     )
 }
 #: Codes the spec defines for (nearly) every operation and that a catalog gives only in rare
@@ -35,7 +36,7 @@ SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "
 
 
 def main() -> None:
-    """Write docs/rest-conformance.md from the five catalogs' results."""
+    """Write docs/rest-conformance.md from every catalog's results."""
     cells: dict[str, dict[str, tuple[str, str]]] = {}
     for cat, path in SOURCES.items():
         for r in json.loads(gzip.decompress(path.read_bytes())):

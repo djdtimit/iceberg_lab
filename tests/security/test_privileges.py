@@ -37,6 +37,8 @@ from authz_backends import PRIVILEGES, ROWS, Backend, backend
 
 from iceberg_lab.config import PROFILE
 
+from conftest import expect, find_gap, gap_table
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCHEMA = {
     "type": "struct",
@@ -52,12 +54,20 @@ NARROW = {
     "drop_table": ("create_table",),
     "manage_grants": ("create_table", "drop_table"),
 }
+# Filled from observed failures only: (catalog, privilege, regex, cause).
+# fmt: off
+KNOWN_GAPS = gap_table(("catalog", "priv"), [
+    ("gravitino", "list_tables", r"listing without the table: \[\]", "gravitino-listing-needs-table-privilege"),
+])
+# fmt: on
+
 #: Compose service of each catalog (the image the inventory belongs to).
 SERVICES = {
     "lakekeeper": "lakekeeper-authz",
     "polaris": "polaris",
     "unity": "unitycatalog-authz",
     "rustfs": "rustfs",
+    "gravitino": "gravitino",
 }
 
 
@@ -230,6 +240,8 @@ def test_recorded_privileges_are_accepted():
         * Unity: each privilege is accepted on at least one securable (catalog, schema, table,
           metastore);
         * RustFS: an IAM policy with all recorded actions is accepted;
+        * Gravitino: each privilege is accepted on the metalake (granted to a probe role and
+          revoked again);
         * an unknown privilege is refused (the acceptance above means something).
     """
     _, privileges = recorded()
@@ -433,8 +445,36 @@ class _Accept:
             except Exception:  # noqa: BLE001, S110 - nothing to remove
                 pass
 
+    # =========================================================================== matrix
 
-# =========================================================================== matrix
+    @staticmethod
+    def gravitino(b, privileges):
+        """Grant and revoke each privilege on the metalake to a probe role.
+
+        Args:
+            b: Permission backend.
+            privileges: Recorded ``Privilege.Name`` constants.
+        """
+        role = b.role_create(f"inv_{uuid.uuid4().hex[:6]}")
+        refused_ = []
+        try:
+            for priv in privileges:
+                try:
+                    b._role_privileges(role, "metalake", None, None, [priv])
+                    b._role_privileges(role, "metalake", None, None, [priv], revoke=True)
+                except AssertionError as exc:
+                    refused_.append(f"{priv} ({str(exc)[:120]})")
+            typ, full = b._object("metalake")
+            r = requests.put(
+                f"{b.api}/permissions/roles/{role}/{typ}/{full}/grant",
+                json={"privileges": b._privs("NOPE")},
+                headers=b._h(),
+                timeout=10,
+            )
+            assert 400 <= r.status_code < 500, f"unknown privilege answered {r.status_code}"
+        finally:
+            b.role_drop(role)
+        assert not refused_, f"recorded privileges the catalog refuses: {refused_}"
 
 
 @pytest.mark.parametrize("priv", PRIVILEGES)
@@ -465,7 +505,8 @@ def test_privilege_allows_its_action(priv, pv):
             i["name"]
             for i in s.get(f"{base}/namespaces/{ns}/tables", timeout=15).json()["identifiers"]
         ]
-        assert "t" in names, f"listing without the table: {names}"
+        with expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, priv=priv)):
+            assert "t" in names, f"listing without the table: {names}"
     if priv == "describe":
         opened = data_is_closed(b, "bob", ns)
         assert opened is None, f"describe opened the data: {opened}"

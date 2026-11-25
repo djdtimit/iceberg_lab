@@ -784,7 +784,7 @@ class DuckDBEngine(Engine):
             self.con.execute(f"""
                 CREATE SECRET {self.alias}_auth (
                     TYPE iceberg, CLIENT_ID '{client_id or ""}', CLIENT_SECRET '{client_secret}',
-                    OAUTH2_SERVER_URI '{s.catalog_base.rstrip("/")}{PROFILE.token_path}',
+                    OAUTH2_SERVER_URI '{s.token_endpoint}',
                     OAUTH2_SCOPE '{PROFILE.oauth_scope}'
                 )""")
             auth = f"SECRET {self.alias}_auth"
@@ -1217,12 +1217,15 @@ class PgLakeEngine(Engine):
         # a DO block. Options:
         #   rest_endpoint   - Lakekeeper's REST base URI
         #   warehouse       - sent as ?warehouse= to /v1/config so Lakekeeper returns the prefix
-        #   auth            - OAuth2 token endpoint (Polaris), or rest_auth_type 'none' for
-        #                     a catalog without authentication (Lakekeeper, Unity here)
+        #   auth            - OAuth2 token endpoint and scope (pg_lake's default scope is
+        #                     Polaris' PRINCIPAL_ROLE:ALL, which Keycloak refuses with 400), or
+        #                     rest_auth_type 'none' for a catalog without authentication
         #   location_prefix - where pg_lake asks to place new tables; must be inside the
         #                     warehouse's storage prefix or Lakekeeper rejects the location
         if PROFILE.oauth_credential:
-            auth = f"oauth_endpoint '{s.catalog_base.rstrip('/')}{PROFILE.token_path}',"
+            auth = f"oauth_endpoint '{s.token_endpoint}',"
+            if PROFILE.oauth_scope:
+                auth += f" scope '{PROFILE.oauth_scope}',"
             client_id, client_secret = oauth_client(PROFILE.oauth_credential)
             mapping = f"""CREATE USER MAPPING FOR PUBLIC SERVER {self.server}
                   OPTIONS (client_id '{client_id or ""}', client_secret '{client_secret}');"""

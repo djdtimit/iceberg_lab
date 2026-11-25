@@ -2,6 +2,116 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-24 (3): pg_lake 3.7.1, Polars 2.2.0, web UIs, persistent OpenFGA, Gravitino
+
+- **Version updates**: pg_lake 3.7.1 (one fix: a CVE in brotli), Polars 2.2.0 and
+  polars-iceberg 0.1.1. The pg_lake and Polars tests ran again on all catalogs: no new failures
+  and no fixed gaps. `seen_at` moved forward for 36 causes. Two Polars geo causes cannot be
+  reached on any catalog, because earlier gaps hide them (catalogs reject geo types; PyIceberg
+  cannot parse the spec's geo form). They were reproduced directly with Polars 2.2.0 and
+  confirmed by hand:
+  - `polars-no-geo-parquet`: "LogicalType union has no variant set";
+  - `polars-geo-as-binary`: Polars still has no geo dtype.
+
+  Polars' "not offered" claims are verified at 2.2.0.
+- **Web UIs work from the host's browser**:
+  - Polaris Console: CORS on in Polaris.
+  - Lakekeeper UI: `LAKEKEEPER__UI__LAKEKEEPER_URL`; the UI otherwise calls a name only the
+    compose network knows.
+  - A second Unity UI for the main instance on `localhost:3001`, with `WDS_SOCKET_PORT` so its
+    dev server stops reloading the page every second.
+  - Login to the Lakekeeper UI of `lakekeeper-authz` (`localhost:8282/ui`): public Keycloak
+    client `lakekeeper-ui` with PKCE, user `lab-ui` (password `lab-ui`) as project admin.
+    Lakekeeper also accepts the issuer of Keycloak as the browser reaches it
+    (`LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS`, a plain string, not a JSON list).
+
+  `tests/security/test_ui.py` checks each UI's published port, the hosts its runtime config
+  names, CORS, the dev server's socket port, and that the UI login reaches the data.
+- **OpenFGA keeps its tuples in Postgres** (database `openfga` in `db-authz`). The in-memory
+  store lost them on every restart while `db-authz` still said "bootstrapped". After that, nobody
+  owned the server or the default project, and every project or warehouse grant failed with
+  403 `can_grant_*`. The authz stack was reset once.
+- **Apache Gravitino 1.3.1 as sixth catalog** (`CATALOG=gravitino`, compose profile
+  `gravitino`, `gravitino/gravitino.conf`):
+  - Iceberg REST runs as an auxiliary service of the Gravitino server, and the warehouse names a
+    `lakehouse-iceberg` catalog in metalake `lab`.
+  - The Iceberg JDBC backend is in Postgres. Data is on RustFS, with vended STS session
+    credentials (`s3-token`).
+  - Keycloak tokens (client credentials of `lab-admin`, `scope=gravitino` for the audience) and
+    authorization are on.
+  - Token endpoints can now be on another host than the catalog (`Settings.token_endpoint`).
+  - pg_lake gets the OAuth scope as server option `scope`. Its default is Polaris'
+    `PRINCIPAL_ROLE:ALL`, which Keycloak refuses with 400.
+  - Admin adapter (`test_catalog_admin.py`): create, rename, switch off/on and delete
+    catalogs, change storage properties, version, users with a role.
+  - Each catalog passes its own name to Iceberg's JdbcCatalog (`catalog-backend-name`). By
+    default (documented), every JDBC-backed Gravitino catalog uses the name "jdbc", so all of
+    them share one set of namespaces and tables.
+
+  - Permission backend (`tests/lab/authz_backends.py`, `GravitinoAuthz`):
+    - Users are the token's `service-account-<client>` in metalake `lab`. Privileges go to
+      roles, roles go to users (alice: role `az_alice`).
+    - The token-only role works through groups: `groupsFields = lab_roles` in
+      `gravitino.conf`. The role is granted to group `lab-readers`, and nobody is a member in
+      Gravitino. Keycloak's `rbac-idp` client now also carries audience `gravitino`.
+    - Per-user Trino catalogs: `grv_alice` and `grv_bob`.
+    - Privilege inventory `docs/api/privileges-gravitino.txt`, read from the image's
+      `Privilege.Name` enum (`scripts/privilege_inventory.py gravitino`).
+    - Web UI in `test_ui.py` (`gravitino:8090`; login settings from `/configs`).
+  - Gravitino's routes are recorded in `docs/api/gravitino-1.3.1.txt` (155, read from the
+    jars). They are not classified in the feature inventory yet: with Gravitino about eight
+    capabilities of a single catalog become base capabilities and need tests for every catalog.
+
+  Findings of the first full run (11,435 tests, 37 new failures, all classified):
+  - **`gravitino-disabled-catalog-served`** (INCONSISTENT): a switched-off catalog
+    (`inUse=false`) still serves Iceberg REST reads. A namespace create is answered with
+    500 "not in use", but the namespace exists afterwards.
+  - **`gravitino-dotted-names`** (INCONSISTENT): a namespace name with a dot (`..`,
+    `../../escape`) is answered with 400, but the namespace is created anyway. It can then not
+    be loaded or dropped (500). Every top-level namespace listing of the catalog fails with 400,
+    on Iceberg REST and on Gravitino's own API, until the row is deleted from the database.
+  - **`gravitino-variant-refused-created`** (INCONSISTENT): a table with a variant column is
+    answered with 406 "Unsupported type: variant", but it exists and loads over Iceberg REST.
+    Gravitino's own API cannot load it, and no role can name it.
+  - **`gravitino-no-location-checks`** (SECURITY): every overlapping table location is accepted
+    (same, inside, above, set later, registered, `write.data.path`). The vended STS keys of the
+    new table read the other table's files.
+  - **`gravitino-backslash-table-refused-created`** (INCONSISTENT): a table named `a\b` is
+    answered with 400 ("Illegal character in path" in the location built from the name), but
+    it exists and is listed.
+  - `gravitino-single-issuer`: tokens are checked against exactly one issuer, and the web UI
+    logs in at that address. A login from the host's browser (Keycloak as `localhost:30080`)
+    is refused, and the UI's login settings name `keycloak:8080`.
+  - `gravitino-error-stack-traces`, `gravitino-snapshots-param`, `gravitino-v3-type-in-v2-500`,
+    `gravitino-listing-needs-table-privilege`; Gravitino added to
+    `catalogs-no-schema-compat-check` and `trino-hides-load-refusal`.
+  - Permissions otherwise as expected: table grants, revokes, roles, namespace grants, the
+    token-only role through groups, and alice cannot grant herself rights.
+  - **`gravitino-no-transactions-commit`**: no `/transactions/commit`. DuckDB refuses the
+    multi-table COMMIT, and pg_lake loses its writes (`pglake-ignores-refused-commit`, now also
+    on Gravitino).
+  - Server-side scan planning (`/plan`) works; so far only the reference had it.
+  - `pyiceberg-geo-write-binary`: Gravitino serves a default-CRS geometry as plain `geometry`,
+    which PyIceberg can load. Its write then stops at the schema check, because PyIceberg turns
+    geo columns into binary.
+  - **`engines-java-oauth-refresh-keycloak`**: Iceberg Java (Spark, Flink) refreshes its OAuth2
+    token by a token exchange authenticated only with the old token. Keycloak refuses it
+    (`invalid_client`), so a session that outlives the token (1 h) fails with "Authentication
+    token is expired". It shows on Gravitino because its STS keys live 1 h, so
+    `test_sts_expiry` waits past the token's lifetime. On Lakekeeper the wait is 16 min.
+- **`test_name_is_refused_or_safe`**: a refused name must not exist anyway, and the listing of
+  its parent must still work. If one landed anyway, it is removed from the backend database.
+- **`test_namespace_grant_covers_its_tables`** drops the namespace grant right away (where it is
+  a role). Before, bob kept it until the end of the module. On Gravitino, the first catalog
+  where the token-only role works, the later test then found A.t1 open without the role.
+- **`rerun.sh`** runs on all six catalogs by default.
+- Docs and dashboard: REST conformance, engine inventory and the dashboard include Gravitino
+  (the capability tables do not yet).
+- **`test_catalog_deactivate` also checks writes**: a write while switched off must be refused,
+  and must not have happened after reactivation.
+- **`rerun.sh`** no longer reports failed register self-tests for the run without help, where
+  they are deselected (pytest exit code 5).
+
 ## Lab changes 2026-11-24 (2): cloud catalogs, parallel runs, spec responses, trend
 
 - **Cloud catalogs** (`docs/cloud-catalogs.md`): Snowflake Open Catalog, Snowflake Horizon

@@ -94,7 +94,11 @@ services:
 
   lakekeeper:
     image: quay.io/lakekeeper/catalog:v0.15.1
-    environment: *lakekeeper-env
+    environment:
+      <<: *lakekeeper-env
+      # The UI runs in the browser on the host: without this it calls BASE_URI
+      # (http://lakekeeper:8181), a name only the compose network knows ("unreachable").
+      LAKEKEEPER__UI__LAKEKEEPER_URL: http://localhost:8181
     command: ["serve"]
     ports:
       - "8181:8181"   # REST catalog (/catalog) + management API (/management) + UI (/ui)
@@ -123,6 +127,12 @@ services:
       POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,root,s3cr3t
       polaris.realm-context.realms: POLARIS
       quarkus.otel.sdk.disabled: "true"
+      # The console (polaris-console) runs in the browser on another port: without CORS the
+      # browser blocks its calls ("Network Error"). Polaris ships with CORS off.
+      quarkus.http.cors.enabled: "true"
+      quarkus.http.cors.origins: http://localhost:8184,http://127.0.0.1:8184
+      quarkus.http.cors.methods: GET,POST,PUT,DELETE,PATCH,HEAD,OPTIONS
+      quarkus.http.cors.headers: "*"
       # Catalog federation (off by default): EXTERNAL catalogs that forward to another
       # Iceberg REST catalog - here Lakekeeper (tests/catalog/test_catalog_features.py::test_federation).
       'polaris.features."ENABLE_CATALOG_FEDERATION"': "true"
@@ -163,7 +173,7 @@ services:
   # the other tests are unaffected. Start: docker compose --profile authz up -d lakekeeper-authz
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
-    profiles: ["authz", "unity"]  # unity: identities of unitycatalog-authz
+    profiles: ["authz", "unity", "gravitino"]  # unity/gravitino: their identities
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -181,20 +191,53 @@ services:
       retries: 40
       start_period: 20s
 
+  # OpenFGA keeps its tuples in database "openfga" of db-authz, next to Lakekeeper's state: an
+  # in-memory store lost them on every restart while db-authz still said "bootstrapped" - the
+  # server's and the default project's owners were gone, nobody could grant project or
+  # warehouse roles any more (403 can_grant_*).
+  openfga-db-init:
+    image: postgres:17
+    profiles: ["authz"]
+    environment:
+      PGPASSWORD: postgres
+    command:
+      - sh
+      - -c
+      - >-
+        psql -h db-authz -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'openfga'"
+        | grep -q 1 || psql -h db-authz -U postgres -c "CREATE DATABASE openfga"
+    restart: "no"
+    depends_on:
+      db-authz:
+        condition: service_healthy
+
+  openfga-migrate:
+    image: openfga/openfga:v1.23.0
+    profiles: ["authz"]
+    command: ["migrate"]
+    environment: &openfga-env
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://postgres:postgres@db-authz:5432/openfga?sslmode=disable
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+      OPENFGA_AUTHN_METHOD: none   # lab: no authentication
+    restart: "no"
+    depends_on:
+      openfga-db-init:
+        condition: service_completed_successfully
+
   openfga:
     image: openfga/openfga:v1.23.0
     profiles: ["authz"]
     command: ["run"]
-    environment:
-      # Lab: in-memory store, no authentication. A restart loses the model -> rerun migrate.
-      OPENFGA_DATASTORE_ENGINE: memory
-      OPENFGA_PLAYGROUND_ENABLED: "false"
-      OPENFGA_AUTHN_METHOD: none
+    environment: *openfga-env
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=openfga:8081"]
       interval: 3s
       timeout: 5s
       retries: 20
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
 
   db-authz:
     image: postgres:17
@@ -239,7 +282,17 @@ services:
   lakekeeper-authz:
     image: quay.io/lakekeeper/catalog:v0.15.1
     profiles: ["authz"]
-    environment: *lakekeeper-authz-env
+    environment:
+      <<: *lakekeeper-authz-env
+      # The UI runs in the host's browser (test_ui.py::test_ui_works_in_the_host_browser):
+      # it calls Lakekeeper and logs in at Keycloak under their HOST addresses, not the
+      # compose names. Keycloak then issues tokens with the host's issuer - accepted in
+      # addition to the compose one (same realm, same keys). Login: lab-ui / lab-ui
+      # (client lakekeeper-ui, src/iceberg_lab/keycloak.py::ensure_ui_login).
+      LAKEKEEPER__UI__LAKEKEEPER_URL: http://localhost:8282
+      LAKEKEEPER__UI__OPENID_PROVIDER_URI: http://localhost:30080/realms/iceberg
+      LAKEKEEPER__UI__OPENID_CLIENT_ID: lakekeeper-ui
+      LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS: http://localhost:30080/realms/iceberg
     command: ["serve"]
     ports:
       - "8282:8181"
@@ -302,7 +355,7 @@ services:
   #   docker compose --profile pglake up -d --build pg-lake
   # One container runs Postgres and pgduck_server (embedded DuckDB for the data files).
   pg-lake:
-    image: iceberg-lab/pg-lake:3.7.0-pg19
+    image: iceberg-lab/pg-lake:3.7.1-pg19
     build:
       context: ../pg_lake
     # Postgres + pgduck_server (DuckDB memory_limit 2GB)
@@ -381,6 +434,13 @@ services:
     volumes:
       - ../unity/server.properties:/home/unitycatalog/etc/conf/server.properties:ro
       - unity-certs:/certs:ro
+    networks:
+      default:
+      # Its own network for unity-ui-main: the Unity UI's proxy target "server" is this
+      # instance there (on the default network "server" is the authz instance).
+      unity-ui-main:
+        aliases:
+          - server
     ports:
       - "8380:8080"   # Unity REST API + Iceberg REST (/api/2.1/unity-catalog/iceberg)
     depends_on:
@@ -468,6 +528,28 @@ services:
         condition: service_healthy
     mem_limit: 2g
 
+  # The same UI on the main instance (no login, the data of the lab runs): the UI above shows
+  # the authz instance, which refuses it without a token (test_ui.py checks that refusal).
+  unity-ui-main:
+    image: unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1
+    profiles: ["unity"]
+    init: true
+    environment:
+      BROWSER: none
+      CI: "true"
+      # The dev server's live-reload socket must use the HOST port: by default the page connects
+      # to :3000 - the other UI's dev server - gets its build hash, misses the hot update (404)
+      # and reloads, over and over (the page flickers).
+      WDS_SOCKET_PORT: "3001"
+    networks:
+      - unity-ui-main
+    ports:
+      - "3001:3000"
+    depends_on:
+      unitycatalog:
+        condition: service_healthy
+    mem_limit: 2g
+
   # Polaris Console (apache/polaris-tools console/; no published image - built by
   # scripts/build_polaris_console.sh at a pinned commit). A static web app: the BROWSER calls
   # Polaris directly, so the API URL is the one reachable from the host.
@@ -508,6 +590,71 @@ services:
       - rustfs
     mem_limit: 768m
 
+  # ---- profile gravitino: Apache Gravitino as a sixth Iceberg REST catalog (catalog profile
+  # gravitino). Server + web UI on 8090, Iceberg REST (auxiliary service) on 8186. Tokens from
+  # Keycloak, authorization on, Iceberg JDBC backend in database "gravitino" of db, S3FileIO on
+  # RustFS with vended STS credentials (s3-token). Config: gravitino/gravitino.conf; metalake
+  # "lab" and catalog gravitino_sts: python -m iceberg_lab.bootstrap (CATALOG=gravitino).
+  gravitino-db-init:
+    image: postgres:17
+    profiles: ["gravitino"]
+    environment:
+      PGPASSWORD: postgres
+    command:
+      - sh
+      - -c
+      - >-
+        psql -h db -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'gravitino'"
+        | grep -q 1 || psql -h db -U postgres -c "CREATE DATABASE gravitino"
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gravitino:
+    image: apache/gravitino:1.3.1
+    profiles: ["gravitino"]
+    environment:
+      SKIP_CONFIG_REWRITE: "true"   # keep the mounted gravitino.conf
+      # S3 client of the catalog's own FileIO and STS calls outside AWS
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    # The image links the Postgres driver into libs/ only; the Iceberg JDBC backend runs in the
+    # catalog's and the Iceberg REST service's own class loaders, which need it too.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        for d in catalogs/lakehouse-iceberg/libs iceberg-rest-server/libs;
+        do ln -sf /opt/gravitino/jdbc-drivers/postgresql-*.jar /opt/gravitino/$$d/; done
+        && exec /opt/gravitino/docker/docker-entrypoint.sh
+    working_dir: /opt/gravitino
+    volumes:
+      - ../gravitino/gravitino.conf:/opt/gravitino/conf/gravitino.conf:ro
+      - gravitino-data:/opt/gravitino/data
+    ports:
+      - "8090:8090"   # Gravitino REST API (/api) + web UI
+      - "8186:9001"   # Iceberg REST (/iceberg/v1)
+    healthcheck:
+      # 401 is fine: with OAuth on, the API answers only with a token
+      test: ["CMD-SHELL", "curl -so /dev/null -w '%{http_code}' http://localhost:8090/api/version | grep -qE '200|401'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+    depends_on:
+      gravitino-db-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    mem_limit: 1536m
+
+networks:
+  default:
+  unity-ui-main:
+
 volumes:
   rustfs-data:
   pg-data:
@@ -515,3 +662,4 @@ volumes:
   ivy-cache:
   unity-certs:
   unity-authz-conf:
+  gravitino-data:

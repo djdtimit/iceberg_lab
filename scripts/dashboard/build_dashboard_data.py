@@ -1,6 +1,6 @@
 """Build the dashboard's data files from the latest full runs (run in the dev container).
 
-    testergebnisse.json  every comparison row of all five catalogs, with a "catalog" field
+    testergebnisse.json  every comparison row of all catalogs, with a "catalog" field
                          (results/<cat>.rows.json.gz, else the report directory),
                          plus the runs without lab help as catalog ``<cat>_nohelp`` (rows of
                          the helped engines only; shown next to the catalog, never counted).
@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference")
+CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference", "gravitino")
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "tests" / "lab")]
 
 
@@ -197,7 +197,7 @@ def inventory() -> list[dict]:
         offered = set(inv.offered_by(cap))
         missing = cap.get("not_implemented", {})
         row = {"capability": name, "title": cap["title"], "kind": inv.kind(name, cap)}
-        for c in CATALOGS:
+        for c in inv.CATALOGS:  # catalogs whose API is classified in the inventory
             row[c] = "◐" if c in missing else "✓" if c in offered else "–"
         gaps = [f"{c}: described, not implemented ({m['status']})" for c, m in missing.items()]
         row["note"] = " ".join(x for x in (*gaps, cap.get("note", "")) if x)

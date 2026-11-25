@@ -40,7 +40,7 @@ if [ "$1" = --flaky ]; then
   repeat="${2:-5}"
   set -- FLAKY
 fi
-catalogs="${CATALOGS:-lakekeeper polaris unity rustfs reference}"
+catalogs="${CATALOGS:-lakekeeper polaris unity rustfs reference gravitino}"
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
 suffix=""; [ "${LAB_NO_HELP:-0}" = 1 ] && suffix="-nohelp"
 dir() { if [ "$1$suffix" = lakekeeper ]; then echo reports; else echo "reports/$1$suffix"; fi; }
@@ -81,9 +81,13 @@ export_all() { for c in $catalogs; do uv run python scripts/export_reference.py 
 export_all
 uv run python scripts/gap_register.py findings  # the register self-tests check it
 for c in $catalogs; do
+  # Exit code 5 = nothing collected: the run without help deselects the register self-tests.
   CATALOG=$c LAB_RUN_ID=${run[$c]} uv run pytest tests/selftest/test_gap_register.py \
-    -p no:cacheprovider -q --tb=line > "$(dir "$c")/logs/rerun-selftest.log" 2>&1 \
-    || { echo "register self-tests failed on $c: $(dir "$c")/logs/rerun-selftest.log"; new=1; }
+    -p no:cacheprovider -q --tb=line > "$(dir "$c")/logs/rerun-selftest.log" 2>&1
+  rc=$?
+  if [ $rc -ne 0 ] && [ $rc -ne 5 ]; then
+    echo "register self-tests failed on $c: $(dir "$c")/logs/rerun-selftest.log"; new=1
+  fi
 done
 export_all
 uv run python scripts/gap_register.py findings

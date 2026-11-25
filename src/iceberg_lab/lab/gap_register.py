@@ -57,6 +57,7 @@ COMPONENTS: dict[str, tuple[str, str]] = {
     "unity": ("image", "unitycatalog"),
     "rustfs": ("image", "rustfs"),
     "reference": ("image", "reference"),
+    "gravitino": ("image", "gravitino"),
     "keycloak": ("image", "keycloak"),
     "openfga": ("image", "openfga"),
     "pyiceberg": ("package", "pyiceberg"),

@@ -78,7 +78,7 @@ seen_at = { polaris = "1.9.0" }
 
 [unity-authz-lookup-500]
 summary = "Unity's authz stack once answered pg_lake's namespace lookup for a user without grants with HTTP 500 instead of 403 (1 of 7 runs; no trace in the server logs)"
-seen_at = { unity = "0.7.0", pg_lake = "3.7.0-pg19" }
+seen_at = { unity = "0.7.0", pg_lake = "3.7.1-pg19" }
 flaky = true
 
 [unity-delayed-file-cleanup]
@@ -262,6 +262,57 @@ bug_report = "16-iceberg-rest-fixture-transaction-commit-drops-changes.md"
 summary = "The Iceberg REST fixture refuses a v3 type in a v2 table with HTTP 500 (IllegalStateException) instead of 400 (Bad Request)"
 seen_at = { reference = "sha256:009f9f6897cc" }
 
+# ============================== gravitino
+
+[gravitino-backslash-table-refused-created]
+summary = "Gravitino answers creating a table named 'a\\b' with 400 ('Illegal character in path' in the location it builds from the name), but the table is created anyway and is listed"
+severity = "INCONSISTENT"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-disabled-catalog-served]
+summary = "A switched-off Gravitino catalog (inUse=false) still serves Iceberg REST reads, and a write it answers with 500 'not in use' takes effect anyway"
+severity = "INCONSISTENT"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-dotted-names]
+summary = "Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database"
+severity = "INCONSISTENT"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-error-stack-traces]
+summary = "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-listing-needs-table-privilege]
+summary = "Gravitino has no privilege to list a schema's tables: a listing shows only the tables the user may read or modify (USE_SCHEMA alone lists none)"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-no-location-checks]
+summary = "Gravitino accepts every table location - inside, equal to or above another table's directory, set later, registered from foreign metadata or as write.data.path - and vends STS keys for it that read the other table's files"
+severity = "SECURITY"
+seen_at = { gravitino = "1.3.1", rustfs = "1.0.6" }
+
+[gravitino-no-transactions-commit]
+summary = "Gravitino has no /transactions/commit - no multi-table transaction (DuckDB refuses the COMMIT)"
+seen_at = { gravitino = "1.3.1", duckdb = "2.0.1" }
+
+[gravitino-single-issuer]
+summary = "Gravitino checks OAuth tokens against exactly one issuer (oauth.authority), and its web UI logs in at that same address: a login from the host's browser (identity provider under its host address, another issuer than inside the network) is refused, and the UI's login settings name a host the browser cannot resolve"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-snapshots-param]
+summary = "Gravitino accepts any value of loadTable's 'snapshots' parameter (spec: all|refs)"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-v3-type-in-v2-500]
+summary = "Gravitino refuses a v3-only type in a format-v2 table with HTTP 500 instead of 400"
+seen_at = { gravitino = "1.3.1" }
+
+[gravitino-variant-refused-created]
+summary = "Gravitino answers creating a table with a variant column with 406 'Unsupported type: variant', but the Iceberg table is created anyway and loads over Iceberg REST; Gravitino's own API cannot load it, and no role can name it (role creation fails with the same error)"
+severity = "INCONSISTENT"
+seen_at = { gravitino = "1.3.1" }
+
 # ============================== catalogs
 
 [catalogs-no-scan-planning]
@@ -270,7 +321,7 @@ seen_at = { lakekeeper = "0.15.1", polaris = "1.9.0", unity = "0.7.0", rustfs = 
 
 [catalogs-no-schema-compat-check]
 summary = "The catalog accepts a schema change incompatible with the existing data files (no server-side check - the REST spec leaves it to the client); every read fails afterwards: 'Cannot promote long to string'"
-seen_at = { lakekeeper = "0.15.1", polaris = "1.9.0", unity = "0.7.0", reference = "sha256:009f9f6897cc" }
+seen_at = { lakekeeper = "0.15.1", polaris = "1.9.0", unity = "0.7.0", gravitino = "1.3.1", reference = "sha256:009f9f6897cc" }
 
 # ============================== pyiceberg
 
@@ -297,6 +348,10 @@ seen_at = { pyiceberg = "0.12.0" }
 summary = "PyIceberg 0.12 cannot parse the spec form geometry(OGC:CRS84) / geography(OGC:CRS84, spherical) that Iceberg 1.12 writes (it expects the CRS in quotes) - the table cannot be loaded (also by Polars and Daft)"
 seen_at = { pyiceberg = "0.12.0" }
 bug_report = "09-pyiceberg-unquoted-geometry-crs.md"
+
+[pyiceberg-geo-write-binary]
+summary = "PyIceberg 0.12 turns geometry/geography columns into binary when writing: the write stops at the schema check ('Mismatch in fields') - Polars writes through it"
+seen_at = { pyiceberg = "0.12.0", gravitino = "1.3.1" }
 
 [pyiceberg-ignores-sort-order]
 summary = "PyIceberg ignores the table's sort order when writing (Polars and Daft write through it)"
@@ -365,27 +420,27 @@ seen_at = { pyarrow = "25.0.1", trino = "484" }
 
 [polars-geo-as-binary]
 summary = "Polars has no geometry type: reads geometry as Binary"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 [polars-no-fixed]
 summary = "Polars has no fixed-size binary: writes it as binary (schema mismatch) and reads fixed(4) as Binary"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 [polars-no-geo-parquet]
 summary = "Polars' Parquet reader does not know the GEOMETRY/GEOGRAPHY logical type"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 [polars-no-uuid]
 summary = "Polars has no UUID type: writes it as binary (schema mismatch) and reads uuid as Binary"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 [polars-streaming-one-commit]
 summary = "Polars 2.1 sink_iceberg(engine='streaming') writes all 500 rows in one commit at the end - a batch write through the streaming engine, no incremental commits"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 [polars-time-ns]
 summary = "Polars Time is time64[ns]; Iceberg time is microseconds"
-seen_at = { polars = "2.1.0" }
+seen_at = { polars = "2.2.0" }
 
 # ============================== daft
 
@@ -544,7 +599,7 @@ seen_at = { trino = "484" }
 [trino-null-partition-pruning]
 summary = "Trino returns the ts=NULL row for 'ts < <day boundary>' on a day(ts)-partitioned table without null_value_counts (pg_lake writes none)"
 severity = "WRONG RESULT"
-seen_at = { trino = "484", pg_lake = "3.7.0-pg19" }
+seen_at = { trino = "484", pg_lake = "3.7.1-pg19" }
 bug_report = "03-trino-null-partition-wrong-result.md"
 
 [trino-view-dialect]
@@ -639,129 +694,129 @@ seen_at = { flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
 
 [pglake-analyze-no-iceberg-stats]
 summary = "pg_lake ANALYZE only collects Postgres planner statistics; nothing is written to the Iceberg metadata"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-delete-copy-on-write]
 summary = "pg_lake ignores write.delete.mode=merge-on-read: deleting 1 of 3 rows rewrites the data file (with 1 of 97 rows it writes a position delete file - test_maintenance)"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-deletion-queue-duplicate]
 summary = "pg_lake 3.7: after VACUUM expired snapshots, its own next INSERT into the table fails - the same manifest path is put into lake_engine.deletion_queue twice"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 flaky = true
 
 [pglake-drop-no-purge]
 summary = "pg_lake DROP TABLE does not request a purge (no purgeRequested) - files stay on catalogs that only delete on purge (Polaris; Lakekeeper's hard delete hides it)"
-seen_at = { pg_lake = "3.7.0-pg19", polaris = "1.9.0" }
+seen_at = { pg_lake = "3.7.1-pg19", polaris = "1.9.0" }
 
 [pglake-expiry-unreliable]
 summary = "pg_lake VACUUM expiry is unreliable: the old snapshot stays, or it is removed but its data file stays in storage"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 flaky = true
 
 [pglake-fixed-as-bytea]
 summary = "pg_lake represents fixed(4) as bytea"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-ignores-config-404]
 summary = "pg_lake ignores a refused /v1/config (Lakekeeper hides the warehouse with 404) and sends its next request with a wrong prefix - the refusal shows as HTTP 400 'WarehouseIdIsNotUUID' instead of a permission error"
-seen_at = { pg_lake = "3.7.0-pg19", lakekeeper = "0.15.1" }
+seen_at = { pg_lake = "3.7.1-pg19", lakekeeper = "0.15.1" }
 bug_report = "06-pg_lake-ignores-config-404.md"
 
 [pglake-ignores-refused-commit]
-summary = "pg_lake reports COMMIT success although the REST catalog refused the commit (Unity has no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged"
+summary = "pg_lake reports COMMIT success although the REST catalog refused the commit (Unity and Gravitino have no /transactions/commit: 404; a concurrent commit: 409, which it does not retry either): Postgres shows the rows, the catalog and all other engines do not - writes are silently lost, nothing logged"
 severity = "DATA LOSS"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 bug_report = "02-pg_lake-silent-commit-divergence.md"
 
 [pglake-ignores-refused-create]
 summary = "pg_lake ignores the catalog's 400 on CREATE TABLE (Unity refuses TIME): it reports success, the table exists only in Postgres"
-seen_at = { pg_lake = "3.7.0-pg19", unity = "0.7.0" }
+seen_at = { pg_lake = "3.7.1-pg19", unity = "0.7.0" }
 
 [pglake-ignores-sort-order]
 summary = "pg_lake ignores the table's sort order when writing"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-ignores-target-file-size]
 summary = "pg_lake ignores write.target-file-size-bytes (uses its own pg_lake_table.target_file_size_mb, default 512 MB)"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-dv-read]
 summary = "pg_lake 3.7 cannot read v3 deletion vectors"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-external-commits]
 summary = "pg_lake does not see commits by other clients to a table it created (keeps its own metadata pointer; attached tables do follow - test_pglake.py)"
 severity = "WRONG RESULT"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-foreign-orphans]
 summary = "pg_lake VACUUM only deletes files it tracked itself (deletion queue), not foreign orphan files"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-geo]
 summary = "pg_lake 3.7 does not support geometry/geography"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-initial-default]
 summary = "pg_lake 3.7 refuses tables whose columns declare an initial-default"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-merge]
 summary = "pg_lake 3.7 does not support MERGE on Iceberg tables"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-primary-key]
 summary = "pg_lake: no PRIMARY KEY on Iceberg tables (foreign tables)"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-rename]
 summary = "pg_lake 3.7 cannot rename Iceberg tables in a REST catalog"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-struct-evolution]
 summary = "pg_lake cannot evolve a struct column: ALTER TYPE (add/rename/drop attribute) on a composite type used by an Iceberg table is refused"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-timestamptz-ns]
 summary = "pg_lake/pgduck cannot read timestamptz_ns"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-unknown]
 summary = "pg_lake does not support Iceberg type 'unknown'"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-no-variant]
 summary = "pg_lake does not support Iceberg type 'variant'"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-partition-source-ids]
 summary = "pg_lake sends partition fields with both 'source-id' and 'source-ids'; Lakekeeper 0.15 rejects that (HTTP 422) and pg_lake ignores the error - partitioned tables and partition evolution fail"
-seen_at = { pg_lake = "3.7.0-pg19", lakekeeper = "0.15.1" }
+seen_at = { pg_lake = "3.7.1-pg19", lakekeeper = "0.15.1" }
 bug_report = "08-pg_lake-partition-field-source-id-and-source-ids.md"
 
 [pglake-reads-all-as-parquet]
 summary = "pg_lake reads every data file as Parquet: ORC/Avro fail with a misleading 'No magic bytes found'"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-rejects-deleted-dv]
 summary = "pg_lake rejects v3 tables whose manifests still list a removed (status DELETED) deletion vector, although no live DV exists - also when the reference implementation wrote the table"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-requires-rest-prefix]
 summary = "pg_lake always puts a prefix segment into REST paths (/v1/<catalog_name>/...); a catalog whose /v1/config sets no prefix (optional in the REST spec - the Iceberg REST fixture) gets requests for paths it does not have, pg_lake cannot use it at all"
-seen_at = { pg_lake = "3.7.0-pg19", reference = "sha256:009f9f6897cc" }
+seen_at = { pg_lake = "3.7.1-pg19", reference = "sha256:009f9f6897cc" }
 bug_report = "17-pg_lake-requires-rest-prefix.md"
 
 [pglake-struct-by-name]
 summary = "pg_lake resolves struct fields by name, not by field id - a renamed struct field reads as NULL; with no field name in common the read fails ('STRUCT to STRUCT cast must have at least one matching member')"
 severity = "WRONG RESULT"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 [pglake-timestamp-ns-truncated]
 summary = "pg_lake truncates timestamp_ns to microseconds and maps the type to a microsecond timestamp (Postgres timestamps have microsecond precision)"
 severity = "DATA LOSS"
-seen_at = { pg_lake = "3.7.0-pg19" }
+seen_at = { pg_lake = "3.7.1-pg19" }
 
 # ============================== engines
 
@@ -769,10 +824,14 @@ seen_at = { pg_lake = "3.7.0-pg19" }
 summary = "Spark and Flink refuse a table re-created under the same name while their catalog cache holds the dropped one ('Table UUID does not match') - safe, but the new table is not usable until the cache expires"
 seen_at = { spark = "4.1.4+iceberg1.12.0", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
 
+[engines-java-oauth-refresh-keycloak]
+summary = "Iceberg Java (Spark, Flink) refreshes its OAuth2 session token by token exchange authenticated only with the old token; Keycloak refuses it (invalid_client), so a session that outlives the token (1 h) fails with 'Authentication token is expired'"
+seen_at = { spark = "4.1.4+iceberg1.12.0", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0", keycloak = "26.8.2" }
+
 [engines-manifest-without-schema-id]
 summary = "Manifests are written without the 'schema-id' key-value metadata the spec requires from v2 on: PyIceberg (also for Polars and Daft) and Iceberg Java, the reference implementation (Spark, Trino, Flink)"
 seen_at = { pyiceberg = "0.12.0", spark = "4.1.4+iceberg1.12.0", trino = "484", flink = "2.3.0-iceberg1.12.0-hadoop3.5.0" }
 
 [engines-no-remote-signing]
 summary = "DuckDB, Daft and Polars' native reader do not support Iceberg REST remote signing"
-seen_at = { duckdb = "2.0.1", daft = "0.7.26", polars = "2.1.0" }
+seen_at = { duckdb = "2.0.1", daft = "0.7.26", polars = "2.2.0" }

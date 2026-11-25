@@ -19,56 +19,56 @@ the change is classified.
 | pg_lake | 31 | functions of the pg_lake schemas | `lake.version`, `lake_engine.flush_deletion_queue`, `lake_engine.flush_in_progress_queue`, `lake_file.delete`, `lake_file.exists`, `lake_file.list`, `lake_file.preview`, `lake_file.size`, `lake_file_cache.add`, `lake_file_cache.list`, `lake_file_cache.remove`, `lake_iceberg.catalog_export`, `lake_iceberg.catalog_stats`, `lake_iceberg.data_file_stats`, `lake_iceberg.external_catalog_modification`, `lake_iceberg.files`, `lake_iceberg.find_all_referenced_files`, `lake_iceberg.force_push_object_store_catalog`, `lake_iceberg.iceberg_catalog_validator`, `lake_iceberg.list_object_store_tables`, `lake_iceberg.metadata`, `lake_iceberg.pg_lake_iceberg_am_handler`, `lake_iceberg.snapshots`, `lake_iceberg.table_size`, `lake_iceberg.trigger_object_store_catalog_generation`, `lake_iceberg.vacuum`, `lake_table.finish_postgres_recovery`, `lake_table.finish_postgres_recovery_in_db`, `lake_table.get_ftoption`, `lake_table.get_table_name`, `lake_table.get_table_schema` |
 | flink | 1 | procedures of the Iceberg catalog | ` none (RuntimeError)` |
 
-## How the base tests went per engine (all five catalogs together)
+## How the base tests went per engine (all catalogs together)
 
 Per cell: passed / checked (checked = passed + known gap + new failure);
 "—" not offered or not testable. Details and reasons: dashboard and `results/`.
 
 | Area | pyiceberg | duckdb | polars | daft | spark | trino | pg_lake | flink |
 |---|---|---|---|---|---|---|---|---|
-| Access modes | 4/4 | 3/4 | 3/4 | 3/4 | 4/4 | 3/3 | — | 4/4 |
-| Interop (one writes, all read) | 37/39 | 37/39 | 37/39 | 37/39 | 37/39 | 37/39 | 23/32 | 37/39 |
-| Write types | 114/255 | 211/240 | 100/255 | 114/255 | 205/230 | 215/255 | 44/88 | 202/250 |
-| Read types | 1119/1205 | 1179/1205 | 1171/1205 | 1138/1205 | 1131/1205 | 1179/1205 | 758/1049 | 1141/1205 |
-| Read types (neutral source) | 205/260 | 220/260 | 214/260 | 214/260 | 209/260 | 222/260 | 136/208 | 204/260 |
-| Read results (neutral source) | 81/100 | 90/100 | 81/100 | 73/100 | 90/100 | 90/100 | 54/80 | 90/100 |
-| Read partitions (neutral source) | 63/70 | 63/70 | 63/70 | 63/70 | 63/70 | 63/70 | 42/56 | 63/70 |
-| Read evolution (neutral source) | 18/20 | 18/20 | 18/20 | 18/20 | 18/20 | 18/20 | 12/16 | 18/20 |
-| Read maintenance results (neutral source) | 36/40 | 36/40 | 36/40 | 36/40 | 36/40 | 36/40 | 21/32 | 36/40 |
-| Write after maintenance (neutral source) | 20/40 | 36/40 | 20/40 | 20/40 | 36/40 | 36/40 | — | 36/40 |
-| Read file formats (neutral source) | 5/10 | 0/10 | 5/10 | 0/10 | 10/10 | 10/10 | 0/8 | 10/10 |
-| Time zones (neutral source) | 30/30 | 30/30 | 30/30 | 30/30 | 30/30 | 30/30 | 18/24 | 30/30 |
-| Write file formats | 0/10 | 0/10 | 0/10 | 0/10 | 10/10 | 10/10 | — | 10/10 |
-| Read file formats | 15/30 | 0/30 | 15/30 | 0/30 | 30/30 | 30/30 | 0/24 | 30/30 |
-| Type fidelity | 210/222 | 222/222 | 196/222 | 214/222 | 191/222 | 213/222 | 130/199 | 209/222 |
-| Operations | 122/240 | 216/250 | 30/60 | 30/60 | 203/240 | 188/250 | 34/88 | 158/230 |
-| Read others' results | 285/313 | 263/263 | 335/343 | 291/343 | 272/272 | 281/281 | 189/296 | 318/318 |
-| v3 features | 16/17 | 20/22 | 16/17 | 0/17 | 20/27 | 20/27 | 0/16 | 12/17 |
-| Write large files | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 2/4 | 5/5 |
-| Read large files | 37/37 | 37/37 | 37/37 | 37/37 | 37/37 | 37/37 | 23/30 | 37/37 |
-| Write partitions | 35/70 | 63/70 | 35/70 | 35/70 | 63/70 | 63/70 | 7/28 | 63/70 |
-| Read partitions | 364/364 | 364/364 | 364/364 | 364/364 | 364/364 | 363/364 | 238/315 | 364/364 |
-| Schema evolution | 49/54 | 53/54 | 49/54 | 49/54 | 44/54 | 53/54 | 31/42 | 53/54 |
-| Nested schema evolution | 56/61 | 60/61 | 56/61 | 47/61 | 60/61 | 60/61 | 0/48 | 60/61 |
-| Time zones | 132/132 | 162/162 | 132/132 | 132/132 | 162/162 | 162/162 | 96/132 | 162/162 |
-| Partition evolution | 57/62 | 61/62 | 57/62 | 57/62 | 52/62 | 61/62 | 35/49 | 61/62 |
-| Concurrent commits | 9/30 | 20/50 | 9/20 | 9/20 | 45/50 | 45/50 | 6/12 | 18/31 |
-| Views | 4/5 | 12/23 | — | — | 21/23 | 12/23 | — | 21/23 |
-| Namespaces | 23/25 | 23/25 | — | — | 24/25 | 19/20 | — | 20/25 |
-| Statistics | — | — | — | — | 15/15 | 10/10 | 0/4 | — |
-| Robustness (catalog faults) | 25/25 | 16/25 | 25/25 | 25/25 | 25/25 | 25/25 | 6/20 | 25/25 |
-| Authorization | 15/16 | 11/16 | 15/16 | 15/16 | 16/16 | 9/16 | 4/6 | 16/16 |
-| Transactions (several tables) | — | 6/10 | — | — | — | 0/10 | 2/8 | 0/10 |
-| Write-Audit-Publish | 5/10 | — | — | — | 9/10 | 0/10 | — | 0/10 |
-| Incremental & streaming | 5/5 | — | 5/10 | — | 19/20 | 5/10 | — | 15/15 |
-| STS expiry | 0/3 | 3/3 | 0/3 | 0/3 | 3/3 | 3/3 | — | 3/3 |
-| File layout | 5/10 | 10/10 | 5/10 | 5/10 | 10/10 | 10/10 | 0/8 | 5/10 |
-| Performance (correctness only) | 15/15 | 15/15 | 15/15 | 15/15 | 15/15 | 15/15 | 8/12 | 15/15 |
-| Branch isolation | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 3/4 | 10/10 |
-| Re-create with an open session | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 | 10/10 | 3/4 | 0/10 |
-| Files per specification | 20/40 | 45/48 | 20/40 | 20/40 | 36/48 | 36/48 | 10/16 | 27/39 |
-| Connection without help | 4/5 | 4/5 | 4/5 | 4/5 | 5/5 | 5/5 | 2/4 | 5/5 |
+| Access modes | 5/5 | 4/5 | 4/5 | 4/5 | 5/5 | 4/4 | — | 5/5 |
+| Interop (one writes, all read) | 44/47 | 44/47 | 44/47 | 44/47 | 44/47 | 44/47 | 30/40 | 44/47 |
+| Write types | 137/306 | 259/288 | 120/306 | 137/306 | 250/276 | 264/306 | 44/110 | 248/300 |
+| Read types | 1355/1459 | 1427/1459 | 1418/1459 | 1380/1459 | 1366/1459 | 1427/1459 | 998/1303 | 1380/1459 |
+| Read types (neutral source) | 252/312 | 270/312 | 263/312 | 264/312 | 256/312 | 273/312 | 182/260 | 250/312 |
+| Read results (neutral source) | 99/120 | 110/120 | 99/120 | 89/120 | 110/120 | 110/120 | 72/100 | 110/120 |
+| Read partitions (neutral source) | 77/84 | 77/84 | 77/84 | 77/84 | 77/84 | 77/84 | 56/70 | 77/84 |
+| Read evolution (neutral source) | 22/24 | 22/24 | 22/24 | 22/24 | 22/24 | 22/24 | 16/20 | 22/24 |
+| Read maintenance results (neutral source) | 44/48 | 44/48 | 44/48 | 44/48 | 44/48 | 44/48 | 28/40 | 44/48 |
+| Write after maintenance (neutral source) | 24/48 | 44/48 | 24/48 | 24/48 | 44/48 | 44/48 | — | 44/48 |
+| Read file formats (neutral source) | 6/12 | 0/12 | 6/12 | 0/12 | 12/12 | 12/12 | 0/10 | 12/12 |
+| Time zones (neutral source) | 36/36 | 36/36 | 36/36 | 36/36 | 36/36 | 36/36 | 24/30 | 36/36 |
+| Write file formats | 0/12 | 0/12 | 0/12 | 0/12 | 12/12 | 12/12 | — | 12/12 |
+| Read file formats | 18/36 | 0/36 | 18/36 | 0/36 | 36/36 | 36/36 | 0/30 | 36/36 |
+| Type fidelity | 258/273 | 273/273 | 241/273 | 263/273 | 234/273 | 262/273 | 174/250 | 256/273 |
+| Operations | 147/288 | 264/300 | 36/72 | 36/72 | 249/288 | 230/300 | 35/110 | 194/276 |
+| Read others' results | 345/379 | 317/317 | 405/415 | 350/415 | 328/328 | 339/339 | 252/370 | 384/384 |
+| v3 features | 20/21 | 25/27 | 20/21 | 0/21 | 25/33 | 25/33 | 0/20 | 15/21 |
+| Write large files | 6/6 | 6/6 | 6/6 | 6/6 | 6/6 | 6/6 | 2/5 | 6/6 |
+| Read large files | 44/44 | 44/44 | 44/44 | 44/44 | 44/44 | 44/44 | 30/37 | 44/44 |
+| Write partitions | 42/84 | 77/84 | 42/84 | 42/84 | 77/84 | 77/84 | 7/35 | 77/84 |
+| Read partitions | 441/441 | 441/441 | 441/441 | 441/441 | 441/441 | 440/441 | 315/392 | 441/441 |
+| Schema evolution | 59/65 | 64/65 | 59/65 | 59/65 | 53/65 | 64/65 | 40/52 | 64/65 |
+| Nested schema evolution | 68/74 | 73/74 | 68/74 | 57/74 | 73/74 | 73/74 | 0/60 | 73/74 |
+| Time zones | 156/156 | 192/192 | 156/156 | 156/156 | 192/192 | 192/192 | 120/162 | 192/192 |
+| Partition evolution | 69/75 | 74/75 | 69/75 | 69/75 | 63/75 | 74/75 | 46/61 | 74/75 |
+| Concurrent commits | 11/36 | 24/60 | 11/24 | 11/24 | 55/60 | 55/60 | 6/15 | 22/37 |
+| Views | 5/6 | 15/29 | — | — | 27/29 | 15/29 | — | 27/29 |
+| Namespaces | 28/30 | 28/30 | — | — | 29/30 | 23/24 | — | 24/30 |
+| Statistics | — | — | — | — | 18/18 | 12/12 | 0/5 | — |
+| Robustness (catalog faults) | 30/30 | 20/30 | 30/30 | 30/30 | 30/30 | 30/30 | 6/25 | 30/30 |
+| Authorization | 19/20 | 15/20 | 19/20 | 19/20 | 20/20 | 11/20 | 6/8 | 20/20 |
+| Transactions (several tables) | — | 6/12 | — | — | — | 0/12 | 2/10 | 0/12 |
+| Write-Audit-Publish | 6/12 | — | — | — | 11/12 | 0/12 | — | 0/12 |
+| Incremental & streaming | 6/6 | — | 6/12 | — | 23/24 | 6/12 | — | 18/18 |
+| STS expiry | 0/4 | 4/4 | 0/4 | 0/4 | 3/4 | 4/4 | — | 3/4 |
+| File layout | 6/12 | 12/12 | 6/12 | 6/12 | 12/12 | 12/12 | 0/10 | 6/12 |
+| Performance (correctness only) | 18/18 | 18/18 | 18/18 | 18/18 | 18/18 | 18/18 | 10/15 | 18/18 |
+| Branch isolation | 12/12 | 12/12 | 12/12 | 12/12 | 12/12 | 12/12 | 4/5 | 12/12 |
+| Re-create with an open session | 12/12 | 12/12 | 12/12 | 12/12 | 0/12 | 12/12 | 4/5 | 0/12 |
+| Files per specification | 24/48 | 55/58 | 24/48 | 24/48 | 44/58 | 44/58 | 10/19 | 33/47 |
+| Connection without help | 5/6 | 5/6 | 5/6 | 5/6 | 6/6 | 6/6 | 2/5 | 6/6 |
 | Credentials: reach and signing | — | 1/1 | 1/1 | 1/1 | — | — | — | — |
-| Maintenance | 3/20 | 10/40 | — | — | 53/60 | 51/60 | 5/20 | 6/60 |
-| Read others' maintenance results | 161/161 | 139/139 | 166/166 | 158/166 | 121/121 | 121/121 | 93/140 | 130/130 |
-| Write after others' maintenance | 98/166 | 166/166 | 98/166 | 98/166 | 166/166 | 166/166 | 6/8 | 166/166 |
+| Maintenance | 4/24 | 12/48 | — | — | 65/72 | 63/72 | 5/25 | 8/72 |
+| Read others' maintenance results | 195/195 | 168/168 | 201/201 | 191/201 | 146/146 | 146/146 | 124/175 | 157/157 |
+| Write after others' maintenance | 116/201 | 201/201 | 116/201 | 116/201 | 201/201 | 201/201 | 6/8 | 201/201 |

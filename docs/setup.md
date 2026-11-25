@@ -58,6 +58,7 @@ as alice and as bob). How users, rights and login are set up per catalog is in
 | Polaris | main instance (RBAC always on) | its own token broker: principals `az_alice`/`az_bob` with fixed credentials; plus Keycloak as external identity provider (`mixed`, principal `alice`, token with `scope=polaris`, audience `polaris` required) | catalog role with table privileges |
 | RustFS | main instance | IAM users `az-alice`/`az-bob`, SigV4; plus Keycloak via STS `AssumeRoleWithWebIdentity` (clients `rustfs-alice`/`rustfs-bob`, policy from the claim `rustfs_policy`, audience `rustfs` only) | catalog actions per bucket (`admin:GetTable`, `admin:CommitTable`, ...); read/write per table through S3 policies on data and metadata |
 | Unity | second instance `unitycatalog-authz` (profile `unity`) | Keycloak → `unity-token-shim` (client credentials with `scope=unity` → Unity token exchange; Unity requires audience `unity`) | `USE CATALOG`/`USE SCHEMA` + `SELECT`/`MODIFY` per table |
+| Gravitino | main instance (authorization on) | Keycloak, OAuth client credentials with `scope=gravitino` (audience `gravitino`); users `service-account-alice`/`-bob` in metalake `lab`; groups from the claim `lab_roles` | roles with `USE_CATALOG`/`USE_SCHEMA` + `SELECT_TABLE`/`MODIFY_TABLE` per table, granted to users or groups |
 
 Every token names only the audience of the service it is issued for (`src/iceberg_lab/keycloak.py`,
 set up with `scripts/keycloak_audiences.py`): Lakekeeper by default, Unity and Polaris through
@@ -143,8 +144,17 @@ container - `docker compose --profile reference up -d --force-recreate reference
 (names it accepted but cannot serve again cannot be dropped through the API,
 `reference-names-unaddressable`). pg_lake cannot use it (`pglake-requires-rest-prefix`).
 
+**Apache Gravitino 1.3.1** (`CATALOG=gravitino`, profile `gravitino`:
+`docker compose --profile gravitino up -d gravitino`, which also starts Keycloak and creates the
+database `gravitino` in `db`): Gravitino's Iceberg REST service as auxiliary service of the
+Gravitino server (`gravitino/gravitino.conf`). The warehouse names a `lakehouse-iceberg` catalog of
+metalake `lab`; the bootstrap creates `gravitino_sts` (Iceberg JDBC backend on Postgres, S3FileIO on
+RustFS, vended STS credentials via `s3-token`). Engines authenticate with Keycloak tokens (client
+credentials of `lab-admin`, `scope=gravitino` for the audience); authorization is on and
+`lab-admin`'s service account is the service admin and owner of the metalake.
+
 For views, all engines give the catalog the same name per catalog profile: `sts` (Lakekeeper),
-`psts` (Polaris), `rsts` (RustFS), `usts` (Unity), `refsts` (reference) – Trino catalogs are fixed files
+`psts` (Polaris), `rsts` (RustFS), `usts` (Unity), `refsts` (reference), `gsts` (Gravitino) – Trino catalogs are fixed files
 (`trino/catalog/`), and `sts` points at Lakekeeper.
 
 ## Version updates
@@ -163,7 +173,7 @@ through is in [test-architecture.md](test-architecture.md#new-versions-and-new-f
 | RustFS | `rustfs:9000` / `localhost:9000`, console `:9001` (`rustfsadmin`/`rustfsadmin`) | S3, bucket `warehouse` |
 | Lakekeeper | `lakekeeper:8181` – `/catalog`, `/management`, `/ui` | Iceberg REST catalog |
 | Postgres | `db:5432` | Lakekeeper metadata |
-| Trino *(profile `trino`)* | `trino:8080` | catalogs per catalog: `lk_*` (Lakekeeper), `pol_*` (Polaris), `rfs_*` (RustFS), `uc_*` (Unity); plus `*_proxy` (fault proxy), `*_authz_alice/bob` (authorization) and the view catalogs |
+| Trino *(profile `trino`)* | `trino:8080` | catalogs per catalog: `lk_*` (Lakekeeper), `pol_*` (Polaris), `rfs_*` (RustFS), `uc_*` (Unity), `ref_*` (reference), `grv_*` (Gravitino); plus `*_proxy` (fault proxy), `*_authz_alice/bob` (authorization) and the view catalogs |
 | pg_lake *(profile `pglake`)* | `pg-lake:5432` / `localhost:5433` | Postgres 19 + pg_lake 3.7 + `pgduck_server` |
 | Flink *(profile `flink`)* | web UI `flink:8081`, SQL Gateway `flink:8083` | Flink 2.3.0 + Iceberg 1.12.0 |
 | Polaris *(profile `polaris`)* | `polaris:8181` / `localhost:8183` – `/api/catalog`, `/api/management` | Apache Polaris 1.9.0 |
@@ -172,6 +182,8 @@ through is in [test-architecture.md](test-architecture.md#new-versions-and-new-f
 | Unity-authz *(profile `unity`)* | `unitycatalog-authz:8080` (compose network only), `unity-token-shim` | authz instance for `test_authz.py` |
 | Polaris Console *(profile `polaris`)* | `polaris-console:8080` / `localhost:8184` | Polaris web UI (image from `apache/polaris-tools`, `scripts/build_polaris_console.sh`) |
 | Unity UI *(profile `unity`)* | `unity-ui:3000` / `localhost:3000` | Unity web UI (`unitycatalog/unitycatalog-ui`), points at the authz instance |
+| Unity UI, main instance *(profile `unity`)* | `localhost:3001` | the same UI on the main instance: no login, the lab's data (own network `unity-ui-main`, where the UI's fixed proxy target `server` is the main instance) |
+| Gravitino *(profile `gravitino`)* | `gravitino:8090` / `localhost:8090` – API `/api` and web UI; Iceberg REST `gravitino:9001` / `localhost:8186` under `/iceberg` | Apache Gravitino 1.3.1, tokens from Keycloak |
 
 Versions are pinned (checked 2026-11-17): Lakekeeper `v0.15.1`, Polaris `1.9.0`, Unity Catalog
 `v0.7.0`, RustFS `1.0.6`, Trino `484`, Spark `4.1.4` with `iceberg-spark-runtime-4.1_2.13:1.12.0`,

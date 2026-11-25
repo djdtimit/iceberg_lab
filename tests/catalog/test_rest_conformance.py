@@ -64,6 +64,7 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     ("lakekeeper", "error_body:unsupported_method", r"unsupported_method \(HTTP 405\): no Iceberg error document \(None\): ''", "lakekeeper-error-body-empty"),
     ("reference", "error_body:unsupported_method", r"unsupported_method \(HTTP 501\): no Iceberg error document \(None\): ''", "reference-error-body-empty"),
     ("lakekeeper", "snapshots_value", r"snapshots=some answered 200", "lakekeeper-snapshots-param"),
+    ("gravitino", "snapshots_value", r"snapshots=some answered 200", "gravitino-snapshots-param"),
 ])
 # fmt: on
 

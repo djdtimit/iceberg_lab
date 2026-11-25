@@ -36,10 +36,10 @@ from iceberg_lab.datatypes import ALL_CASES
 
 from conftest import ENGINES, engine_param, require_engine
 
-#: Version at which each engine's "not offered" claims were last checked (2026-11-17).
+#: Version at which each engine's "not offered" claims were last checked (2026-11-17; polars 2026-11-24).
 VERIFIED = {
     "pyiceberg": "0.12.0",
-    "polars": "2.1.0",
+    "polars": "2.2.0",
     "daft": "0.7.26",
     "duckdb": "2.0.1",
     "spark": "4.1.4",

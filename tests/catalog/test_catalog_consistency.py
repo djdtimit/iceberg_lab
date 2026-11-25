@@ -58,7 +58,7 @@ SCHEMA = pa.schema([("id", pa.int64()), ("name", pa.string()), ("gone", pa.int64
 # fmt: off
 KNOWN_GAPS = gap_table(("catalog", "case"), [
     *((cat, case, r"invalid commit answered 200", "catalogs-no-schema-compat-check")
-      for cat in ("lakekeeper", "polaris", "unity", "reference") for case in ("incompatible_type", "reuse_field_id")),
+      for cat in ("lakekeeper", "polaris", "unity", "gravitino", "reference") for case in ("incompatible_type", "reuse_field_id")),
     # About 1 round in 3 loses one of 8 concurrent updates (confirmed, then gone) - the race
     # Lakekeeper fixed in 0.15.1; the test repeats the round until it shows.
     ("unity", "lost_namespace_property", r"confirmed but lost", "unity-loses-namespace-property"),

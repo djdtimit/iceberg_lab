@@ -15,7 +15,7 @@ after an update shows exactly which tests changed - in both directions:
     results/history/runs.jsonl    one line per reference and run: status counts and the gaps'
                                   causes (the dashboard's trend); a rerun updates its run's line
 
-``<name>`` is the catalog (``lakekeeper``, ``polaris``, ``rustfs``, ``unity``, ``reference``) or
+``<name>`` is the catalog (``lakekeeper``, ``polaris``, ``rustfs``, ``unity``, ``reference``, ``gravitino``) or
 ``<catalog>-nohelp`` for a run without lab help. ``scripts/run_all.sh`` calls this at the end.
 
 Usage: uv run python scripts/export_reference.py <report dir>   (e.g. reports/polaris)

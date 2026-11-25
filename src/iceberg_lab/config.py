@@ -1,7 +1,7 @@
 """Central connection settings for the lab.
 
 ``CATALOG`` selects one of the catalog profiles (:data:`PROFILES`: lakekeeper, polaris,
-rustfs, unity, reference; cloud catalogs only when configured, :func:`remote_profile`) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
+rustfs, unity, reference, gravitino; cloud catalogs only when configured, :func:`remote_profile`) - its URL, authentication (open, OAuth2, bearer token or SigV4), warehouses
 and storage location. Every other value can be overridden with an environment variable;
 inside the devcontainer they are set in ``.devcontainer/docker-compose.yml`` (service
 ``dev``) and the defaults below match them.
@@ -34,7 +34,8 @@ class CatalogProfile:
         warehouse_signing: Warehouse with remote signing, or ``None`` if not offered.
         oauth_credential: ``client_id:client_secret`` if the catalog requires OAuth2.
         oauth_scope: Scope for the client-credentials token request.
-        token_path: Token endpoint below ``base_url`` (only with ``oauth_credential``).
+        token_path: Token endpoint below ``base_url`` (only with ``oauth_credential``), or an
+            absolute URL when an identity provider on another host issues the tokens.
         trino_prefix: Prefix of the static Trino catalog files (``<prefix>_sts`` ...).
         capabilities: What the catalog offers beyond the REST basics; tests for anything
             missing report "no API" (not offered) instead of failing.
@@ -75,7 +76,9 @@ class CatalogProfile:
         Returns:
             The token URL, or None.
         """
-        return f"{self.base_url}{self.token_path}" if self.token_path else None
+        if not self.token_path:
+            return None
+        return self.token_path if "://" in self.token_path else f"{self.base_url}{self.token_path}"
 
 
 #: Catalogs the suite knows. Lakekeeper is the default and the reference.
@@ -146,6 +149,24 @@ PROFILES = {
         vended_credentials=False,
         location="s3://reference/wh",
         views_catalog="refsts",
+    ),
+    # Apache Gravitino 1.3 (compose profile gravitino): its Iceberg REST service runs inside the
+    # Gravitino server (auxiliary mode) and serves the lakehouse-iceberg catalogs of metalake
+    # "lab" - the warehouse names the catalog. Tokens come from Keycloak (client credentials of
+    # lab-admin, scope gravitino = audience), so the token endpoint is on another host.
+    "gravitino": CatalogProfile(
+        name="gravitino",
+        base_url=os.getenv("GRAVITINO_URL", "http://gravitino:9001"),
+        path="/iceberg",
+        warehouse_sts="gravitino_sts",
+        oauth_credential="lab-admin:lab-admin-secret",
+        oauth_scope="gravitino",
+        token_path=os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
+        + "/realms/iceberg/protocol/openid-connect/token",
+        trino_prefix="grv",
+        auth="oauth2",
+        location="s3://warehouse/gravitino_sts",
+        views_catalog="gsts",
     ),
 }
 
@@ -321,6 +342,20 @@ class Settings:
         return f"{self.catalog_base}{PROFILE.path}"
 
     @property
+    def token_endpoint(self) -> str | None:
+        """OAuth2 token endpoint the engines use: below ``catalog_base`` (so a proxy in front
+        of the catalog sees the token request too), or the profile's absolute URL (an identity
+        provider on another host, e.g. Keycloak for Gravitino).
+
+        Returns:
+            The token URL, or None without OAuth2.
+        """
+        p = PROFILE.token_path
+        if not p:
+            return None
+        return p if "://" in p else f"{self.catalog_base.rstrip('/')}{p}"
+
+    @property
     def s3_host_port(self) -> str:
         """S3 endpoint without scheme, e.g. ``rustfs:9000``.
 
@@ -477,11 +512,10 @@ def catalog_auth_props(s: Settings | None = None) -> dict[str, str]:
             "s3.path-style-access": "true",
             "client.region": s.s3_region,
         }
-    base = s.catalog_base.rstrip("/")
     return {
         "credential": PROFILE.oauth_credential,
         "scope": PROFILE.oauth_scope or "",
-        "oauth2-server-uri": f"{base}{PROFILE.token_path}",
+        "oauth2-server-uri": s.token_endpoint,
         "header.X-Iceberg-Access-Delegation": "vended-credentials",
     }
 
@@ -584,14 +618,14 @@ def catalog_headers(s: Settings | None = None) -> dict[str, str]:
         return {}
     import requests
 
-    base = (s.catalog_base if s else PROFILE.base_url).rstrip("/")
     client_id, client_secret = oauth_client(PROFILE.oauth_credential)
     data = {"grant_type": "client_credentials", "client_secret": client_secret}
     if client_id is not None:
         data["client_id"] = client_id
     if PROFILE.oauth_scope:
         data["scope"] = PROFILE.oauth_scope
-    r = requests.post(f"{base}{PROFILE.token_path}", data=data, timeout=10)
+    url = s.token_endpoint if s else PROFILE.token_url
+    r = requests.post(url, data=data, timeout=10)
     r.raise_for_status()
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

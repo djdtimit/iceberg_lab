@@ -82,6 +82,9 @@ NO_V3_MSG = r"Cannot write manifest for table version: 3"
 NULL_LIST = r"\(2, \[\]\)"  # assertion shows row 2 as (2, []) instead of (2, None)
 
 # Every known gap of the matrix, one per line so it reads like a table. FIRST MATCH WINS, so
+#: Geo cases whose table schema arrives in the spec form PyIceberg 0.12 cannot parse.
+CRS_GEO = "geography" if PROFILE.name == "gravitino" else "geo*"
+
 # specific entries (one type) must come before broad ones (whole engine) - otherwise a broad
 # entry claims failures that have a different cause (the error regex then reports them).
 # fmt: off
@@ -101,6 +104,13 @@ KNOWN_GAPS = gap_table(("op", "engine", "fv", "case"), [
     # Behind it (seen with Polaris 1.7): PyIceberg writes geo columns as binary -> schema mismatch.
     *([("write", "*", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse")]
       if PROFILE.name in ("polaris", "reference") else []),
+    # Gravitino 1.3 answers a table with a variant column with 406 (but creates it anyway).
+    *([("write", "*", "3", "variant", r"\(code: 406, type: UnsupportedOperationException\): Unsupported type: variant", "gravitino-variant-refused-created")]
+      if PROFILE.name == "gravitino" else []),
+    # Gravitino serves geometry with the default CRS as plain "geometry", which PyIceberg can
+    # load - the write then stops at the schema check: PyIceberg turns geo columns into binary.
+    *([("write", e, "3", "geo*", r"Mismatch in fields", "pyiceberg-geo-write-binary") for e in ("pyiceberg", "polars")]
+      if PROFILE.name == "gravitino" else []),
     # ---- writes: single types ---------------------------------------------------------------------
     ("write", "polars", "*", "time", r"time64\[ns\]", "polars-time-ns"),
     ("write", "polars", "*", "uuid", r"Mismatch in fields", "polars-no-uuid"),
@@ -134,10 +144,11 @@ KNOWN_GAPS = gap_table(("op", "engine", "fv", "case"), [
     # ---- reads: geometry/geography (only where the catalog accepts them, e.g. Polaris) ----------
     # Spec form geometry(OGC:CRS84) (written by Iceberg 1.12, e.g. the neutral source): PyIceberg 0.12
     # cannot parse it, so it and the engines loading tables through it cannot even load the table
-    # (docs/bug-reports/09). Visible where the catalog accepts geo types (Polaris).
-    ("read", "*>pyiceberg", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
-    ("read", "*>polars", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
-    ("read", "*>daft", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    # (docs/bug-reports/09). Visible where the catalog accepts geo types (Polaris). Gravitino
+    # serves the default-CRS geometry as plain "geometry": there only geography is affected.
+    ("read", "*>pyiceberg", "3", CRS_GEO, r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    ("read", "*>polars", "3", CRS_GEO, r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
+    ("read", "*>daft", "3", CRS_GEO, r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse"),
     ("read", "*>duckdb", "3", "geography", r"Not implemented Error: (Geography support|Reading geography column)", "duckdb-no-geography-read"),
     ("read", "*>pyiceberg", "3", "geo*", r"Cannot promote an binary to geo", "pyiceberg-no-geo-read"),
     ("read", "*>polars", "3", "geo*", r"LogicalType union has no variant set", "polars-no-geo-parquet"),
@@ -777,13 +788,19 @@ def test_v3_types_rejected_on_v2_tables(case, namespace):
     """
     from pyiceberg.exceptions import BadRequestError
 
-    # Polaris, Unity and the REST fixture refuse too, but answer HTTP 500 instead of 400.
+    # Polaris, Unity, Gravitino and the REST fixture refuse too, but answer HTTP 500 instead of 400.
     gap = {
         "polaris": expect_cause(
             "polaris-v3-type-in-v2-500", r"IllegalStateException: Invalid schema for v2"
         ),
         "reference": expect_cause(
             "reference-v3-type-in-v2-500",
+            r"ServerError: IllegalStateException: Invalid schema for v2:\s+- Invalid type for v: "
+            + re.escape(case.name)
+            + " is not supported until v3",
+        ),
+        "gravitino": expect_cause(
+            "gravitino-v3-type-in-v2-500",
             r"ServerError: IllegalStateException: Invalid schema for v2:\s+- Invalid type for v: "
             + re.escape(case.name)
             + " is not supported until v3",

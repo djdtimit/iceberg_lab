@@ -625,7 +625,7 @@ KNOWN_GAPS = gap_table(("catalog", "engine", "what"), [
     ("*", "trino", "write", r"Error committing write to Parquet file", "trino-hides-write-refusal"),
     # On Lakekeeper Trino shows the refusal; on these catalogs only a generic message:
     *((c, "trino", "bob", r"Failed to load (table|view)\W+t_select|Cannot obtain metadata", "trino-hides-load-refusal", c == "unity")
-      for c in ("polaris", "rustfs", "unity")),  # Unity: Trino sometimes shows the 403 (intermittent)
+      for c in ("polaris", "rustfs", "unity", "gravitino")),  # Unity: Trino sometimes shows the 403 (intermittent)
     # Polaris authorizes /transactions/commit only with TABLE_FULL_METADATA (checked:
     # TABLE_WRITE_DATA, TABLE_WRITE_PROPERTIES, NAMESPACE_READ_PROPERTIES are not enough).
     # RustFS: catalog rights (admin:GetTable, ...) can be scoped per bucket only, not per table;

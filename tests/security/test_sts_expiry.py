@@ -5,7 +5,8 @@ vended keys have expired (expiry time taken from the keys themselves) and the sa
 object / session reads again. Lifetimes: Lakekeeper 900 s (own warehouse ``demo-sts-short``,
 ``sts-token-validity-seconds``), Polaris and Unity 1 h (Polaris: only realm-wide
 configurable - a catalog property is refused as reserved; Unity: fixed in the code,
-``Duration.ofHours(1)``), so the wait is ~16 min resp. ~62 min. RustFS vends nothing ("no
+``Duration.ofHours(1)``), Gravitino 1 h (catalog default), so the wait is ~16 min resp.
+~62 min. RustFS vends nothing ("no
 API").
 
 Engines that load the table per query get fresh keys anyway; clients that hold a loaded
@@ -54,7 +55,18 @@ EXPIRED = (
 # its keys) they were given.
 KNOWN_GAPS = gap_table(
     ("engine",),
-    [(e, EXPIRED, "pyiceberg-no-credential-refresh") for e in ("pyiceberg", "polars", "daft")],
+    [(e, EXPIRED, "pyiceberg-no-credential-refresh") for e in ("pyiceberg", "polars", "daft")]
+    # Gravitino: 1 h keys, so the wait outlasts the 1 h Keycloak token of the session. Iceberg
+    # Java refreshes it by token exchange authenticated with the old token only; Keycloak
+    # refuses (invalid_client), and the session goes on with the expired token.
+    + (
+        [
+            (e, r"after expiry: .*Authentication token is expired", "engines-java-oauth-refresh-keycloak")
+            for e in ("spark", "flink")
+        ]
+        if PROFILE.name == "gravitino"
+        else []
+    ),
 )
 
 
