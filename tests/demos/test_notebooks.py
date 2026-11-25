@@ -47,29 +47,48 @@ def test_notebook_runs(path: Path):
     )
     # A notebook the catalog cannot run at all (e.g. DuckDB on RustFS) carries a known gap
     # per catalog in its metadata: {"lab": {"known_gaps": {"<catalog>": {"match", "reason"}}}}.
-    known = nb.metadata.get("lab", {}).get("known_gaps", {}).get(PROFILE.name)
+    gaps = nb.metadata.get("lab", {}).get("known_gaps", {})
+    known = next((gaps[c] for c in PROFILE.layers if c in gaps), None)
     with expect_cause(known["cause"], known["match"]) if known else expect(None):
         client.execute()
 
     # Expected-output checks: cells carry {"lab": {"expect": regex, "expect_not": regex}} in
     # their metadata (invisible to readers). Executing without exceptions is not enough - a
     # notebook could run and still show wrong numbers.
-    checked = sum(check_cell(idx, cell, PROFILE.name) for idx, cell in enumerate(nb.cells))
+    checked = sum(check_cell(idx, cell, PROFILE.layers) for idx, cell in enumerate(nb.cells))
     assert checked, f"{path.name} has no expected-output checks"
 
 
-def check_cell(idx: int, cell, catalog: str) -> bool:
+def _group(regex: str) -> str:
+    """Wrap a regex as a group that can be one alternative of several.
+
+    Leading global flags ("(?i)...") are only allowed at the start of a whole pattern, so they
+    become the group's own flags ("(?i:...)").
+
+    Args:
+        regex: One expectation.
+
+    Returns:
+        The grouped regex.
+    """
+    m = re.match(r"\(\?([aiLmsux]+)\)", regex)
+    return f"(?{m.group(1)}:{regex[m.end() :]})" if m else f"(?:{regex})"
+
+
+def check_cell(idx: int, cell, catalog: str | tuple[str, ...]) -> bool:
     """Check one executed cell against its expectations; return whether it had any.
 
     Per-catalog expectations override the general one ("expect_unity" beats "expect"). A cell
     that shows catalog limits (``catalog_limit``) may print "not possible" only where that
-    limit is expected for this catalog - anywhere else it is a failure, not a demo.
+    limit is expected for this catalog - anywhere else it is a failure, not a demo. A
+    Gravitino-fronted profile passes its layers (``PROFILE.layers``): its own key wins, else
+    the keys of Gravitino and the backend are alternatives (either layer may stop the demo).
     (Self-tested in test_lab_selftest.py.)
 
     Args:
         idx: Cell index.
         cell: Executed cell.
-        catalog: Catalog name.
+        catalog: Catalog name, or the profile's layers (its own name first).
 
     Returns:
         Whether the cell had checks.
@@ -82,9 +101,22 @@ def check_cell(idx: int, cell, catalog: str) -> bool:
         return False
     text = _cell_text(cell)
     first_line = (source.splitlines() or [""])[0][:60]
-    expect = lab.get(f"expect_{catalog}", lab.get("expect"))
-    expect_not = lab.get(f"expect_not_{catalog}", lab.get("expect_not"))
-    if "catalog_limit(" in source and f"expect_{catalog}" not in lab:
+    layers = (catalog,) if isinstance(catalog, str) else tuple(catalog)
+    # Its own key wins; else each layer brings its key or, without one, the general check.
+    if f"expect_{layers[0]}" in lab or f"expect_not_{layers[0]}" in lab or len(layers) == 1:
+        layers = layers[:1]
+    else:
+        layers = layers[1:]
+    keyed = [c for c in layers if f"expect_{c}" in lab]
+    alternatives = [lab.get(f"expect_{c}", lab.get("expect")) for c in layers]
+    if keyed and all(alternatives):
+        expect = "|".join(dict.fromkeys(_group(a) for a in alternatives))
+    else:  # a layer without any check: no output is required
+        expect = None if keyed else lab.get("expect")
+    expect_not = next(
+        (lab[f"expect_not_{c}"] for c in layers if f"expect_not_{c}" in lab), lab.get("expect_not")
+    )
+    if "catalog_limit(" in source and not keyed:
         expect_not = "|".join(x for x in (expect_not, r"not possible") if x)
     if expect:
         assert re.search(expect, text, re.DOTALL), (

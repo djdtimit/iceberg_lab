@@ -27,7 +27,18 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference", "gravitino")
+CATALOGS = (
+    "lakekeeper",
+    "polaris",
+    "rustfs",
+    "unity",
+    "reference",
+    "gravitino",
+    "gravitino_lakekeeper",
+    "gravitino_polaris",
+    "gravitino_unity",
+    "gravitino_rustfs",
+)
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "tests" / "lab")]
 
 

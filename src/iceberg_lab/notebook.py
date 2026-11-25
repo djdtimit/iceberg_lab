@@ -103,7 +103,7 @@ def describe_catalog() -> None:
             f"Iceberg REST fixture: no management API; /v1/config defaults={c.get('defaults')} "
             f"overrides={c.get('overrides')}, data under {PROFILE.location}"
         )
-    elif PROFILE.name == "gravitino":
+    elif PROFILE.server == "gravitino":
         from iceberg_lab.bootstrap import GRAVITINO_ACCEPT, GRAVITINO_API, GRAVITINO_METALAKE
 
         c = requests.get(

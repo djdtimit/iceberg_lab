@@ -21,6 +21,45 @@ missing row.
   same cases stand side by side in the comparison.
 - Only the base tests count in coverage, reliability and the catalog comparison.
 
+### Gravitino in front of another catalog: the gaps of both layers
+
+The profiles `gravitino_<backend>` (`FRONTED` in `src/iceberg_lab/config.py`) run the whole
+suite through Gravitino against a Gravitino catalog with `catalog-backend = rest` that forwards
+to Lakekeeper, Polaris, Unity or RustFS. Each is a catalog of its own in the comparison; code that
+depends on the server (adapters, users, privileges) asks `PROFILE.server` ("gravitino"), gap rows
+and skip texts name `PROFILE.name`.
+
+A case through Gravitino can fail for a reason of either layer. Gap rows of `gravitino` and of the
+backend therefore apply to the fronted profile too (`gap_register.find_gap`, and the central
+`gaps.CATALOG_GAPS`), but only as *possible* gaps: booked when the error matches the row, silent
+when the case passes - a backend gap that Gravitino happens to avoid is no "gap fixed". Anything
+else is a new failure and gets a row of its own, `gravitino_*` for a cause of the federation
+itself.
+
+Gap tables without a catalog column take a catalog's block with `layer_rows("unity", [...])`
+instead of `[...] if PROFILE.name == "unity" else []`: the same rows, as the catalog's own on
+Unity, as possible gaps on `gravitino_unity`, none elsewhere. `PROFILE.layers` names the three
+(`("gravitino_unity", "gravitino", "unity")`); the notebooks use it the same way - a cell's own
+`expect_gravitino_unity` wins, else `expect_gravitino` (or the general check) and
+`expect_unity` are alternatives. Often the backend's message survives and only the status
+changes (Gravitino answers many of the backend's 4xx with 500); such cases need an own row with
+the Gravitino form of the message.
+
+```mermaid
+flowchart TD
+  F["Failure on gravitino_polaris"] --> O{"row for gravitino_polaris<br/>or gravitino_* matches?"}
+  O -- yes --> KG1[known gap, own row]
+  O -- no --> L{"row of a layer matches?<br/>gravitino / polaris"}
+  L -- yes --> KG2[known gap, taken over]
+  L -- no --> NEW["new failure → own row or fix"]
+  P["Case passes on gravitino_polaris"] --> Q{own row?}
+  Q -- yes --> FX[gap fixed]
+  Q -- "no (only layer rows)" --> OK[works - nothing to report]
+```
+
+`tests/catalog/test_gravitino_fronting.py` adds what the suite cannot see from one side:
+it also uses the backend directly (`tests/lab/fronting.py`).
+
 ### "Not offered" is checked, not claimed
 
 A skip "<engine> has no API for <capability>" is only allowed when something proves it, so that
@@ -70,6 +109,19 @@ stays in the tests: it is what they test.
 ### New versions and new features show up
 
 Five mechanisms make a new engine or catalog version visible instead of letting it pass unseen:
+
+```mermaid
+flowchart LR
+  V[New version] --> PR["1 Renovate PR<br/>(one per engine/catalog)"]
+  PR --> INV["2 API inventory<br/>test_engine_inventory /<br/>feature_inventory"]
+  PR --> SPEC["3 spec per Iceberg release<br/>test_iceberg_spec"]
+  PR --> NA["4 not-offered claims<br/>test_na_claims (VERIFIED)"]
+  PR --> RUN["full run / rerun"]
+  RUN --> FIX["5 [gap fixed]<br/>error gone"]
+  RUN --> NEW["new failure"]
+  RUN --> SEEN["seen_at outdated<br/>test_causes_seen_with_current_versions"]
+  INV & SPEC & NA & FIX & NEW & SEEN --> ACT["classify, test, update<br/>KNOWN_GAPS / docs/gaps.toml"]
+```
 
 1. **Updates arrive as PRs.** `renovate.json` (Renovate GitHub app) opens one PR per engine/
    catalog for the Python packages (uv.lock), the images in docker-compose.yml and the Dockerfiles,

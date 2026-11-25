@@ -203,6 +203,9 @@ class Gap(BaseModel):
     where: dict[str, str] = {}
     #: Intermittent here, although the cause is not in general.
     flaky: bool = False
+    #: Taken over from a layer of a Gravitino-fronted profile (Gravitino or its backend, see
+    #: :func:`find_gap`): booked when the error matches, silent when the case passes.
+    inherited: bool = False
 
     @field_validator("cause")
     @classmethod
@@ -278,11 +281,50 @@ def gap_table(fields: tuple[str, ...], rows: Iterable[tuple]) -> list[Gap]:
     out = []
     n = len(fields)
     for row in rows:
+        inherited = isinstance(row, _LayerRow)
+        if inherited:
+            row = row.row
         if len(row) not in (n + 2, n + 3):
             raise ValueError(f"gap row needs {fields} + match + cause [+ flaky]: {row!r}")
         flaky = bool(row[n + 2]) if len(row) == n + 3 else False
-        out.append(gap(row[n + 1], row[n], flaky=flaky, **dict(zip(fields, row[:n], strict=True))))
+        g = gap(row[n + 1], row[n], flaky=flaky, **dict(zip(fields, row[:n], strict=True)))
+        out.append(g.model_copy(update={"inherited": True}) if inherited else g)
     return out
+
+
+class _LayerRow:
+    """A :func:`gap_table` row taken over from a layer of a Gravitino-fronted profile."""
+
+    __slots__ = ("row",)
+
+    def __init__(self, row: tuple) -> None:
+        self.row = row
+
+
+def layer_rows(catalogs: str, rows: Iterable[tuple]) -> list:
+    """The :func:`gap_table` rows of one catalog's own behaviour, for this profile.
+
+    For a block that applies to one catalog only (``*layer_rows("unity", [...])`` instead of
+    ``*([...] if PROFILE.name == "unity" else [])``): the catalog under test gets the rows as
+    they are; a Gravitino-fronted profile whose backend (or Gravitino) is named gets them as
+    inherited rows (booked when the error matches, silent when the case passes - see
+    :func:`find_gap`); every other profile gets none.
+
+    Args:
+        catalogs: Catalog profile names, ``|``-separated.
+        rows: The rows.
+
+    Returns:
+        The rows for :func:`gap_table`.
+    """
+    from iceberg_lab.config import PROFILE
+
+    names = set(catalogs.split("|"))
+    if PROFILE.name in names:
+        return list(rows)
+    if PROFILE.fronts and names & {PROFILE.server, PROFILE.fronts}:
+        return [_LayerRow(r) for r in rows]
+    return []
 
 
 def find_gap(gaps: Iterable[Gap], **dims: object) -> Gap | tuple[Gap, ...] | None:
@@ -298,10 +340,36 @@ def find_gap(gaps: Iterable[Gap], **dims: object) -> Gap | tuple[Gap, ...] | Non
     Returns:
         The gap, the alternatives (in row order) when several rows apply, or None.
     """
-    hits = tuple(g for g in gaps if g.applies(dims))
+    gaps = list(gaps)
+    hits = [g for g in gaps if g.applies(dims)]
+    hits += [
+        g.model_copy(update={"inherited": True})
+        for layer in _layers(dims)
+        for g in gaps
+        if g not in hits and g.applies({**dims, "catalog": layer})
+    ]
     if not hits:
         return None
-    return hits[0] if len(hits) == 1 else hits
+    return hits[0] if len(hits) == 1 else tuple(hits)
+
+
+def _layers(dims: dict[str, object]) -> tuple[str, ...]:
+    """The catalogs whose gaps a Gravitino-fronted profile takes over: Gravitino and its backend.
+
+    A case through Gravitino can fail for a reason of either layer; their rows apply as well,
+    but only when the error matches (the case may well pass through the other layer).
+
+    Args:
+        dims: The test's values.
+
+    Returns:
+        The layer catalogs, or nothing (not the fronted profile under test).
+    """
+    from iceberg_lab.config import PROFILE
+
+    if not PROFILE.fronts or dims.get("catalog") != PROFILE.name:
+        return ()
+    return (PROFILE.server, PROFILE.fronts)
 
 
 def matching(g: Gap | tuple[Gap, ...] | None, error: BaseException) -> Gap | None:
@@ -336,6 +404,8 @@ def expect(g: Gap | tuple[Gap, ...] | None):
         return _gaps.expect_gap(None, None)
     if isinstance(g, tuple):
         return _expect_one_of(g)
+    if g.inherited:
+        return _expect_one_of((g,))
     return _gaps.expect_gap(g.reason, g.match, flaky=g.is_flaky)
 
 
@@ -349,15 +419,25 @@ def _expect_one_of(alternatives: tuple[Gap, ...]) -> Iterator[None]:
     Yields:
         Nothing; the checked block runs inside.
     """
+    own = [a for a in alternatives if not a.inherited]
     try:
         yield
     except Exception as exc:  # booked on the matching row; none matches: a new failure
-        g = matching(alternatives, exc) or alternatives[0]
+        g = matching(alternatives, exc)
+        if g is not None and g.inherited:
+            with _gaps.expect_gap(g.reason, g.match, flaky=g.is_flaky):
+                raise
+        g = g or (own[0] if own else None)
+        if g is None:
+            raise
         with expect(g):
             raise
     else:
-        # Nothing failed: fixed, unless an alternative is intermittent.
-        g = next((a for a in alternatives if a.is_flaky), alternatives[0])
+        # Nothing failed: fixed, unless an alternative is intermittent (rows taken over from
+        # a layer of a fronted profile may simply not apply here).
+        if not own:
+            return
+        g = next((a for a in own if a.is_flaky), own[0])
         with expect(g):
             pass
 

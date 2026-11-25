@@ -61,10 +61,14 @@ KNOWN_GAPS = gap_table(
     # refuses (invalid_client), and the session goes on with the expired token.
     + (
         [
-            (e, r"after expiry: .*Authentication token is expired", "engines-java-oauth-refresh-keycloak")
+            (
+                e,
+                r"after expiry: .*Authentication token is expired",
+                "engines-java-oauth-refresh-keycloak",
+            )
             for e in ("spark", "flink")
         ]
-        if PROFILE.name == "gravitino"
+        if PROFILE.server == "gravitino"
         else []
     ),
 )

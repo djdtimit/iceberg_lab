@@ -56,8 +56,12 @@ NARROW = {
 }
 # Filled from observed failures only: (catalog, privilege, regex, cause).
 # fmt: off
-KNOWN_GAPS = gap_table(("catalog", "priv"), [
-    ("gravitino", "list_tables", r"listing without the table: \[\]", "gravitino-listing-needs-table-privilege"),
+KNOWN_GAPS = gap_table(("catalog", "priv", "step"), [
+    ("gravitino", "list_tables", "listing", r"listing without the table: \[\]", "gravitino-listing-needs-table-privilege"),
+    # Gravitino in front of Polaris: Polaris decides again by its own grants (401 for a user it
+    # has no principal for; Gravitino's own grant call loads the object there and answers 500).
+    *(("gravitino_polaris", p, "allowed", rf"{p} with the {p} privilege answered (401|500)", "gravitino-rest-backend-grants-not-forwarded")
+      for p in ("list_tables", "create_table", "alter_table", "manage_grants")),
 ])
 # fmt: on
 
@@ -89,9 +93,9 @@ def recorded() -> tuple[str, list[str]]:
     Returns:
         ``(image line, privileges)``.
     """
-    if PROFILE.name not in SERVICES:
+    if PROFILE.server not in SERVICES:
         pytest.skip(f"catalog {PROFILE.name} has no API for privileges")
-    lines = (ROOT / "docs" / "api" / f"privileges-{PROFILE.name}.txt").read_text().splitlines()
+    lines = (ROOT / "docs" / "api" / f"privileges-{PROFILE.server}.txt").read_text().splitlines()
     return lines[0], [ln for ln in lines[1:] if ln.strip()]
 
 
@@ -220,11 +224,11 @@ def test_privilege_inventory_matches_the_image():
           file runs for the catalog - else re-run scripts/privilege_inventory.py (a new
           version's added or removed privileges then show in the diff).
     """
-    if PROFILE.name not in SERVICES:
+    if PROFILE.server not in SERVICES:
         pytest.skip(f"catalog {PROFILE.name} has no API for privileges")
     head, privileges = recorded()
     compose = (ROOT / ".devcontainer" / "docker-compose.yml").read_text()
-    block = compose.split(f"\n  {SERVICES[PROFILE.name]}:\n", 1)[1]
+    block = compose.split(f"\n  {SERVICES[PROFILE.server]}:\n", 1)[1]
     image = re.search(r"^\s+image:\s*(\S+)", block, re.MULTILINE)[1]
     assert privileges, "empty inventory"
     assert head == f"# image: {image}", f"inventory of {head}, the lab runs {image}"
@@ -247,7 +251,7 @@ def test_recorded_privileges_are_accepted():
     _, privileges = recorded()
     b = backend()
     b.ensure()
-    getattr(_Accept, PROFILE.name)(b, privileges)
+    getattr(_Accept, PROFILE.server)(b, privileges)
 
 
 class _Accept:
@@ -498,14 +502,15 @@ def test_privilege_allows_its_action(priv, pv):
         pytest.skip(reason)
     cleanups.append(b.privilege_grant(priv, ns, "t"))
     status = act(b, "bob", ns, priv)
-    assert 200 <= status < 300, f"{priv} with the {priv} privilege answered {status}"
+    with expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, priv=priv, step="allowed")):
+        assert 200 <= status < 300, f"{priv} with the {priv} privilege answered {status}"
     if priv == "list_tables":
         s, base = b.rest("bob")
         names = [
             i["name"]
             for i in s.get(f"{base}/namespaces/{ns}/tables", timeout=15).json()["identifiers"]
         ]
-        with expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, priv=priv)):
+        with expect(find_gap(KNOWN_GAPS, catalog=PROFILE.name, priv=priv, step="listing")):
             assert "t" in names, f"listing without the table: {names}"
     if priv == "describe":
         opened = data_is_closed(b, "bob", ns)

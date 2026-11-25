@@ -31,7 +31,16 @@ import pytest
 from iceberg_lab.config import PROFILE, WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
-from conftest import ENGINES, engine_param, expect, expect_cause, find_gap, gap_table, require
+from conftest import (
+    ENGINES,
+    engine_param,
+    expect,
+    expect_cause,
+    find_gap,
+    gap_table,
+    layer_rows,
+    require,
+)
 
 WAREHOUSE = WAREHOUSE_STS
 #: Engines with SQL views, and the dialect name they store.
@@ -42,14 +51,14 @@ VIEW_ENGINES = {"spark": "spark", "trino": "trino", "duckdb": "duckdb", "flink":
 # fmt: off
 KNOWN_GAPS = gap_table(("creator", "reader"), [
     # PyIceberg posts to the views endpoint; Unity answers 404 without a message.
-    *([("pyiceberg", "create", r"^RESTError: NotFoundException: Not Found$", "unity-views-read-only"),
-       ("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "unity-views-read-only")]
-      if PROFILE.name == "unity" else []),
+    *layer_rows("unity", [("pyiceberg", "create", r"^RESTError: NotFoundException: Not Found$", "unity-views-read-only"),
+       ("*", "create", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views|This Iceberg REST catalog server does not support creating views", "unity-views-read-only"),
+       # Through Gravitino Trino shows only its generic message.
+       ("trino", "create", r"ICEBERG_CATALOG_ERROR, message=\"Failed to create view 'v_\w+'\"", "unity-views-read-only")]),
     # Not for PyIceberg's views: they carry a representation for every dialect.
     *((c, "trino", r"ICEBERG_UNSUPPORTED_VIEW_DIALECT", "trino-view-dialect") for c in VIEW_ENGINES),
     *((c, "duckdb", r"no SQL representation with dialect 'duckdb'", "duckdb-view-dialect") for c in VIEW_ENGINES),
-    *([(e, "create", r"view schema field id must be positive", "rustfs-view-field-id-0") for e in ("spark", "flink")]
-      if PROFILE.name == "rustfs" else []),
+    *layer_rows("rustfs", [(e, "create", r"view schema field id must be positive", "rustfs-view-field-id-0") for e in ("spark", "flink")]),
 ])
 # fmt: on
 

@@ -394,6 +394,127 @@ def gravitino_catalog_properties(
     }
 
 
+def gravitino_rest_backend_properties(s: Settings, backend: str) -> dict[str, str]:
+    """Properties of a lakehouse-iceberg catalog that fronts another lab catalog (REST backend).
+
+    ``catalog-backend = rest`` with the backend's Iceberg REST URI and warehouse. Gravitino
+    passes ``gravitino.bypass.*`` properties to the Iceberg RESTCatalog it opens, but always
+    sets ``rest.auth.type`` to its UserPrincipalForwardingAuthManager: the caller's own token
+    goes to the backend, configured OAuth2 credentials are not used. Only SigV4 (RustFS) signs
+    with the keys given here. No credential provider: whatever the backend vends is what the
+    clients get. S3 settings let Gravitino itself read metadata files.
+
+    Args:
+        s: Connection settings of the lab.
+        backend: Profile name of the backend (``lakekeeper``, ``polaris``, ``unity``, ``rustfs``).
+
+    Returns:
+        The catalog properties.
+    """
+    from iceberg_lab.config import PROFILES
+
+    b = PROFILES[backend]
+    bypass = "gravitino.bypass."
+    props = {
+        "catalog-backend": "rest",
+        "uri": f"{b.base_url}{b.path}",
+        "warehouse": b.warehouse_sts,
+        "io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
+        "s3-endpoint": s.s3_endpoint,
+        "s3-region": s.s3_region,
+        "s3-path-style-access": "true",
+        "s3-access-key-id": s.s3_access_key,
+        "s3-secret-access-key": s.s3_secret_key,
+    }
+    if b.auth == "sigv4":
+        props |= {
+            f"{bypass}rest.sigv4-enabled": "true",
+            f"{bypass}rest.signing-name": "s3",
+            f"{bypass}rest.signing-region": s.s3_region,
+            f"{bypass}rest.access-key-id": s.s3_access_key,
+            f"{bypass}rest.secret-access-key": s.s3_secret_key,
+        }
+    return props
+
+
+def ensure_polaris_keycloak_admin(s: Settings) -> None:
+    """Polaris principal ``lab-admin`` with root's role ``service_admin`` (idempotent).
+
+    Gravitino forwards the caller's Keycloak token to Polaris; Polaris (mixed authentication)
+    makes the token's client (``azp``) the principal. lab-admin - the identity of every lab
+    client in front of Gravitino - gets the same rights as root on ``polaris_sts``.
+
+    Args:
+        s: Connection settings of the lab.
+    """
+    from iceberg_lab.config import PROFILES
+
+    p = PROFILES["polaris"]
+    client_id, client_secret = p.oauth_credential.split(":", 1)
+    r = requests.post(
+        f"{p.base_url}{p.token_path}",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": p.oauth_scope,
+        },
+        timeout=10,
+    )
+    r.raise_for_status()
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}", "Polaris-Realm": "POLARIS"}
+    mgmt = f"{p.base_url}/api/management/v1"
+    r = requests.post(
+        f"{mgmt}/principals", json={"principal": {"name": "lab-admin"}}, headers=headers, timeout=10
+    )
+    if r.status_code not in (201, 409):
+        r.raise_for_status()
+    r = requests.put(
+        f"{mgmt}/principals/lab-admin/principal-roles",
+        json={"principalRole": {"name": "service_admin"}},
+        headers=headers,
+        timeout=10,
+    )
+    r.raise_for_status()
+
+
+#: What the web UI user ``lab-ui`` may do in metalake ``lab`` (role ``lab_ui``, on the metalake):
+#: browse and change catalogs, schemas, tables and views - not manage users, roles or grants.
+GRAVITINO_UI_PRIVILEGES = (
+    "USE_CATALOG", "USE_SCHEMA", "SELECT_TABLE", "SELECT_VIEW", "MODIFY_TABLE",
+    "CREATE_CATALOG", "CREATE_SCHEMA", "CREATE_TABLE", "CREATE_VIEW", "APPLY_TAG", "APPLY_POLICY",
+)  # fmt: skip
+
+
+def ensure_gravitino_ui_user(headers: dict) -> None:
+    """Web UI login to Gravitino: Keycloak client, user ``lab-ui`` in metalake ``lab`` (idempotent).
+
+    Args:
+        headers: lab-admin's headers for Gravitino's API.
+    """
+    from iceberg_lab import keycloak
+
+    keycloak.ensure_gravitino_ui_login()
+    api = f"{GRAVITINO_API}/api/metalakes/{GRAVITINO_METALAKE}"
+    steps = (
+        ("POST", f"{api}/users", {"name": keycloak.UI_USER}),
+        ("POST", f"{api}/roles", {
+            "name": "lab_ui",
+            "properties": {},
+            "securableObjects": [{
+                "fullName": GRAVITINO_METALAKE,
+                "type": "METALAKE",
+                "privileges": [{"name": n, "condition": "ALLOW"} for n in GRAVITINO_UI_PRIVILEGES],
+            }],
+        }),
+        ("PUT", f"{api}/permissions/users/{keycloak.UI_USER}/grant", {"roleNames": ["lab_ui"]}),
+    )  # fmt: skip
+    for method, url, body in steps:
+        r = requests.request(method, url, json=body, headers=headers, timeout=30)
+        if r.status_code != 409:
+            r.raise_for_status()
+
+
 def ensure_gravitino(s: Settings) -> None:
     """Gravitino: audience scope in Keycloak, metalake ``lab``, catalog ``gravitino_sts``.
 
@@ -420,20 +541,43 @@ def ensure_gravitino(s: Settings) -> None:
     )
     if r.status_code != 409:
         r.raise_for_status()
+    ensure_gravitino_ui_user(headers)
+    if PROFILE.fronts:
+        if PROFILE.fronts == "polaris":
+            ensure_polaris_keycloak_admin(s)
+        props = gravitino_rest_backend_properties(s, PROFILE.fronts)
+        comment = f"Gravitino in front of the lab's {PROFILE.fronts} (REST backend)"
+    else:
+        props = gravitino_catalog_properties(s)
+        comment = "Iceberg on RustFS, STS credential vending"
     r = requests.post(
         f"{api}/{GRAVITINO_METALAKE}/catalogs",
         json={
             "name": PROFILE.warehouse_sts,
             "type": "RELATIONAL",
             "provider": "lakehouse-iceberg",
-            "comment": "Iceberg on RustFS, STS credential vending",
-            "properties": gravitino_catalog_properties(s),
+            "comment": comment,
+            "properties": props,
         },
         headers=headers,
         timeout=60,
     )
     if r.status_code != 409:
         r.raise_for_status()
+    if PROFILE.fronts:
+        # The backend's warehouse must exist (its own bootstrap: CATALOG=<backend>).
+        token = keycloak.token("lab-admin", scope=PROFILE.oauth_scope)
+        r = requests.get(
+            f"{SETTINGS.catalog_uri}/v1/{PROFILE.warehouse_sts}/namespaces",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=60,
+        )
+        if not r.ok:
+            raise RuntimeError(
+                f"Gravitino cannot reach {PROFILE.fronts} through {PROFILE.warehouse_sts}: "
+                f"HTTP {r.status_code} {r.text[:300]} - bootstrap the backend first "
+                f"(CATALOG={PROFILE.fronts})"
+            )
     print(f"gravitino catalog {PROFILE.warehouse_sts} ready")
 
 
@@ -457,7 +601,7 @@ def main(s: Settings = SETTINGS) -> None:
         # The fixture writes below its CATALOG_WAREHOUSE (s3://reference/wh): only the bucket.
         ensure_bucket(replace(s, s3_bucket=PROFILE.location.split("/")[2]))
         wait_for(f"{s.catalog_base}/v1/config")
-    elif PROFILE.name == "gravitino":
+    elif PROFILE.server == "gravitino":
         wait_for(f"{GRAVITINO_API}/api/version", timeout=180)
         ensure_gravitino(s)
     else:

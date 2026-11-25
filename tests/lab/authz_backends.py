@@ -2099,7 +2099,11 @@ class GravitinoAuthz(Backend):
     """
 
     name: str = "gravitino"
-    trino: dict = field(default_factory=lambda: {"alice": "grv_alice", "bob": "grv_bob"})
+    #: In front of RustFS nothing is vended (the clients use the lab's keys).
+    vended: bool = field(default_factory=lambda: PROFILE.vended_credentials)
+    trino: dict = field(
+        default_factory=lambda: {u: f"{PROFILE.trino_prefix}_{u}" for u in ("alice", "bob")}
+    )
 
     @property
     def api(self) -> str:
@@ -2156,7 +2160,7 @@ class GravitinoAuthz(Backend):
                 "grant_type": "client_credentials",
                 "client_id": client,
                 "client_secret": f"{client}-secret",
-                "scope": "gravitino",
+                "scope": PROFILE.oauth_scope,  # + polaris when Gravitino fronts Polaris
             },
             timeout=10,
         )
@@ -2277,23 +2281,32 @@ class GravitinoAuthz(Backend):
             )
             self._call("PUT", f"permissions/users/{self.user(u)}/grant", {"roleNames": [f"az_{u}"]})
 
-    def _conn(self, client, scope="gravitino"):
+    def _conn(self, client, scope=None):
         """OAuth2 connection of a Keycloak client.
 
         Args:
             client: Keycloak client id.
-            scope: Token scope (the lab clients get audience gravitino through it).
+            scope: Token scope (default: the profile's - audience gravitino, plus polaris when
+                Gravitino fronts Polaris).
 
         Returns:
             The connection.
         """
+        # In front of RustFS nothing is vended: the clients bring the lab's S3 keys, so only
+        # the catalog decides what a user may do (as with RustFS's own SigV4 keys).
+        keys = None
+        if not PROFILE.vended_credentials:
+            keys = (SETTINGS.s3_access_key, SETTINGS.s3_secret_key)
         return Conn(
             uri=SETTINGS.catalog_uri,
             warehouse=WAREHOUSE_STS,
             auth="oauth2",
             credential=f"{client}:{client}-secret",
             token_url=SETTINGS.token_endpoint,
-            scope=scope,
+            scope=scope or PROFILE.oauth_scope,
+            keys=keys,
+            vended=PROFILE.vended_credentials,
+            s3_endpoint=PROFILE.client_s3_endpoint,  # in front of Unity: keys without endpoint
         )
 
     def conn(self, user):
@@ -2561,6 +2574,6 @@ def backend() -> Backend:
     Returns:
         The backend instance.
     """
-    if PROFILE.name not in BACKENDS:  # the reference fixture: no authentication at all
+    if PROFILE.server not in BACKENDS:  # the reference fixture: no authentication at all
         pytest.skip(f"catalog {PROFILE.name} has no API for users and permissions")
-    return BACKENDS[PROFILE.name]()
+    return BACKENDS[PROFILE.server]()

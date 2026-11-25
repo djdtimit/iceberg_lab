@@ -69,8 +69,10 @@ from conftest import (
     find_gap,
     fresh,
     gap_table,
+    layer_rows,
     matching,
 )
+from conftest import gap as gap_of
 
 #: All type tables live in demo-sts: every engine can use catalog-vended access there.
 WAREHOUSE = WAREHOUSE_STS
@@ -83,7 +85,7 @@ NULL_LIST = r"\(2, \[\]\)"  # assertion shows row 2 as (2, []) instead of (2, No
 
 # Every known gap of the matrix, one per line so it reads like a table. FIRST MATCH WINS, so
 #: Geo cases whose table schema arrives in the spec form PyIceberg 0.12 cannot parse.
-CRS_GEO = "geography" if PROFILE.name == "gravitino" else "geo*"
+CRS_GEO = "geography" if PROFILE.server == "gravitino" else "geo*"
 
 # specific entries (one type) must come before broad ones (whole engine) - otherwise a broad
 # entry claims failures that have a different cause (the error regex then reports them).
@@ -91,26 +93,27 @@ CRS_GEO = "geography" if PROFILE.name == "gravitino" else "geo*"
 KNOWN_GAPS = gap_table(("op", "engine", "fv", "case"), [
     # ---- writes: catalog (table creation already fails, for every writer) -------------------------
     # Unity Catalog OSS 0.7 refuses these types when the table is created (400).
-    *([("write", "pg_lake", "2", "time", r"NoSuchTableException: Table not found: lab\.\w+\.t_pg_lake_v2_time_\w+", "pglake-ignores-refused-create")]
+    *layer_rows("unity", [("write", "pg_lake", "2", "time", r"NoSuchTableException: Table not found: lab\.\w+\.t_pg_lake_v2_time_\w+", "pglake-ignores-refused-create")]
       + [("write", "*", "*", c, rf"BadRequestException: (Malformed request: )?Iceberg type {c.upper()}(\([^)]*\))? is not supported by Unity Catalog", "unity-no-v3-types")
-         for c in ("time", "timestamp_ns", "timestamptz_ns", "unknown", "geometry", "geography")]
-      if PROFILE.name == "unity" else []),
+         for c in ("time", "timestamp_ns", "timestamptz_ns", "unknown", "geometry", "geography")]),
+    # Gravitino in front of Lakekeeper/RustFS refuses pg_lake's create (a staged create, see
+    # gravitino-rest-backend-staged-create); pg_lake reports success, the table is missing.
+    *([("write", "pg_lake", "*", "*", r"NoSuchTableException: (Error getting tabular from catalog|table not found)", "pglake-ignores-refused-create")]
+      if PROFILE.name in ("gravitino_lakekeeper", "gravitino_rustfs") else []),
     # Catalog-specific: Lakekeeper refuses geo types already when the table is created.
-    *([("write", "*", "3", "geo*", r"(RESTError 422: |\(code: 422, ).*untagged enum SchemaEnum", "lakekeeper-rejects-geo")]
-      if PROFILE.name == "lakekeeper" else []),
+    *layer_rows("lakekeeper", [("write", "*", "3", "geo*", r"(RESTError 422: |\(code: 422, ).*untagged enum SchemaEnum", "lakekeeper-rejects-geo")]),
     # Visible where the catalog accepts geo types (Polaris). Iceberg 1.12 writes the CRS without
     # quotes ("geometry(OGC:CRS84)", as in the spec); PyIceberg 0.12's parser only accepts
     # quoted CRS, so the lab client cannot even load the table (docs/bug-reports/09).
     # Behind it (seen with Polaris 1.7): PyIceberg writes geo columns as binary -> schema mismatch.
-    *([("write", "*", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse")]
-      if PROFILE.name in ("polaris", "reference") else []),
+    *layer_rows("polaris|reference", [("write", "*", "3", "geo*", r"Could not parse geo(metry|graphy)\(OGC:CRS84(, spherical)?\) into a Geo(metry|graphy)Type", "pyiceberg-geo-crs-parse")]),
     # Gravitino 1.3 answers a table with a variant column with 406 (but creates it anyway).
     *([("write", "*", "3", "variant", r"\(code: 406, type: UnsupportedOperationException\): Unsupported type: variant", "gravitino-variant-refused-created")]
-      if PROFILE.name == "gravitino" else []),
+      if PROFILE.server == "gravitino" else []),
     # Gravitino serves geometry with the default CRS as plain "geometry", which PyIceberg can
     # load - the write then stops at the schema check: PyIceberg turns geo columns into binary.
     *([("write", e, "3", "geo*", r"Mismatch in fields", "pyiceberg-geo-write-binary") for e in ("pyiceberg", "polars")]
-      if PROFILE.name == "gravitino" else []),
+      if PROFILE.server == "gravitino" else []),
     # ---- writes: single types ---------------------------------------------------------------------
     ("write", "polars", "*", "time", r"time64\[ns\]", "polars-time-ns"),
     ("write", "polars", "*", "uuid", r"Mismatch in fields", "polars-no-uuid"),
@@ -811,7 +814,23 @@ def test_v3_types_rejected_on_v2_tables(case, namespace):
             + re.escape(case.name)
             + " is not supported until v3",
         ),
-    }.get(PROFILE.name, expect(None))
+    }.get(PROFILE.server, expect(None))  # through Gravitino: Gravitino validates first
+    if PROFILE.fronts:  # ... but not for a REST backend: the backend refuses, with its message
+        own_500 = {"polaris": "polaris-v3-type-in-v2-500", "unity": "unity-v3-type-in-v2-500"}
+        backend = own_500.get(PROFILE.fronts)
+        gap = expect(
+            gap_of(
+                backend,
+                r"CommitStateUnknownException: Service failed: 500: Invalid schema for v2:\s+"
+                rf"- Invalid type for v: {re.escape(case.name)} is not supported until v3",
+            )
+            if backend
+            else gap_of(
+                "gravitino-rest-backend-client-error-500",
+                r"ServerError: BadRequestException: Malformed request: (Invalid schema for v2|"
+                rf"schema contains unsupported primitive type {re.escape(case.name)})",
+            )
+        )
     # The refusal must be a 400 (BadRequestError); the wording differs per catalog.
     message = {
         "rustfs": r"schema contains unsupported primitive type " + re.escape(case.name),

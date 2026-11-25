@@ -788,6 +788,15 @@ class DuckDBEngine(Engine):
                     OAUTH2_SCOPE '{PROFILE.oauth_scope}'
                 )""")
             auth = f"SECRET {self.alias}_auth"
+            if not PROFILE.vended_credentials:
+                # Nothing is vended (Gravitino in front of RustFS): DuckDB's own keys.
+                self.con.execute(f"""
+                    CREATE SECRET IF NOT EXISTS {self.alias}_s3 (
+                        TYPE s3, KEY_ID '{s.s3_access_key}', SECRET '{s.s3_secret_key}',
+                        ENDPOINT '{s.s3_host_port}', URL_STYLE 'path', USE_SSL false,
+                        REGION '{s.s3_region}'
+                    )""")
+                mode = "none"
         else:
             # AUTHORIZATION_TYPE 'none': Lakekeeper runs without authentication in this lab.
             auth = "AUTHORIZATION_TYPE 'none'"

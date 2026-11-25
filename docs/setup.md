@@ -6,7 +6,7 @@ Back to the [README](../README.md).
 
 pg_lake (Snowflake-Labs) publishes no runnable images – GHCR only has CI build environments, and
 its `docker/` setup is a development environment that compiles Postgres 16–19 with assertions.
-`pg_lake/Dockerfile` therefore builds pg_lake **v3.7.0** from source on the official image
+`pg_lake/Dockerfile` therefore builds pg_lake **v3.7.1** from source on the official image
 `postgres:19.0-trixie`: vcpkg (Azure SDK, which pg_lake links statically), then `make install`
 (DuckDB 1.5.6 with pg_lake's patches, the extensions, `pgduck_server`); a second stage copies only
 the installed files and checks with `ldd` that no shared library is missing. The first build takes
@@ -19,7 +19,7 @@ pg_lake's `DUCKDB_VERSION` (the shallow clone has no git tags - without it DuckD
 v0.0.1 and pgduck_server cannot load its extensions). Without BuildKit (`docker buildx` missing)
 the cache mount is refused: build a copy of the Dockerfile without
 `--mount=type=cache,target=/root/.ccache` with `docker build --build-arg JOBS=4 -t
-iceberg-lab/pg-lake:3.7.0-pg19 -f <copy> pg_lake`, then `docker compose ... up -d --no-build`.
+iceberg-lab/pg-lake:3.7.1-pg19 -f <copy> pg_lake`, then `docker compose ... up -d --no-build`.
 `scripts/build_polaris_console.sh` handles the missing BuildKit itself.
 
 One container, two processes (`pg_lake/entrypoint.sh`): `pgduck_server` (embedded DuckDB, reads and
@@ -45,7 +45,7 @@ REST catalogs `sts` and `signing` (remote signing works, as with Spark, through 
 code). The gateway's JSON format cannot output `VARIANT` or maps with non-string keys; the metadata
 tests cast such columns to `STRING`.
 
-## Authentication and authorization – on the four catalogs with authentication
+## Authentication and authorization – on the catalogs with authentication
 
 `tests/security/test_authz.py` checks the same scenarios on every catalog (alice: read on
 `t_select`, read and write on `t_modify`, nothing on `t_none`; bob: no rights; every engine logs in
@@ -59,6 +59,23 @@ as alice and as bob). How users, rights and login are set up per catalog is in
 | RustFS | main instance | IAM users `az-alice`/`az-bob`, SigV4; plus Keycloak via STS `AssumeRoleWithWebIdentity` (clients `rustfs-alice`/`rustfs-bob`, policy from the claim `rustfs_policy`, audience `rustfs` only) | catalog actions per bucket (`admin:GetTable`, `admin:CommitTable`, ...); read/write per table through S3 policies on data and metadata |
 | Unity | second instance `unitycatalog-authz` (profile `unity`) | Keycloak → `unity-token-shim` (client credentials with `scope=unity` → Unity token exchange; Unity requires audience `unity`) | `USE CATALOG`/`USE SCHEMA` + `SELECT`/`MODIFY` per table |
 | Gravitino | main instance (authorization on) | Keycloak, OAuth client credentials with `scope=gravitino` (audience `gravitino`); users `service-account-alice`/`-bob` in metalake `lab`; groups from the claim `lab_roles` | roles with `USE_CATALOG`/`USE_SCHEMA` + `SELECT_TABLE`/`MODIFY_TABLE` per table, granted to users or groups |
+
+How an engine logs in as alice or bob, per catalog:
+
+```mermaid
+flowchart LR
+  E["Engine<br/>(as alice / bob)"]
+  KC["Keycloak<br/>realm iceberg"]
+  E -- "client credentials<br/>(+ scope)" --> KC
+  KC -. token .-> E
+  E -- "token, audience lakekeeper" --> LKA["lakekeeper-authz"] --> FGA[("OpenFGA<br/>(Postgres)")]
+  E -- "token, scope=polaris<br/>(audience polaris)" --> PL[Polaris]
+  E -- "principal credentials" --> PTB["Polaris token broker"] -.-> PL
+  E -- "token, scope=unity" --> TS["unity-token-shim<br/>(token exchange)"] --> UCA["unitycatalog-authz"]
+  E -- "token, audience rustfs" --> STS["RustFS STS<br/>AssumeRoleWithWebIdentity"] -. "temporary keys" .-> E
+  E -- "SigV4<br/>(IAM user or STS keys)" --> RC["RustFS catalog"]
+  E -- "token, scope=gravitino<br/>(audience gravitino)" --> GV[Gravitino]
+```
 
 Every token names only the audience of the service it is issued for (`src/iceberg_lab/keycloak.py`,
 set up with `scripts/keycloak_audiences.py`): Lakekeeper by default, Unity and Polaris through
@@ -75,6 +92,7 @@ common ones do. In short:
 | Polaris | ✓ (principal + catalog role) | ✗ (only together with an assignment in Polaris) | ✓ | all |
 | RustFS | ✓ (IAM groups) | ✓ (policy claim) | – (data does not live under the namespace) | all except granting on (IAM administration only) |
 | Unity | – (no groups) | – | ✓ | create only (everything else is reserved to the owner) |
+| Gravitino | ✓ (roles for users and groups) | ✓ (groups from the claim `lab_roles`) | ✓ | create, alter, list (shows only the tables the user may read or modify), grant on; no privilege for describe or drop (owner only) |
 
 Trino uses fixed catalog files per catalog and user (`lk_authz_*`, `pol_authz_*`, `rfs_authz_*`,
 `uc_authz_*`). What a catalog does not offer (remote signing except on Lakekeeper, vended
@@ -84,7 +102,7 @@ credentials on RustFS) is shown as "not offered".
 
 A **second** Lakekeeper (`lakekeeper-authz`, its own database `db-authz`) with OIDC through
 **Keycloak** (realm `iceberg`, `authz/keycloak/realm.json`) and authorization through **OpenFGA**
-(in-memory – after an OpenFGA restart run `lakekeeper-authz-migrate` again). The main Lakekeeper
+(tuples in Postgres, database `openfga` in `db-authz`, so they survive a restart). The main Lakekeeper
 stays open; the other tests are not affected. Identities are client-credentials service accounts:
 `lab-admin` (bootstrap, warehouses `authz-sts` and `authz-signing`, grants rights), `alice` (receives
 rights), `bob` (none). Trino uses the catalogs `lk_authz_alice`/`lk_authz_bob`; pg_lake needs
@@ -99,7 +117,7 @@ the token. The bootstrap creates `alice` and `bob` through SCIM. `unity/token_sh
 exchange, so all engines use plain OAuth client credentials; `lab-admin` gets Unity's own admin token
 (from the instance's configuration volume).
 
-## Other catalogs: `CATALOG=polaris|rustfs|unity`
+## Other catalogs: `CATALOG=polaris|rustfs|unity|reference|gravitino|gravitino_<backend>`
 
 The whole suite can run against another Iceberg REST catalog: `CATALOG=polaris
 scripts/run_all.sh` (default: Lakekeeper). All engines take URI, warehouse and login from the
@@ -110,6 +128,19 @@ Before the run, `scripts/cleanup_storage.py` removes the catalog's test leftover
 `test_*` namespaces, files without a table, older than 3 h): RustFS, Unity and Lakekeeper do not
 delete on drop (or only later), and tens of thousands of orphaned objects slow RustFS down until
 large read/write tests time out. Without `--apply` it is a dry run; `CLEANUP=0` skips the cleanup.
+Where the engines get their S3 access for the data files:
+
+```mermaid
+flowchart LR
+  E[Engine] -- loadTable --> CAT{Catalog}
+  CAT -- "Lakekeeper demo-sts, Polaris,<br/>Gravitino (s3-token)" --> STS["RustFS STS<br/>(AssumeRole)"]
+  CAT -- "Unity" --> SHIM["unity-sts-shim<br/>(session policy for RustFS)"] --> STS
+  STS -. "short-lived keys<br/>in the loadTable answer" .-> E
+  CAT -- "Lakekeeper demo-signing" --> SIG["remote signing:<br/>the catalog signs each S3 request"]
+  CAT -- "RustFS catalog, reference" --> OWN["nothing vended:<br/>the engine's own keys"]
+  E -- "data and metadata files" --> S3[("RustFS<br/>rustfs:9000")]
+```
+
 **Apache Polaris 1.9.0** (profile `polaris`, `docker compose --profile polaris up -d polaris`)
 runs on the same RustFS with in-memory persistence; the bootstrap creates the catalog
 `polaris_sts` (STS through RustFS, `drop-with-purge` enabled – the Polaris default is off) and gives
@@ -153,9 +184,45 @@ RustFS, vended STS credentials via `s3-token`). Engines authenticate with Keyclo
 credentials of `lab-admin`, `scope=gravitino` for the audience); authorization is on and
 `lab-admin`'s service account is the service admin and owner of the metalake.
 
+**Gravitino in front of another catalog** (`CATALOG=gravitino_lakekeeper`, `gravitino_polaris`,
+`gravitino_unity`, `gravitino_rustfs`; the backend's profile must run too): the bootstrap creates a
+Gravitino catalog `fed_<backend>` with `catalog-backend = rest` on the backend's Iceberg REST
+endpoint and warehouse, and checks that its namespaces can be listed. Gravitino forwards the
+caller's token to the backend - so the clients' token also names the backend's audience where it
+checks one (Polaris: `scope=gravitino polaris`, and the Polaris principal `lab-admin` with principal
+role `service_admin`). RustFS is the exception: Gravitino signs with SigV4 and the lab's keys
+(`gravitino.bypass.*`), RustFS vends nothing, and the clients use the lab's S3 keys. Storage
+credentials the backend vends reach the clients unchanged.
+
+By default Gravitino does not check its own privileges for such a catalog
+(`gravitino.iceberg-rest.disable-rest-authz`, default `true`): a user without any grant reads and
+creates tables, only the backend's own check of the forwarded token is left. The lab sets it to
+`false` (`gravitino/gravitino.conf`), so Gravitino decides before it forwards. A backend that
+checks the token by its own grants (Polaris) then decides a second time, and every right has to
+be granted in both (`gravitino-rest-backend-grants-not-forwarded`). A fixed service identity
+towards the backend is no way out, see [findings](findings.md#gravitino-in-front-of-another-catalog).
+
+```mermaid
+sequenceDiagram
+  participant E as Engine
+  participant K as Keycloak
+  participant G as Gravitino (catalog fed_x)
+  participant B as Backend catalog
+  participant S as RustFS (S3)
+  E->>K: client credentials (scope gravitino [+ polaris])
+  K-->>E: token (audience gravitino [+ polaris])
+  E->>G: Iceberg REST + token
+  Note over G: own privileges checked only with<br/>disable-rest-authz = false
+  G->>B: same call, caller's token forwarded<br/>(RustFS: SigV4 with Gravitino's keys)
+  B-->>G: metadata (+ vended S3 credentials)
+  G-->>E: answer passed through<br/>(some backend 4xx come back as 500)
+  E->>S: data and metadata files, directly
+```
+
 For views, all engines give the catalog the same name per catalog profile: `sts` (Lakekeeper),
-`psts` (Polaris), `rsts` (RustFS), `usts` (Unity), `refsts` (reference), `gsts` (Gravitino) – Trino catalogs are fixed files
-(`trino/catalog/`), and `sts` points at Lakekeeper.
+`psts` (Polaris), `rsts` (RustFS), `usts` (Unity), `refsts` (reference), `gsts` (Gravitino),
+`glk`/`gpol`/`guc`/`grfs` (Gravitino in front of Lakekeeper/Polaris/Unity/RustFS) – Trino catalogs
+are fixed files (`trino/catalog/`), and `sts` points at Lakekeeper.
 
 ## Version updates
 
@@ -173,7 +240,7 @@ through is in [test-architecture.md](test-architecture.md#new-versions-and-new-f
 | RustFS | `rustfs:9000` / `localhost:9000`, console `:9001` (`rustfsadmin`/`rustfsadmin`) | S3, bucket `warehouse` |
 | Lakekeeper | `lakekeeper:8181` – `/catalog`, `/management`, `/ui` | Iceberg REST catalog |
 | Postgres | `db:5432` | Lakekeeper metadata |
-| Trino *(profile `trino`)* | `trino:8080` | catalogs per catalog: `lk_*` (Lakekeeper), `pol_*` (Polaris), `rfs_*` (RustFS), `uc_*` (Unity), `ref_*` (reference), `grv_*` (Gravitino); plus `*_proxy` (fault proxy), `*_authz_alice/bob` (authorization) and the view catalogs |
+| Trino *(profile `trino`)* | `trino:8080` | catalogs per catalog: `lk_*` (Lakekeeper), `pol_*` (Polaris), `rfs_*` (RustFS), `uc_*` (Unity), `ref_*` (reference), `grv_*` (Gravitino), `grvlk_*`/`grvpol_*`/`grvuc_*`/`grvrfs_*` (Gravitino in front of Lakekeeper/Polaris/Unity/RustFS); plus `*_proxy` (fault proxy), `*_authz_alice/bob` (authorization) and the view catalogs |
 | pg_lake *(profile `pglake`)* | `pg-lake:5432` / `localhost:5433` | Postgres 19 + pg_lake 3.7 + `pgduck_server` |
 | Flink *(profile `flink`)* | web UI `flink:8081`, SQL Gateway `flink:8083` | Flink 2.3.0 + Iceberg 1.12.0 |
 | Polaris *(profile `polaris`)* | `polaris:8181` / `localhost:8183` – `/api/catalog`, `/api/management` | Apache Polaris 1.9.0 |
@@ -183,15 +250,29 @@ through is in [test-architecture.md](test-architecture.md#new-versions-and-new-f
 | Polaris Console *(profile `polaris`)* | `polaris-console:8080` / `localhost:8184` | Polaris web UI (image from `apache/polaris-tools`, `scripts/build_polaris_console.sh`) |
 | Unity UI *(profile `unity`)* | `unity-ui:3000` / `localhost:3000` | Unity web UI (`unitycatalog/unitycatalog-ui`), points at the authz instance |
 | Unity UI, main instance *(profile `unity`)* | `localhost:3001` | the same UI on the main instance: no login, the lab's data (own network `unity-ui-main`, where the UI's fixed proxy target `server` is the main instance) |
-| Gravitino *(profile `gravitino`)* | `gravitino:8090` / `localhost:8090` – API `/api` and web UI; Iceberg REST `gravitino:9001` / `localhost:8186` under `/iceberg` | Apache Gravitino 1.3.1, tokens from Keycloak |
+| Gravitino *(profile `gravitino`)* | `gravitino:8090` / `localhost:8090` – API `/api` and web UI; Iceberg REST `gravitino:9001` / `localhost:8186` under `/iceberg` | Apache Gravitino 1.3.1, tokens from Keycloak; plus `keycloak-browser` (`127.0.0.2:8080`, for the web UI login) |
 
-Versions are pinned (checked 2026-11-17): Lakekeeper `v0.15.1`, Polaris `1.9.0`, Unity Catalog
-`v0.7.0`, RustFS `1.0.6`, Trino `484`, Spark `4.1.4` with `iceberg-spark-runtime-4.1_2.13:1.12.0`,
+**Gravitino web UI login** (`http://localhost:8090`, user `lab-ui`, password `lab-ui`):
+Gravitino accepts tokens of exactly one issuer, `http://keycloak:8080/realms/iceberg`, and its UI
+sends the browser there to log in. The host must therefore resolve `keycloak` itself. Add this
+line to the host's `/etc/hosts` once:
+
+```
+127.0.0.2 keycloak
+```
+
+`keycloak-browser` forwards `127.0.0.2:8080` to Keycloak unchanged, so the issuer stays the one
+Gravitino expects. Trino keeps `localhost:8080`, now bound to `127.0.0.1` only. The UI client is
+`gravitino-ui` (public, PKCE). `lab-ui` has role `lab_ui` in metalake `lab`: browse and change
+catalogs, schemas, tables and views, but no users, roles or grants (`iceberg_lab.bootstrap`).
+
+Versions are pinned (checked 2026-11-25): Lakekeeper `v0.15.1`, Polaris `1.9.0`, Unity Catalog
+`v0.7.0`, RustFS `1.0.6`, Gravitino `1.3.1`, Trino `484`, Spark `4.1.4` with `iceberg-spark-runtime-4.1_2.13:1.12.0`,
 Flink `2.3.0` with `iceberg-flink-runtime-2.3:1.12.0` and Hadoop client `3.5.0`, PyIceberg `0.12.0`,
 DuckDB `2.0.1` (its `iceberg`/`httpfs` extensions are installed at run time and follow the DuckDB
-version; the manifest records the installed extension versions), Polars `2.1.0`, Daft `0.7.26`,
+version; the manifest records the installed extension versions), Polars `2.2.0`, Daft `0.7.26`,
 Keycloak `26.8.2`, OpenFGA `v1.23.0`, Envoy `v1.40.2`,
-Postgres `17.12` (catalog databases) and `19.0` with pg_lake `3.7.0` (built from source; the
+Postgres `17.12` (catalog databases) and `19.0` with pg_lake `3.7.1` (built from source; the
 extension itself reports version `3.6`, which is the number the findings use). What a run actually
 ran with is recorded in its manifest (`reports/.../manifest.json`, `results/<catalog>.manifest.json`).
 Deliberately not the latest:

@@ -27,6 +27,10 @@ SOURCES = {
         ("Unity", "unity"),
         ("Reference", "reference"),
         ("Gravitino", "gravitino"),
+        ("Gravitino→Lakekeeper", "gravitino_lakekeeper"),
+        ("Gravitino→Polaris", "gravitino_polaris"),
+        ("Gravitino→Unity", "gravitino_unity"),
+        ("Gravitino→RustFS", "gravitino_rustfs"),
     )
 }
 #: Codes the spec defines for (nearly) every operation and that a catalog gives only in rare

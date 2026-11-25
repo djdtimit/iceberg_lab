@@ -44,6 +44,11 @@ RUSTFS_IDP_CLIENT, RUSTFS_IDP_POLICY = "rustfs-rbac-idp", "rbac-idp-readers"
 #: client with PKCE, and a human lab user (lab only - user name = password).
 UI_CLIENT, UI_USER = "lakekeeper-ui", "lab-ui"
 UI_ORIGIN = "http://localhost:8282"
+#: Gravitino web UI login: public client, the UI's origin on the host. Gravitino accepts one
+#: issuer only (http://keycloak:8080/...), so the browser must reach Keycloak under that name:
+#: compose service keycloak-browser publishes it as 127.0.0.2:8080 and the host maps
+#: "keycloak" to 127.0.0.2 (/etc/hosts, docs/setup.md).
+GRAVITINO_UI_CLIENT, GRAVITINO_UI_ORIGIN = "gravitino-ui", "http://localhost:8090"
 #: Keycloak as the host's browser reaches it: tokens it issues there name this issuer.
 BROWSER_ISSUER = "http://localhost:30080/realms/iceberg"
 
@@ -430,6 +435,75 @@ def ensure_ui_login(h: dict | None = None) -> list[str]:
         ).raise_for_status()
         changed.append(f"user {UI_USER}")
     return changed
+
+
+def ensure_gravitino_ui_login(h: dict | None = None) -> list[str]:
+    """Browser login to the Gravitino web UI: public client with PKCE (idempotent).
+
+    The UI (oidc-client) redirects back to ``<origin>/ui/oauth/callback`` (silent renew:
+    ``/ui/oauth/silent-callback``, logout: ``/ui/oauth/logout``); its tokens need audience
+    "gravitino". The human user is the Lakekeeper UI's ``lab-ui`` (:func:`ensure_ui_login`).
+
+    Args:
+        h: Keycloak admin headers (default: fetched).
+
+    Returns:
+        What was changed (for the script's output).
+    """
+    h = h or admin_headers()
+    changed = ensure_ui_login(h)
+    base = f"{KC}/admin/realms/iceberg"
+    if not requests.get(
+        f"{base}/clients", params={"clientId": GRAVITINO_UI_CLIENT}, headers=h, timeout=10
+    ).json():
+        requests.post(
+            f"{base}/clients",
+            json={
+                "clientId": GRAVITINO_UI_CLIENT,
+                "enabled": True,
+                "protocol": "openid-connect",
+                "publicClient": True,
+                "standardFlowEnabled": True,
+                # Password grant for the lab's own check (test_ui) - the browser uses the code flow.
+                "directAccessGrantsEnabled": True,
+                "redirectUris": [f"{GRAVITINO_UI_ORIGIN}/ui/oauth/*"],
+                "webOrigins": [GRAVITINO_UI_ORIGIN],
+                "attributes": {
+                    "pkce.code.challenge.method": "S256",
+                    "post.logout.redirect.uris": f"{GRAVITINO_UI_ORIGIN}/ui/oauth/*",
+                },
+                "protocolMappers": [audience_mapper("gravitino")],
+            },
+            headers=h,
+            timeout=10,
+        ).raise_for_status()
+        changed.append(f"client {GRAVITINO_UI_CLIENT}")
+    return changed
+
+
+def gravitino_ui_user_token() -> str:
+    """Token of ``lab-ui`` from client ``gravitino-ui``, asked as the browser does.
+
+    The browser reaches Keycloak as ``keycloak:8080`` (through keycloak-browser), so the Host -
+    and with it the token's issuer - is the one Gravitino accepts.
+
+    Returns:
+        The access token.
+    """
+    r = requests.post(
+        f"{KC}/realms/iceberg/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": GRAVITINO_UI_CLIENT,
+            "username": UI_USER,
+            "password": UI_USER,
+            "scope": "openid profile email",
+        },
+        headers={"Host": "keycloak:8080"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()["access_token"]
 
 
 def ui_user_token(browser: bool = False) -> str:

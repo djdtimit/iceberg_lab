@@ -135,6 +135,19 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     ("gravitino", "name_table_backslash", r"refused name 'a\\\\b' was created anyway", "gravitino-backslash-table-refused-created"),
     *(("gravitino", f"name_namespace_{n}", r"refused name .{1,40} (was created anyway|broke the listing)", "gravitino-dotted-names")
       for n in ("dotdot", "traversal")),
+    # Through a REST backend: tables with a dot reach the backend too; the backend's client
+    # errors come back as 500; a name too long for Gravitino's own store stays in the backend.
+    # Only Lakekeeper accepts such table names; only Lakekeeper and Polaris a namespace of
+    # 300 characters.
+    *(("gravitino_lakekeeper", f"name_table_{n}", r"refused name .{1,40} broke the listing of test_\w+: BadRequestError: IllegalNameIdentifierException", "gravitino-dotted-names")
+      for n in ("dotdot", "traversal")),
+    ("gravitino_*", "error_traversal", r"server error for a client error: 500 \{\"error\":\{\"message\":\"Malformed request: ", "gravitino-rest-backend-client-error-500"),
+    ("gravitino_*", "error_huge_name", r"server error for a client error: 500 \{\"error\":\{\"message\":\"(Unable to process \(code: \d+|Malformed request: )", "gravitino-rest-backend-client-error-500"),
+    *(("gravitino_lakekeeper", f"name_{k}_long", r"refused name 'x{300}(_\w{3})?' was created anyway", "gravitino-rest-backend-long-name-left")
+      for k in ("table", "namespace")),
+    ("gravitino_polaris", "name_namespace_long", r"refused name 'x{300}(_\w{3})?' was created anyway", "gravitino-rest-backend-long-name-left"),
+    ("gravitino_unity", "register_outside", r"ServerError\('NotFoundException: Not Found'\)", "gravitino-rest-backend-advertises-unsupported"),
+    ("gravitino_unity", "view_keys", r"406 Client Error: Not Acceptable for url: \S+/namespaces/\w+/views", "gravitino-rest-backend-advertises-unsupported"),
     *(("reference", f"name_{n}", r"accepted name .{1,80} cannot be loaded again: (BadRequestError|HTTPError|NoSuchNamespaceError)", "reference-names-unaddressable")
       for n in ("namespace_traversal", "table_slash", "namespace_slash", "table_backslash", "namespace_backslash", "namespace_newline", "table_percent", "namespace_percent")),
 ])
@@ -266,6 +279,12 @@ TOKEN_CLIENTS = {
         "az-shortlived-rustfs",
         [kc.audience_mapper("rustfs"), kc.policy_claim_mapper("az-alice")],
     ),
+    "gravitino": (
+        "alice",
+        "gravitino",
+        "az-shortlived-gravitino",
+        [kc.audience_mapper("gravitino")],
+    ),
 }
 
 
@@ -277,14 +296,14 @@ def keycloak():
     Returns:
         Case -> bad token.
     """
-    if PROFILE.name not in TOKEN_CLIENTS:  # the reference fixture: no authentication
+    if PROFILE.server not in TOKEN_CLIENTS:  # the reference fixture: no authentication
         pytest.skip(f"catalog {PROFILE.name} has no API for token authentication")
     try:
         admin = _keycloak_admin()
     except requests.RequestException:
         pytest.skip("Keycloak not running (docker compose --profile authz up -d)")
     kc.ensure_service_scopes(admin)
-    _client, _scope, shortlived, mappers = TOKEN_CLIENTS[PROFILE.name]
+    _client, _scope, shortlived, mappers = TOKEN_CLIENTS[PROFILE.server]
     kc.ensure_client(admin, shortlived, mappers, lifespan=5, only_mapped_audiences=True)
     kc.ensure_client(admin, "az-noaudience", [])  # audience "account" only
     expired = keycloak_token(shortlived)
@@ -360,6 +379,24 @@ def _polaris_token():
     )
     r.raise_for_status()
     return r.json()["access_token"]
+
+
+def _gravitino(token):
+    """Gravitino call with a token: its Iceberg REST ``/v1/config`` for the lab's warehouse
+    (through Gravitino in front of another catalog: Gravitino checks the token first).
+
+    Args:
+        token: Bearer token to send.
+
+    Returns:
+        The response.
+    """
+    return requests.get(
+        f"{SETTINGS.catalog_uri}/v1/config",
+        params={"warehouse": WAREHOUSE_STS},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
 
 
 def _polaris(token):
@@ -454,7 +491,8 @@ def test_bad_token_is_refused(case, request):
     Checks:
         * positive control: a valid token of the same identity works (200) - so a refusal is a
           refusal;
-        * the bad token is refused with 401 (RustFS STS: 400/403 with an STS error code
+        * the bad token is refused with 401 - an expired one also with 419, the REST spec's
+          Authentication Timeout (RustFS STS: 400/403 with an STS error code
           InvalidIdentityToken / AccessDenied / ExpiredTokenException).
 
     Args:
@@ -462,7 +500,7 @@ def test_bad_token_is_refused(case, request):
             module's case lists).
         request: pytest request (fixtures by name).
     """
-    cat = PROFILE.name
+    cat = PROFILE.server
     if cat == "polaris":
         from authz_backends import PolarisAuthz
 
@@ -479,8 +517,11 @@ def test_bad_token_is_refused(case, request):
     elif cat == "unity":  # own tokens at the API, Keycloak tokens at the exchange
         _require(f"{UNITY}/api/2.1/unity-catalog/catalogs")
         good, probe, via = _unity_token(), _unity, _unity_exchange
+    elif cat == "gravitino":  # takes the Keycloak token itself (audience gravitino)
+        _require(KC)
+        good, probe = keycloak_token("alice", scope="gravitino"), _gravitino
     else:
-        pytest.skip(f"catalog {cat} has no API for authentication (open catalog)")
+        pytest.skip(f"catalog {PROFILE.name} has no API for authentication (open catalog)")
     assert probe(good).status_code == 200, f"positive control failed: {_status(probe(good))}"
     if case in ("expired", "other_issuer", "no_audience"):
         bad = request.getfixturevalue("keycloak")[case]
@@ -502,7 +543,9 @@ def test_bad_token_is_refused(case, request):
                 f"not refused by STS: {r.status_code} {r.text[:300]}"
             )
         else:
-            assert r.status_code == 401, f"not refused with 401: {_status(r)}"
+            # The REST spec's answer to expired credentials is 419 (Authentication Timeout).
+            allowed = (401, 419) if case == "expired" else (401,)
+            assert r.status_code in allowed, f"not refused with 401: {_status(r)}"
 
 
 #: How AWS STS refuses a web identity token (AWS: InvalidIdentityToken 400, AccessDenied 403).
@@ -913,12 +956,13 @@ def test_location_cannot_reach_another_table(case, victim):
     except NotImplementedError as exc:  # PyIceberg: the catalog does not offer the endpoint
         # Only "no API" when the catalog's own API description lacks it too - otherwise the
         # catalog describes the endpoint but does not serve it, and the test fails.
-        if PROFILE.name in inv.offered_by(inv.CAPABILITIES[ESCAPE_CAPABILITY[case]]):
+        if PROFILE.server in inv.offered_by(inv.CAPABILITIES[ESCAPE_CAPABILITY[case]]):
             raise
         pytest.skip(f"catalog {PROFILE.name} has no API for this ({exc})")
     except Exception as exc:  # noqa: BLE001 - refused: that is the expected outcome
         if case == "register_outside":  # refused for the location, not for a broken file
-            assert re.search(r"(?i)location|allowed|metadata directory", str(exc)), exc
+            with _gap(case):
+                assert re.search(r"(?i)location|allowed|metadata directory", str(exc)), exc
         return
     b = cat.load_table(name)
     reach = _keys_reach(b, a_file)
@@ -1029,7 +1073,8 @@ def test_responses_contain_no_secrets(victim):
         (table, {"X-Iceberg-Access-Delegation": "vended-credentials"}),
         (f"{table}/credentials", {}),
     ] + [
-        (u.format(lakekeeper=SETTINGS.lakekeeper_url), {}) for u in MANAGEMENT.get(PROFILE.name, [])
+        (u.format(lakekeeper=SETTINGS.lakekeeper_url), {})
+        for u in MANAGEMENT.get(PROFILE.server, [])
     ]
     cfg = requests.get(
         f"{SETTINGS.catalog_uri}/v1/config",
@@ -1089,7 +1134,8 @@ def test_view_responses_carry_no_storage_keys(namespace):
     created = requests.post(base, json=body, headers=headers, auth=catalog_auth(), timeout=15)
     if created.status_code in (404, 405, 501):
         pytest.skip(f"catalog {PROFILE.name} has no API for views ({created.status_code})")
-    created.raise_for_status()
+    with _gap("view_keys"):
+        created.raise_for_status()
     loaded = requests.get(f"{base}/{name}", headers=headers, auth=catalog_auth(), timeout=15)
     loaded.raise_for_status()
     hits = []
@@ -1286,7 +1332,12 @@ def name_parent():
             cat.drop_table(t)
         cat.drop_namespace(parent)
     except Exception:  # noqa: BLE001 - a child the client cannot address: remove it raw
-        _raw_cleanup(parent)
+        if PROFILE.fronts:  # through Gravitino: a name it cannot address, in the backend
+            from fronting import empty_backend_namespace
+
+            empty_backend_namespace(parent)
+        else:
+            _raw_cleanup(parent)
 
 
 def _namespace_separator() -> str:
@@ -1368,7 +1419,7 @@ def _drop_from_backend(ident: tuple[str, ...], kind: str) -> None:
         ident: The identifier.
         kind: ``table`` or ``namespace``.
     """
-    if PROFILE.name != "gravitino":
+    if PROFILE.server != "gravitino":
         return
     import psycopg
 
@@ -1390,7 +1441,7 @@ def _drop_from_backend(ident: tuple[str, ...], kind: str) -> None:
 
 @pytest.mark.parametrize("kind", ["table", "namespace"])
 @pytest.mark.parametrize("label", list(NAMES))
-def test_name_is_refused_or_safe(label, kind, name_parent):
+def test_name_is_refused_or_safe(label, kind, name_parent, request):
     """A dangerous name is refused, or the object stays in the warehouse and stays addressable.
 
     Names: ``..``, ``../../escape``, slash, backslash, NUL, newline, percent-encoded dots,
@@ -1406,6 +1457,7 @@ def test_name_is_refused_or_safe(label, kind, name_parent):
         label: Name of the dangerous name case (see ``NAMES``).
         kind: ``table`` or ``namespace``.
         name_parent: A fresh parent namespace for the name tests.
+        request: pytest request (cleanup in the backend on Gravitino-fronted profiles).
     """
     cat, parent = name_parent
     name = NAMES[label]
@@ -1414,6 +1466,17 @@ def test_name_is_refused_or_safe(label, kind, name_parent):
     # - there it broke every later top-level listing (DuckDB: "empty namespace name").
     nested = PROFILE.name in ("lakekeeper", "polaris", "reference")  # test_namespace[*-nested]
     ident = (parent, name) if kind == "table" or nested else (f"{name}_{uuid.uuid4().hex[:3]}",)
+    if PROFILE.fronts:
+        # Through Gravitino a name it cannot address may still reach the backend - and while
+        # it exists there, Gravitino lists nothing of the catalog (a namespace) or of the
+        # namespace (a table; DuckDB's SHOW ALL TABLES then fails). Gone afterwards, whatever
+        # the outcome, so it cannot break the tests after this one.
+        from fronting import drop_backend_namespace, drop_backend_table
+
+        if kind == "namespace":
+            request.addfinalizer(lambda: drop_backend_namespace(ident[0]))
+        else:
+            request.addfinalizer(lambda: drop_backend_table(ident[0], ident[1]))
     try:
         if kind == "table":
             t = cat.create_table(ident, schema=SCHEMA)
@@ -1480,7 +1543,7 @@ def _self_grant(b, ns):
     """
     from authz_backends import pyiceberg_for
 
-    cat = PROFILE.name
+    cat = PROFILE.server
     if cat == "lakekeeper":
         t = pyiceberg_for(b.admin()).load_table(f"{ns}.t_none")
         return requests.post(
@@ -1675,9 +1738,9 @@ def test_catalog_token_does_not_outlive_identity_token(request):
     Args:
         request: pytest request (fixtures by name).
     """
-    cat = PROFILE.name
-    if cat not in ("lakekeeper", "polaris", "unity", "rustfs"):
-        pytest.skip(f"catalog {cat} has no API for authentication (open catalog)")
+    cat = PROFILE.server
+    if cat not in ("lakekeeper", "polaris", "unity", "rustfs", "gravitino"):
+        pytest.skip(f"catalog {PROFILE.name} has no API for authentication (open catalog)")
     _require(KC)
     if cat == "rustfs":
         identity = keycloak_token("rustfs-alice")
@@ -1687,7 +1750,7 @@ def test_catalog_token_does_not_outlive_identity_token(request):
         stamp = datetime.datetime.fromisoformat(expires).timestamp()
         catalog_life = stamp - time.time()
     else:
-        identity = keycloak_token("alice", scope="polaris" if cat == "polaris" else None)
+        identity = keycloak_token("alice", scope=cat if cat in ("polaris", "gravitino") else None)
         if cat == "unity":
             _require(f"{UNITY}/api/2.1/unity-catalog/catalogs")
             accepted = (
@@ -1699,7 +1762,8 @@ def test_catalog_token_does_not_outlive_identity_token(request):
                 if cat == "lakekeeper"
                 else f"{SETTINGS.catalog_uri}/v1/config"
             )
-            accepted = identity  # Lakekeeper and Polaris (mixed) take the Keycloak token itself
+            # Lakekeeper, Polaris (mixed) and Gravitino take the Keycloak token itself
+            accepted = identity
         catalog_life = _claims(accepted)["exp"] - int(time.time())
     ident = _claims(identity)
     identity_life = ident["exp"] - ident["iat"]

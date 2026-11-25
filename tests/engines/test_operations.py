@@ -50,7 +50,7 @@ from pyiceberg.catalog import Catalog
 from pyiceberg.schema import Schema
 from pyiceberg.types import DoubleType, IntegerType, LongType, NestedField, StringType
 
-from iceberg_lab.config import PROFILE, WAREHOUSE_STS
+from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.engines import SPARK_CATALOGS, polars_storage_options, pyiceberg_catalog
 
 from conftest import (
@@ -62,6 +62,7 @@ from conftest import (
     fresh,
     gap_table,
     keep_if_content_ok,
+    layer_rows,
     not_offered,
     require_format,
     skip_if_not_produced,
@@ -119,8 +120,7 @@ NO_V3_MSG = r"Cannot write manifest for table version: 3"
 # Known gaps of the operation matrix, one per line. First match wins.
 # fmt: off
 KNOWN_GAPS = gap_table(("engine", "op", "fv"), [
-    *([("pg_lake", "partition_evolution", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]
-      if PROFILE.name == "lakekeeper" else []),
+    *layer_rows("lakekeeper", [("pg_lake", "partition_evolution", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]),
     ("trino", "branch_and_tag", "*", r"does not support creating branches", "trino-no-create-branch"),
     ("trino", "overwrite", "*", r"Catalog only supports writes using autocommit", "trino-autocommit-only"),
     ("pg_lake", "rename_table", "*", r"ALTER TABLE RENAME command not supported for pg_lake_iceberg tables", "pglake-no-rename"),

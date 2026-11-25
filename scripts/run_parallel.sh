@@ -14,7 +14,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 main() {
   local specs=("$@")
-  [ ${#specs[@]} -eq 0 ] && specs=(lakekeeper polaris unity rustfs rustfs:nohelp reference gravitino)
+  [ ${#specs[@]} -eq 0 ] && specs=(lakekeeper polaris unity rustfs rustfs:nohelp reference gravitino gravitino_lakekeeper gravitino_polaris gravitino_unity gravitino_rustfs)
   local lanes=${PARALLEL:-2}
   # One lane per group; a catalog and its run without help stay together.
   local -a groups=()

@@ -40,7 +40,7 @@ if [ "$1" = --flaky ]; then
   repeat="${2:-5}"
   set -- FLAKY
 fi
-catalogs="${CATALOGS:-lakekeeper polaris unity rustfs reference gravitino}"
+catalogs="${CATALOGS:-lakekeeper polaris unity rustfs reference gravitino gravitino_lakekeeper gravitino_polaris gravitino_unity gravitino_rustfs}"
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
 suffix=""; [ "${LAB_NO_HELP:-0}" = 1 ] && suffix="-nohelp"
 dir() { if [ "$1$suffix" = lakekeeper ]; then echo reports; else echo "reports/$1$suffix"; fi; }

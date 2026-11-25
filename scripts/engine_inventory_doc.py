@@ -19,7 +19,18 @@ from iceberg_lab.lab.reporting import DIMENSIONS, ENGINE_ORDER, NOT_COMPARED
 #: Comparison rows of the latest full run per catalog (scripts/export_reference.py).
 SOURCES = {
     name: ROOT / "results" / f"{name}.rows.json.gz"
-    for name in ("lakekeeper", "polaris", "rustfs", "unity", "reference", "gravitino")
+    for name in (
+        "lakekeeper",
+        "polaris",
+        "rustfs",
+        "unity",
+        "reference",
+        "gravitino",
+        "gravitino_lakekeeper",
+        "gravitino_polaris",
+        "gravitino_unity",
+        "gravitino_rustfs",
+    )
 }
 
 

@@ -2,6 +2,77 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-25 (2): Gravitino in front of the other catalogs, web UI login
+
+- **Four new catalog profiles `gravitino_lakekeeper`, `gravitino_polaris`, `gravitino_unity`,
+  `gravitino_rustfs`**: a Gravitino catalog with `catalog-backend = rest` forwards to the other
+  catalog, and the whole suite runs through it. Gravitino forwards the caller's token (Polaris:
+  tokens with `scope=gravitino polaris`, Polaris principal `lab-admin`); towards RustFS it signs
+  with SigV4. Trino catalogs `grvlk_*`, `grvpol_*`, `grvuc_*`, `grvrfs_*`; the profiles are in
+  `rerun.sh`, `run_parallel.sh`, the dashboard and the generated docs.
+- **New `tests/catalog/test_gravitino_fronting.py`** uses both sides (the backend directly through
+  `tests/lab/fronting.py`): writes through Gravitino are the backend's table, the backend's
+  commits and drops are seen at once, Gravitino's own API lists, loads and tags tables it never
+  created, and a staged creation lands in the backend.
+- **The gaps of both layers apply** to a fronted profile (`gap_register.find_gap`,
+  `gaps.CATALOG_GAPS`, and `layer_rows` for gap blocks of one catalog): booked when the error
+  matches, silent when the case passes. Notebook expectations of either layer count too
+  ([test-architecture](docs/test-architecture.md)). The first full run had lost 130 cases in
+  front of Unity because blocks like `if PROFILE.name == "unity"` did not apply there. Two
+  more such checks now use `PROFILE.layers`: the namespace cleanup tolerates RustFS's hidden
+  entry of a renamed table in front of RustFS too (before: teardown errors), and
+  `gaps.central_gap` takes the layers only for the catalog under test. Notebook expectations
+  that start with global flags (`(?i)...`) keep them when combined. The name test drops tables
+  with dots in their name in the backend as well.
+- **New gaps**:
+  - `gravitino-rest-backend-grants-not-forwarded`: in front of Polaris, a Gravitino grant is not
+    enough. Gravitino forwards the caller's token and Polaris decides again by its own grants,
+    so every right has to be kept in both. 30 authorization cases are booked to it.
+  - `gravitino-rest-backend-staged-create`: in front of Lakekeeper and RustFS, the commit of a
+    staged creation (CTAS, create and write in one commit) is refused. It works on Polaris. As a
+    consequence pg_lake loses its tables (`pglake-ignores-refused-create`).
+  - `gravitino-rest-backend-client-error-500`: many client errors of the backend come back as
+    HTTP 500 (refused types, commits and purges, huge names, Unity's managed-storage location).
+  - `gravitino-rest-backend-credentials-not-narrowed` (SECURITY): in front of Lakekeeper and
+    Unity, a user with only SELECT in Gravitino gets storage keys that write the table.
+  - `gravitino-rest-backend-advertises-unsupported`: Gravitino advertises its own endpoints, the
+    backend may not have them (register and views on Unity, view rename on RustFS).
+  - `gravitino-rest-backend-retries-server-errors`: a backend's 500 arrives after about 30 s.
+  - `gravitino-rest-backend-long-name-left`: a name too long for Gravitino's store is refused,
+    but it exists in the backend anyway.
+  - `gravitino-dotted-names` now also covers federation. A namespace with a dot reaches the
+    backend, and Gravitino then lists nothing of the catalog. The first Polaris run lost 314
+    cases to it. The name test now removes such names in the backend.
+- **Gravitino checks its own privileges in front of other catalogs.** By default
+  (`gravitino.iceberg-rest.disable-rest-authz = true`) it does not: a user without any grant
+  read and created tables through it. This was a SECURITY gap in the first runs. The lab now
+  sets the switch to `false`. In front of Lakekeeper 45 and in front of Unity 43 failing cases
+  passed with it, none broke. Since the default can no longer be reproduced with the lab's
+  configuration, it is a finding in [docs/findings.md](docs/findings.md) rather than a gap.
+- **A fixed service identity towards Polaris was tested and rejected.** A static
+  `header.Authorization` on the catalog replaces the forwarded token (Gravitino only adds the
+  caller's token if no such header is set). 24 of the 30 cases passed then, but Polaris vended
+  write credentials for the service identity to a user with SELECT only. The token is also
+  readable in the catalog's properties by every user who may see the catalog, and it is never
+  refreshed.
+- **Fronted RustFS**: clients without vended credentials (OAuth2 profiles too) use the lab's S3
+  keys (`catalog_auth_props`, DuckDB).
+- **Gravitino web UI login from the host**: public Keycloak client `gravitino-ui` (PKCE), user
+  `lab-ui` with role `lab_ui`. Service `keycloak-browser` on `127.0.0.2:8080` plus the hosts
+  line `127.0.0.2 keycloak`, so the browser reaches the one issuer Gravitino accepts. Trino's
+  port is now bound to `127.0.0.1` only. `gravitino-single-issuer` is gone.
+- **Fix: Gravitino's token checks were never tested.** `test_bad_token_is_refused` and
+  `test_catalog_token_does_not_outlive_identity_token` reported Gravitino as "open catalog"
+  (not offered), because it was missing from their catalog lists. Now they cover Gravitino and
+  the fronted profiles: forged, tampered, expired, foreign and audience-less tokens are refused.
+  An expired token may also get 419, the REST spec's Authentication Timeout (Gravitino answers
+  that).
+- Docs: diagrams for login and S3 access per catalog, the run pipeline, the gap register, the
+  life of an intermittent gap, the version mechanisms and the federation's gap handling. Rows
+  for four undocumented test files. Stale facts fixed: OpenFGA persistence, pg_lake 3.7.1,
+  pinned versions, the "four catalogs" with authentication.
+- Dashboard: the reference catalog is always the rightmost column.
+
 ## Lab changes 2026-11-25: Gravitino in the feature inventory, scope = Iceberg REST
 
 - **The lab tests Iceberg REST catalogs.** Capabilities without a bearing on Iceberg tables are

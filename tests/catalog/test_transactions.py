@@ -148,8 +148,8 @@ def count(ns, table) -> int:
 KNOWN_GAPS = gap_table(("engine", "test"), [
     # Catalogs without POST /v1/{prefix}/transactions/commit (Unity, Gravitino): DuckDB refuses
     # correctly.
-    *([("duckdb", "*", r"cannot commit this transaction atomically because it would require multiple table commit requests without atomic multi-table commit support", {"unity": "unity-no-transactions-commit", "gravitino": "gravitino-no-transactions-commit"}[PROFILE.name])]
-      if PROFILE.name in ("unity", "gravitino") else []),
+    *([("duckdb", "*", r"cannot commit this transaction atomically because it would require multiple table commit requests without atomic multi-table commit support", {"unity": "unity-no-transactions-commit", "gravitino": "gravitino-no-transactions-commit"}[PROFILE.server])]
+      if PROFILE.server in ("unity", "gravitino") else []),
     ("trino", "*", r"Catalog only supports writes using autocommit", "trino-autocommit-only"),
     ("flink", "commit", r"one commit per table instead of one transaction", "flink-statement-set-per-table"),
     ("flink", "atomicity", r"NOT ATOMIC: A committed, B not", "flink-statement-set-not-atomic"),

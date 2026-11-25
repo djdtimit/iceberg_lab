@@ -113,8 +113,10 @@ KNOWN_GAPS = gap_table(("engine", "task", "fv"), [
     *([("pg_lake", "drop_table", "*", r"files left after DROP", "pglake-drop-no-purge")] if PROFILE.name != "lakekeeper" else []),
     # Spark is not affected: with a REST catalog it deletes the files itself (Spark actions).
     *((e, "drop_table", "2" if e == "pyiceberg" else "*", r"files left after DROP, e\.g\. s3://unitylab/lab/__unitystorage/", "unity-delayed-file-cleanup")
-      for e in ("pyiceberg", "trino", "flink") if PROFILE.name == "unity"),
-    ("duckdb", "drop_table", "*", r"files left after DROP", "duckdb-drop-no-purge"),
+      for e in ("pyiceberg", "trino", "flink") if "unity" in PROFILE.layers),
+    # Not through Gravitino in front of Lakekeeper: the files are gone there (seen 2026-11-25).
+    *([("duckdb", "drop_table", "*", r"files left after DROP", "duckdb-drop-no-purge")]
+      if PROFILE.name != "gravitino_lakekeeper" else []),
     ("duckdb", "compact_*", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
     # DuckDB 2.0.1 fixed "iceberg_rewrite_data_files keeps the position delete files" (v2).
     ("duckdb", "expire_snapshots", "2", r"expired data file still in storage", "duckdb-expire-keeps-files"),

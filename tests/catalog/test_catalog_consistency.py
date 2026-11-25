@@ -62,6 +62,13 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     # About 1 round in 3 loses one of 8 concurrent updates (confirmed, then gone) - the race
     # Lakekeeper fixed in 0.15.1; the test repeats the round until it shows.
     ("unity", "lost_namespace_property", r"confirmed but lost", "unity-loses-namespace-property"),
+    # Through Gravitino the backend's refusals come back as 500 (RustFS: 400 for the commit,
+    # 406 for a purge; Unity: 400 for a location in its managed storage).
+    *(("gravitino_rustfs", c, r"invalid commit answered 500: .*Malformed request: schema field", "gravitino-rest-backend-client-error-500")
+      for c in ("incompatible_type", "reuse_field_id")),
+    *(("gravitino_rustfs", f"recreate:{h}", r"drop with purge answered 500", "gravitino-rest-backend-client-error-500")
+      for h in ("same_name", "explicit_location")),
+    ("gravitino_unity", "recreate:explicit_location", r"server error instead of a refusal: 500 .*contains managed storage prefix", "gravitino-rest-backend-client-error-500"),
     # The server retries a conflicting transaction itself, finds "Nothing to commit" and
     # answers 204: the client's changes are dropped (table endpoint: correct 409).
     ("reference", "lost_transaction_commit", r"confirmed but lost: writers", "reference-tx-commit-loses-updates"),
@@ -511,6 +518,10 @@ def test_recreate_at_dropped_location(how, namespace):
     )
     if r.status_code in (400, 406, 501) and "purge" in r.text.lower():
         pytest.skip(f"catalog {PROFILE.name} has no API for drop with purge ({r.status_code})")
+    if r.status_code >= 500:
+        with _gap(f"recreate:{how}"):
+            raise AssertionError(f"drop with purge answered {r.status_code}: {r.text[:300]}")
+        return
     r.raise_for_status()
     b = a if how == "same_name" else f"{a}_b"
     body = {"name": b, "schema": _iceberg_schema()}
@@ -525,9 +536,10 @@ def test_recreate_at_dropped_location(how, namespace):
     )
     if r.status_code >= 400:  # refused while A's files may still be purged: safe
         print(f"recreate {how}: refused {r.status_code} {r.text[:200]}")
-        assert r.status_code < 500, (
-            f"server error instead of a refusal: {r.status_code} {r.text[:300]}"
-        )
+        with _gap(f"recreate:{how}"):
+            assert r.status_code < 500, (
+                f"server error instead of a refusal: {r.status_code} {r.text[:300]}"
+            )
         return
     created = r.json()["metadata"]["location"]
     if created.rstrip("/") != location.rstrip("/"):

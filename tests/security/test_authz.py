@@ -54,7 +54,7 @@ PERMISSION = (
 HIDING_CATALOGS = {"lakekeeper"}
 HIDDEN = r"does not exist|not found|cannot be found|NoSuch\w+"  # Spark: TABLE_OR_VIEW_NOT_FOUND
 DENIED = (
-    f"(?i)({PERMISSION}|{HIDDEN})" if PROFILE.name in HIDING_CATALOGS else f"(?i)({PERMISSION})"
+    f"(?i)({PERMISSION}|{HIDDEN})" if PROFILE.server in HIDING_CATALOGS else f"(?i)({PERMISSION})"
 )
 
 
@@ -187,9 +187,13 @@ def test_select_grant_vends_read_only_credentials(az):
     bucket, key = t.metadata_location.removeprefix("s3://").split("/", 1)
     s3.head_object(Bucket=bucket, Key=key)
     prefix = t.location().removeprefix("s3://").split("/", 1)[1]
-    with pytest.raises(ClientError) as exc:
-        s3.put_object(Bucket=bucket, Key=f"{prefix}/data/evil.bin", Body=b"x")
-    assert exc.value.response["Error"]["Code"] in ("403", "AccessDenied")
+    with _gap("catalog", "select_vend"):
+        try:
+            s3.put_object(Bucket=bucket, Key=f"{prefix}/data/evil.bin", Body=b"x")
+        except ClientError as exc:
+            assert exc.response["Error"]["Code"] in ("403", "AccessDenied")
+        else:
+            raise AssertionError("the keys vended for a SELECT grant wrote a file into the table")
 
 
 def test_signer_refuses_put_for_select_grant(az):
@@ -469,6 +473,11 @@ def _duckdb(c: Conn, make_sql):
         con.execute(f"""CREATE SECRET az (TYPE iceberg, CLIENT_ID '{cid}', CLIENT_SECRET '{sec}',
             OAUTH2_SERVER_URI '{c.token_url}'{scope})""")
         auth = "SECRET az"
+        if c.keys and not c.vended:  # nothing vended (Gravitino in front of RustFS): own keys
+            ak, sk = c.keys
+            con.execute(f"""CREATE SECRET az_s3 (TYPE s3, KEY_ID '{ak}', SECRET '{sk}',
+                ENDPOINT '{SETTINGS.s3_host_port}', URL_STYLE 'path', USE_SSL false,
+                REGION '{SETTINGS.s3_region}')""")
     else:  # sigv4: the S3 secret signs the catalog requests and serves the data files
         ak, sk = c.keys
         con.execute(f"""CREATE SECRET az_s3 (TYPE s3, KEY_ID '{ak}', SECRET '{sk}',
@@ -626,6 +635,15 @@ KNOWN_GAPS = gap_table(("catalog", "engine", "what"), [
     # On Lakekeeper Trino shows the refusal; on these catalogs only a generic message:
     *((c, "trino", "bob", r"Failed to load (table|view)\W+t_select|Cannot obtain metadata", "trino-hides-load-refusal", c == "unity")
       for c in ("polaris", "rustfs", "unity", "gravitino")),  # Unity: Trino sometimes shows the 403 (intermittent)
+    # Gravitino in front of Polaris forwards alice's token; Polaris decides again by its own
+    # grants, and alice's grants live only in Gravitino (Trino shows only its generic message).
+    *(("gravitino_polaris", "*", w, r"Principal 'alice' with activated PrincipalRoles '\[az_alice\]'.* is not authorized|Forbidden for url: http://gravitino:\d+/iceberg/v1/fed_polaris/|Failed to load table\W+t_(select|modify)", "gravitino-rest-backend-grants-not-forwarded")
+      for w in ("alice", "write_allowed")),
+    ("gravitino_polaris", "trino", "write", r"Failed to load table\W+t_select", "gravitino-rest-backend-grants-not-forwarded"),
+    # The backend vends keys by its own rights for the forwarded token; Gravitino's SELECT
+    # does not narrow them.
+    *((c, "catalog", "select_vend", r"the keys vended for a SELECT grant wrote a file", "gravitino-rest-backend-credentials-not-narrowed")
+      for c in ("gravitino_lakekeeper", "gravitino_unity")),
     # Polaris authorizes /transactions/commit only with TABLE_FULL_METADATA (checked:
     # TABLE_WRITE_DATA, TABLE_WRITE_PROPERTIES, NAMESPACE_READ_PROPERTIES are not enough).
     # RustFS: catalog rights (admin:GetTable, ...) can be scoped per bucket only, not per table;

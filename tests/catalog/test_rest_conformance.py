@@ -65,6 +65,11 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     ("reference", "error_body:unsupported_method", r"unsupported_method \(HTTP 501\): no Iceberg error document \(None\): ''", "reference-error-body-empty"),
     ("lakekeeper", "snapshots_value", r"snapshots=some answered 200", "lakekeeper-snapshots-param"),
     ("gravitino", "snapshots_value", r"snapshots=some answered 200", "gravitino-snapshots-param"),
+    # Gravitino advertises its endpoints whatever the backend has.
+    ("gravitino_unity", "endpoint:POST /namespaces/{ns}/register", r"-> HTTP (404|500): .*NotFoundException", "gravitino-rest-backend-advertises-unsupported"),
+    ("gravitino_unity", "endpoint:POST /namespaces/{ns}/views", r"Server does not support endpoint: POST /v1/\{prefix\}/namespaces/\{namespace\}/views", "gravitino-rest-backend-advertises-unsupported"),
+    ("gravitino_rustfs", "endpoint:POST /views/rename", r"Server does not support endpoint: POST /v1/\{prefix\}/views/rename", "gravitino-rest-backend-advertises-unsupported"),
+    ("gravitino_unity", "missing_metadata", r"no answer within the timeout for a table without its metadata file", "gravitino-rest-backend-retries-server-errors"),
 ])
 # fmt: on
 
@@ -866,7 +871,14 @@ def test_missing_metadata(rest, table):
         # RustFS: "Object key is reserved for the table catalog" - the file cannot vanish
         assert "reserved for the table catalog" in str(exc), exc
         return
-    r = rest.call("GET", f"namespaces/{ns}/tables/{t}")
+    try:
+        r = rest.call("GET", f"namespaces/{ns}/tables/{t}")
+    except requests.exceptions.ReadTimeout as exc:
+        with _gap("missing_metadata"):
+            raise AssertionError(
+                f"no answer within the timeout for a table without its metadata file: {exc}"
+            ) from exc
+        return
     if r.ok:
         assert r.json()["metadata-location"] == location, "served another metadata version"
         return

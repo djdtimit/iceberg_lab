@@ -191,6 +191,43 @@ services:
       retries: 40
       start_period: 20s
 
+  # Keycloak for the host's browser under the one name Gravitino accepts as issuer
+  # (http://keycloak:8080/realms/iceberg): a plain TCP forwarder published as 127.0.0.2:8080, so
+  # the Host header - and with it the token's issuer - stays "keycloak:8080". The host maps
+  # "keycloak" to 127.0.0.2 (/etc/hosts, docs/setup.md). Keycloak itself stays as it is.
+  keycloak-browser:
+    image: python:3.13-alpine
+    profiles: ["gravitino"]
+    command:
+      - python
+      - -c
+      - |
+        import asyncio
+        async def pipe(r, w):
+            try:
+                while data := await r.read(65536):
+                    w.write(data)
+                    await w.drain()
+            finally:
+                w.close()
+        async def handle(cr, cw):
+            try:
+                ur, uw = await asyncio.open_connection("keycloak", 8080)
+            except OSError:
+                cw.close()
+                return
+            await asyncio.gather(pipe(cr, uw), pipe(ur, cw), return_exceptions=True)
+        async def main():
+            server = await asyncio.start_server(handle, "0.0.0.0", 8080)
+            async with server:
+                await server.serve_forever()
+        asyncio.run(main())
+    ports:
+      - "127.0.0.2:8080:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
   # OpenFGA keeps its tuples in database "openfga" of db-authz, next to Lakekeeper's state: an
   # in-memory store lost them on every restart while db-authz still said "bootstrapped" - the
   # server's and the default project's owners were gone, nobody could grant project or
@@ -316,7 +353,8 @@ services:
     volumes:
       - ../trino/catalog:/etc/trino/catalog:ro
     ports:
-      - "8080:8080"
+      # 127.0.0.1 only: 127.0.0.2:8080 is keycloak-browser (Gravitino web UI login)
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/v1/info"]
       interval: 5s

@@ -59,7 +59,7 @@ scripts/                run_all.sh (full run per catalog), run_parallel.sh (seve
                         (weekly rerun of the intermittent gaps), dashboard/ (page + data builder)
 authz/                  Keycloak realm (fixed service-account IDs) for the authz instances
 flink/                  Dockerfile (Flink 2.3 + Iceberg JARs), start-lab.sh (cluster + SQL Gateway)
-pg_lake/                Dockerfile (postgres:19.0 + pg_lake 3.7.0 built from source), entrypoint, init SQL
+pg_lake/                Dockerfile (postgres:19.0 + pg_lake 3.7.1 built from source), entrypoint, init SQL
 ```
 
 Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine matrices),
@@ -101,8 +101,8 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_sts_expiry.py` | *(marker `long`)* do all engines keep reading with the same object/session after the vended credentials expired? Lakekeeper 900 s (~16 min wait), Polaris and Unity 1 h (~62 min; not configurable per catalog there), RustFS vends no credentials |
 | `test_layout.py` | sort order (checked physically in every Parquet file) and target file size per writer |
 | `test_performance.py` | run times: write 1 M rows, full scan, selective query – `reports/performance.md` |
-| `test_authz.py` | on all four catalogs: anonymous refused, refused without a grant, a read grant reads but does not write (vended credentials read-only, signer refuses PUT), a table without a grant stays closed, write grant, revoking takes effect; every engine as alice/bob (`tests/lab/authz_backends.py`); refusal only with an authorization error (401/403, "not found" only on Lakekeeper, which hides objects) and only for an existing table; metadata of a table without a grant |
-| `test_security.py` | security on all catalogs: forged/tampered/expired/foreign tokens and SigV4 signatures (Keycloak cases on all four: directly, through the token exchange, through Polaris' `mixed` mode and through RustFS STS), rights of a Keycloak identity on RustFS, token lifetime, escaping through the storage location (same/inner/outer location, moving the location, registering foreign metadata, registering metadata outside the allowed locations, `write.data.path`), secrets in responses, no storage keys in view responses, no secrets in Trino's query details, revealing error messages, dangerous names, privilege escalation (granting yourself rights, dropping/renaming/creating as a reader) |
+| `test_authz.py` | on every catalog with authentication (Lakekeeper, Polaris, RustFS, Unity, Gravitino, and Gravitino in front of the others): anonymous refused, refused without a grant, a read grant reads but does not write (vended credentials read-only, signer refuses PUT), a table without a grant stays closed, write grant, revoking takes effect; every engine as alice/bob (`tests/lab/authz_backends.py`); refusal only with an authorization error (401/403, "not found" only on Lakekeeper, which hides objects) and only for an existing table; metadata of a table without a grant |
+| `test_security.py` | security on all catalogs: forged/tampered/expired/foreign tokens and SigV4 signatures (Keycloak cases on every catalog with authentication: directly (Lakekeeper, Gravitino), through the token exchange, through Polaris' `mixed` mode and through RustFS STS; an expired token may also get the spec's 419), rights of a Keycloak identity on RustFS, token lifetime, escaping through the storage location (same/inner/outer location, moving the location, registering foreign metadata, registering metadata outside the allowed locations, `write.data.path`), secrets in responses, no storage keys in view responses, no secrets in Trino's query details, revealing error messages, dangerous names, privilege escalation (granting yourself rights, dropping/renaming/creating as a reader) |
 | `test_rest_conformance.py` | REST conformance (raw REST, no client in between): every endpoint of the specification with a valid request (works / not offered / broken, matched against `/v1/config`), error documents, HEAD 204, missing parent, `snapshots=refs`, invalid `snapshots` value, missing metadata file – overview in `docs/rest-conformance.md` |
 | `test_idp_outage.py` | outage of the token endpoint (proxy in front, no container is stopped), PyIceberg and Spark: a running session keeps working, a new session fails fast and recognisably, then recovery |
 | `test_storage_s3.py` | the storage under all catalogs (RustFS S3 API against AWS behaviour): checksums, conditional writes, multipart error codes, STS session policies (prefix, deny, wildcards, duration) |
@@ -110,13 +110,37 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_engine_inventory.py` | lab self-test: what every engine offers for Iceberg (functions, procedures, table properties, API methods), read live and compared with `docs/api/engine-<engine>.txt` – new or removed functions after an update stand out; every name must be used by a test or classified in `docs/api/engine-classified.toml` (`ignored` / `untested`, offline check); overview `docs/engine-inventory.md` |
 | `test_capability_registry.py` | lab self-test (offline): the capability registry is complete (every missing capability has an API pattern or a proving test, every proving test exists) and no test skips an engine by name outside it |
 | `test_iceberg_spec.py` | lab self-test (offline): every REST endpoint of the recorded Iceberg spec has a conformance test, every spec type a type case, and the recorded release is the lab's `ICEBERG_VERSION` (`scripts/iceberg_spec.py` re-records it) |
+| `test_gravitino_fronting.py` | Gravitino in front of another catalog (profiles `gravitino_<backend>`, marker `specific`): what one side writes, the other sees - a table written through Gravitino is the backend's table (same metadata file); a table written in the backend is served through Gravitino, also after a second commit; a table dropped in the backend is gone through Gravitino; Gravitino's own API lists, loads and tags a table it never created; a staged creation (CTAS, create and write in one commit) lands in the backend. The rest of the suite runs through Gravitino unchanged |
+| `test_catalog_consistency.py` | catalog consistency, raw REST on every catalog: invalid commits (incompatible type, reused field id, partition spec on a missing field, unknown schema or snapshot) are refused with 4xx and leave the table unchanged; no confirmed commit is lost under parallel appends and namespace property updates; a table re-created at a dropped table's location keeps its files; every file the `metadata-log` lists still exists |
 | `test_catalog_admin.py` | catalog administration as a base on all catalogs (adapter per catalog): create, list, use, drop a warehouse/catalog; rename/alter; disable and enable; change storage access; manage users; server info; background tasks |
 | `test_feature_inventory.py` | lab self-test: every endpoint of the six catalogs (`docs/api/`) belongs to exactly one capability, every capability in scope has a test (out of scope: no bearing on Iceberg tables, recorded only), base capabilities have a test for all catalogs, `docs/feature-inventory.md` is up to date; ✓ described and implemented, ◐ described but not implemented (backed by a known gap) |
+| `test_gap_register.py` | lab self-test (offline): the gap register loads and is canonical, every cause is used, no test bypasses it; `Gap` rows refuse unknown causes and too generic regexes; every cause was last seen with the current version; every gap in `results/` names a cause and all references hold the same cases; `docs/findings.md` is current |
+| `test_catalog_claims.py` | lab self-test (offline): no test decides "catalog X has no API" from a list of its own - every catalog list (`offered_by`, admin adapters, `USERS`/`BACKENDS`/`SERVICES`/`UIS`) holds every catalog whose API describes the capability; other skips by catalog name are listed with a reason |
+| `test_lab_infrastructure.py` | lab self-test (offline): each catalog's Trino proxy catalog names its fault proxy's port, the ports never collide (parallel runs), cloud profiles exist only when configured and run only their listed files and engines, every file of the smoke run exists |
 | `test_lab_selftest.py`, `test_lab_adapters.py` | lab self-tests: the gap mechanism hides nothing (wrong error message, a rule outside its engine, a notebook limit without expectation); the token adapter and STS adapter for Unity open and close nothing by themselves |
 | `test_scan_planning.py` | capability tests: server-side scan planning / row and column security |
 | `test_pyiceberg.py`, `test_duckdb.py`, `test_spark.py`, `test_dataframes.py`, `test_flink.py` | engine-specific (not in the comparison): only what no base matrix covers – PyIceberg partition pruning and upsert after a rename, DuckDB three-part schema name, Spark PURGE on Lakekeeper, Polars lazy API, Flink join across two warehouses |
 | `test_pglake.py` | pg_lake (engine-specific): extension, attaching foreign tables read-only and following their commits, joins with heap tables, silent success on INSERT and on a refused CREATE |
 | `test_notebooks.py` | runs all notebooks on the chosen catalog and checks selected outputs (regex in the cell metadata `lab.expect` / `lab.expect_not`, overridable per catalog with `expect_<catalog>`; a notebook a catalog cannot do at all carries a known gap in the notebook metadata). Area "demo notebooks", not in the comparison |
+
+### From a run to the dashboard
+
+```mermaid
+flowchart LR
+  RA["scripts/run_all.sh<br/>run_parallel.sh · smoke.sh"] --> REP["reports/#lt;catalog#gt;/<br/>results.json · comparison.md<br/>manifest · logs/"]
+  RR["scripts/rerun.sh<br/>(merged into the full run)"] --> REP
+  REP --> EX["export_reference.py"]
+  EX --> RES["results/#lt;catalog#gt;.jsonl<br/>.rows.json.gz · .manifest.json<br/>.flaky.json · .rest.json<br/>history/runs.jsonl"]
+  REG[("docs/gaps.toml")] --> EX
+  REG --> FIND["gap_register.py findings<br/>→ docs/findings.md"]
+  RES --> DOCS["rest_conformance_doc.py<br/>engine_inventory_doc.py<br/>lab_helps_doc.py → docs/"]
+  RES --> DB["dashboard/build_dashboard_data.py<br/>→ reports/dashboard/"]
+  DB --> ART[Dashboard artifact]
+  RES --> ST["register self-tests<br/>test_gap_register"]
+```
+
+`reports/` is a working directory outside git; `results/` is the checked-in reference of the
+latest full run per catalog, so `git diff results/` shows what an update changed.
 
 ## What does not work right now – how to read the report
 
@@ -132,7 +156,24 @@ Every failure shows as **FAILED**. At the end of every run there is a section
 with (`seen_at`), bug report and upstream issue. The test files keep only *where* a cause applies:
 their `KNOWN_GAPS` tables list selectors (engine, operation, format version, ...), the exact error
 regex and the cause id (`gap_table`, `find_gap`, `expect` in `iceberg_lab.lab.gap_register`).
-pydantic validates both when they are loaded. `docs/findings.md` ends with the list generated from
+pydantic validates both when they are loaded.
+
+```mermaid
+flowchart LR
+  subgraph TF["Test file"]
+    KG["KNOWN_GAPS = gap_table(...)<br/>selectors · error regex · cause id"]
+  end
+  subgraph Register["docs/gaps.toml"]
+    C["[cause-id]<br/>summary · severity · seen_at<br/>flaky · bug report · issue"]
+  end
+  KG -- "cause id" --> C
+  ERR[error of the test] -- "regex matches" --> KG
+  C --> RJ["results/#lt;catalog#gt;.jsonl<br/>detail = current summary"]
+  C --> FD["docs/findings.md<br/>(generated list)"]
+  C --> BR["docs/bug-reports/"]
+```
+
+`docs/findings.md` ends with the list generated from
 the register (`uv run python scripts/gap_register.py findings`). Result rows keep the cause id
 (`cause` in `results/<catalog>.jsonl`), and the export writes the cause's current summary as their
 detail: after rewording a summary, `uv run python scripts/export_reference.py --refresh` updates
@@ -154,6 +195,17 @@ lists it as **PROBABLY FIXED** and `scripts/rerun.sh` prints `FIXED?`. `scripts/
 [n]` reruns every intermittent gap n times to get there faster. Where a race can be forced, the
 test forces it instead (the conflict scenario of `test_robustness.py`, the repeated rounds of
 `test_parallel_namespace_property_updates_are_not_lost`), so the gap is stable, not flaky.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Seen: error matches (intermittent gap)
+  Seen --> NotSeen: run without the error
+  NotSeen --> Seen: error again (counter reset)
+  NotSeen --> NotSeen: another run without it (counter + 1)
+  NotSeen --> ProbablyFixed: 5 runs in a row without it
+  ProbablyFixed --> Seen: error again
+  ProbablyFixed --> [*]: remove the row (and the cause)
+```
 
 **After a version change** the self-test `test_causes_seen_with_current_versions` lists every
 cause last seen with the old version: run the tests (or a full run with `scripts/run_all.sh`),

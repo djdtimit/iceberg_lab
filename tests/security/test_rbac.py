@@ -43,6 +43,10 @@ from conftest import expect, find_gap, gap_table
 KNOWN_GAPS = gap_table(("catalog", "case"), [
     ("lakekeeper", "idp_role", r"the identity provider's role does not open its table: .*(NoSuch\w+|does not exist|403|Forbidden)", "lakekeeper-openfga-ignores-token-roles"),
     ("polaris", "idp_role", r"the identity provider's role does not open its table: .*activated PrincipalRoles '\[\]'", "polaris-idp-roles-narrow-only"),
+    # Gravitino in front of Polaris: Polaris decides again by its own grants (the refusal is
+    # in the message, see _refusal).
+    *(("gravitino_polaris", c, r"(Principal '\w+' with activated PrincipalRoles .* is not authorized|NotAuthorizedException: Not authorized)", "gravitino-rest-backend-grants-not-forwarded")
+      for c in ("member_reads", "removed_member", "roles_add_up", "namespace_grant", "idp_role")),
 ])
 # fmt: on
 
@@ -110,6 +114,19 @@ def _table(cat, ns, name):
     t.append(pa.table({"id": list(range(1, ROWS + 1))}))
 
 
+#: The last refusal :func:`reads` saw, for the assertion messages (:func:`_refusal`).
+_LAST_REFUSAL = [""]
+
+
+def _refusal() -> str:
+    """The last refusal :func:`reads` saw.
+
+    Returns:
+        ``"<ExceptionType>: <message>"`` (shortened).
+    """
+    return _LAST_REFUSAL[0]
+
+
 def reads(b, user, ns, table) -> bool:
     """``user`` reads the table's rows (True) or is refused with a permission error (False).
 
@@ -128,6 +145,7 @@ def reads(b, user, ns, table) -> bool:
     except Exception as exc:
         if not re.search(DENIED, f"{type(exc).__name__}: {exc}"):
             raise
+        _LAST_REFUSAL[0] = f"{type(exc).__name__}: {exc}"[:300]
         return False
     assert n == ROWS, f"{user} read {n} rows of {ns}.{table}"
     return True
@@ -168,7 +186,10 @@ def test_role_grant_reaches_every_member(rb):
     for user in ("alice", "bob"):
         b.role_member(role, user)
     b.role_grant_table(role, a, "t1")
-    assert reads(b, "alice", a, "t1") and reads(b, "bob", a, "t1"), "a member cannot read"
+    with _gap("member_reads"):
+        assert reads(b, "alice", a, "t1") and reads(b, "bob", a, "t1"), (
+            f"a member cannot read: {_refusal()}"
+        )
     assert not reads(b, "bob", a, "t2"), "the role's grant opened another table"
 
 
@@ -190,7 +211,8 @@ def test_removed_member_loses_access(rb):
     for user in ("alice", "bob"):
         b.role_member(role, user)
     b.role_grant_table(role, a, "t1")
-    assert reads(b, "bob", a, "t1"), "setup: bob cannot read through the role"
+    with _gap("removed_member"):
+        assert reads(b, "bob", a, "t1"), f"setup: bob cannot read through the role: {_refusal()}"
     b.role_member(role, "bob", remove=True)
     assert not reads(b, "bob", a, "t1"), "bob still reads after leaving the role"
     assert reads(b, "alice", a, "t1"), "alice lost access when bob left the role"
@@ -215,7 +237,10 @@ def test_roles_add_up(rb):
     b.role_member(r1, "bob")
     b.role_grant_table(r1, a, "t1")
     b.role_grant_table(r2, a, "t2")
-    assert reads(b, "alice", a, "t1") and reads(b, "alice", a, "t2"), "roles do not add up"
+    with _gap("roles_add_up"):
+        assert reads(b, "alice", a, "t1") and reads(b, "alice", a, "t2"), (
+            f"roles do not add up: {_refusal()}"
+        )
     assert reads(b, "bob", a, "t1"), "bob cannot read his role's table"
     assert not reads(b, "bob", a, "t2"), "bob reads a table of a role he is not in"
 
@@ -239,7 +264,10 @@ def test_namespace_grant_covers_its_tables(rb):
     b.grant_namespace(a, "bob")
     try:
         _table(b.catalog("admin"), a, "t_later")  # created AFTER the grant
-        assert reads(b, "bob", a, "t1"), "the namespace grant does not cover its table"
+        with _gap("namespace_grant"):
+            assert reads(b, "bob", a, "t1"), (
+                f"the namespace grant does not cover its table: {_refusal()}"
+            )
         assert reads(b, "bob", a, "t_later"), "the grant does not cover a table created later"
         assert not reads(b, "bob", other, "t1"), "the grant opened a table of another namespace"
     finally:

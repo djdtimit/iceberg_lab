@@ -75,7 +75,6 @@ from pyiceberg.types import (
 )
 from pyiceberg.utils.datetime import datetime_to_micros
 
-from iceberg_lab.config import PROFILE
 from iceberg_lab.datatypes import TypeCase, normalize
 from iceberg_lab.engines import polars_storage_options, pyiceberg_catalog
 
@@ -87,6 +86,7 @@ from conftest import (
     fresh,
     gap_table,
     keep_if_content_ok,
+    layer_rows,
     require_format,
     skip_if_not_produced,
 )
@@ -169,9 +169,8 @@ KNOWN_GAPS = gap_table(("test", "writer", "reader", "case", "fv"), [
     # that (422, "mutually exclusive"), pg_lake only warns and fails later (3.7 words the
     # later error as 'could not load table ... from the REST catalog')
     # (docs/bug-reports/08-pg_lake-partition-field-source-id-and-source-ids.md).
-    *([("test_partitioned_write", "pg_lake", "*", "*", "*", r"(HTTP request failed \(HTTP 404\)\s+DETAIL:\s+|could not load table \"[^\"]+\" from the REST catalog: )Error getting tabular from catalog", "pglake-partition-source-ids"),
-       ("test_partition_evolution_write", "pg_lake", "*", "*", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]
-      if PROFILE.name == "lakekeeper" else []),
+    *layer_rows("lakekeeper", [("test_partitioned_write", "pg_lake", "*", "*", "*", r"(HTTP request failed \(HTTP 404\)\s+DETAIL:\s+|could not load table \"[^\"]+\" from the REST catalog: )Error getting tabular from catalog", "pglake-partition-source-ids"),
+       ("test_partition_evolution_write", "pg_lake", "*", "*", "*", r"partition spec 1 not found for manifest", "pglake-partition-source-ids")]),
     *(("*_write", e, "*", "*", "3", base.NO_V3_MSG, "pyiceberg-v3-data-write")
       for e in ("pyiceberg", "polars", "daft")),
 ])

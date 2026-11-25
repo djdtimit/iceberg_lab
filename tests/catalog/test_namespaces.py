@@ -19,7 +19,7 @@ import uuid
 import pyarrow as pa
 import pytest
 
-from iceberg_lab.config import PROFILE, WAREHOUSE_STS
+from iceberg_lab.config import WAREHOUSE_STS
 from iceberg_lab.engines import pyiceberg_catalog
 
 from conftest import (
@@ -29,6 +29,7 @@ from conftest import (
     expect,
     find_gap,
     gap_table,
+    layer_rows,
     not_offered,
 )
 
@@ -204,14 +205,14 @@ NS_CLASSES = {
 # fmt: off
 KNOWN_GAPS = gap_table(("engine", "task"), [
     # Lakekeeper only: Polaris sends the field and PyIceberg works there.
-    *([("pyiceberg", "properties", r"UpdateNamespacePropertiesResponse\s+missing\s+Field required", "lakekeeper-ns-properties-missing-field")]
-      if PROFILE.name == "lakekeeper" else []),
-    *([("[!f]*", "nested", r"Nested namespaces are not supported: nst_\w+\.child|Invalid schema full name: lab\.nst_\w+\.child|Failed to check namespace 'nst_\w+\.child'|BadRequestException: Malformed request: Bad Request\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$NamespaceErrorHandler", "unity-no-nested-namespaces")]
-      if PROFILE.name == "unity" else []),
+    *layer_rows("lakekeeper", [("pyiceberg", "properties", r"UpdateNamespacePropertiesResponse\s+missing\s+Field required", "lakekeeper-ns-properties-missing-field")]),
+    *layer_rows("unity", [("[!f]*", "nested", r"Nested namespaces are not supported: nst_\w+\.child|Invalid schema full name: lab\.nst_\w+\.child|Failed to check namespace 'nst_\w+\.child'|BadRequestException: Malformed request: Bad Request\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$NamespaceErrorHandler", "unity-no-nested-namespaces")]),
     # Behind the gaps only (DuckDB cannot attach RustFS otherwise): the nested namespace's
     # path contains the separator %1F; RustFS refuses DuckDB's SigV4-signed request.
-    *([("duckdb", "nested", r"HEAD request to endpoint '\S+/namespaces/nst_duckdb_nested_\w+%1Fchild' returned an error response \(HTTP 403\)", "rustfs-duckdb-nested-namespace-403")]
-      if PROFILE.name == "rustfs" else []),
+    # Through Gravitino Unity's refusal comes back as 500.
+    *layer_rows("gravitino_unity", [("duckdb", "nested", r"Request returned HTTP 500 for HTTP HEAD to '\S+/namespaces/nst_duckdb_nested_\w+%1Fchild'", "unity-no-nested-namespaces"),
+                                    ("spark", "nested", r"ServiceFailureException: Server error: RESTException: Internal Server Error\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$DefaultErrorHandler\.accept\(ErrorHandlers\.java:\d+\)\s+at org\.apache\.iceberg\.rest\.ErrorHandlers\$NamespaceErrorHandler", "unity-no-nested-namespaces")]),
+    *layer_rows("rustfs", [("duckdb", "nested", r"HEAD request to endpoint '\S+/namespaces/nst_duckdb_nested_\w+%1Fchild' returned an error response \(HTTP 403\)", "rustfs-duckdb-nested-namespace-403")]),
     ("flink", "nested", r"create database identifier format error", "flink-no-nested-namespaces"),
 ])
 # fmt: on

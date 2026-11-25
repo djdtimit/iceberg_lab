@@ -128,6 +128,54 @@ def test_alternative_gaps_pick_the_cause_by_error(monkeypatch):
         raise RuntimeError("something else entirely")
 
 
+def test_layer_rows_are_inherited_through_gravitino(monkeypatch):
+    """``layer_rows``: a catalog's own rows, inherited behind Gravitino, absent elsewhere.
+
+    Checks:
+        * on the catalog itself the rows are its own (a passing case reports "gap fixed");
+        * on a Gravitino-fronted profile of that backend they are inherited: a matching error
+          is booked, a passing case stays silent;
+        * on any other catalog there are no rows.
+
+    Args:
+        monkeypatch: switches the profile and keeps the recorded hits out of the summary.
+    """
+    from dataclasses import replace
+
+    from iceberg_lab import config
+
+    for name in ("_KNOWN_GAP_HITS", "_FIXED_GAPS", "_FLAKY_NOT_SEEN", "_FLAKY_SEEN"):
+        monkeypatch.setattr(gaps, name, [])
+    monkeypatch.setattr(gaps, "KNOWN_GAPS_MODE", "fail")
+    row = ("*", r"Iceberg type TIME is not supported by Unity Catalog", "unity-no-v3-types")
+
+    def rows(name: str, fronts: str | None = None) -> list:
+        """The gaps of the Unity block for a profile.
+
+        Args:
+            name: Profile name.
+            fronts: Backend behind Gravitino, or None.
+
+        Returns:
+            The gaps.
+        """
+        monkeypatch.setattr(config, "PROFILE", replace(config.PROFILE, name=name, fronts=fronts))
+        return gr.gap_table(("case",), gr.layer_rows("unity", [row]))
+
+    (own,) = rows("unity")
+    assert not own.inherited
+    with pytest.raises(gaps.GapFixedError), gr.expect(own):
+        pass
+    (inherited,) = rows("gravitino_unity", fronts="unity")
+    assert inherited.inherited
+    with pytest.raises(gaps.KnownGapError), gr.expect(inherited):
+        raise RuntimeError("Iceberg type TIME is not supported by Unity Catalog")
+    with gr.expect(inherited):
+        pass
+    assert rows("polaris") == []
+    assert rows("gravitino_polaris", fronts="polaris") == []
+
+
 def test_cause_validation():
     """A cause entry is checked when the register is read.
 

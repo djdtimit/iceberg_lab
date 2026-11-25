@@ -56,6 +56,12 @@
 {"test": "tests/catalog/test_catalog_features.py::test_unity_temporary_path_credentials", "status": "na", "detail": "catalog reference has no API for temporary credentials for a storage path"}
 {"test": "tests/catalog/test_catalog_features.py::test_unregister", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_warehouse_statistics", "status": "na", "detail": "catalog reference has no API for warehouse statistics"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_drop_is_seen", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_table_in_own_api", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_write_is_seen", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_gravitino_write_is_in_the_backend", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_staged_create[empty]", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_staged_create[with_data]", "status": "na", "detail": "catalog reference has no API for fronting another catalog"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-create]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-drop]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-drop_nonempty]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
@@ -10821,7 +10827,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[catalog_lifecycle]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[catalog_update]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[external_table_sync]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[functions]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[grants]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_config]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_credentials]", "status": "pass", "detail": ""}
@@ -10833,7 +10838,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_transactions]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_views]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[non_iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[oauth_tokens]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[policies]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[projects]", "status": "pass", "detail": ""}
@@ -10899,7 +10903,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[tags]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[task_queue_config]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[topics]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unity_own_object_api]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unregister]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[users]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[volumes]", "status": "pass", "detail": ""}
@@ -10922,6 +10925,7 @@
 {"test": "tests/selftest/test_gap_register.py::test_every_cause_is_used", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_findings_list_is_generated", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_gap_refuses_unknown_cause_and_bad_regex", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_gap_register.py::test_layer_rows_are_inherited_through_gravitino", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_references_follow_the_schema", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_references_hold_the_same_tests", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_register_is_canonical", "status": "pass", "detail": ""}
@@ -10963,6 +10967,10 @@
 {"test": "tests/selftest/test_lab_infrastructure.py::test_smoke_files_exist", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_snowflake_horizon_pat_and_role", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_lakekeeper]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_polaris]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_rustfs]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_unity]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[polaris]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[reference]", "status": "pass", "detail": ""}
@@ -11002,6 +11010,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_cell_without_checks_is_not_counted", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expect_must_match", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expectation_of_another_catalog_does_not_count", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_notebook_fronted_profile_takes_a_layers_expectation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_with_expectation_passes", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_without_expectation_fails", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_read_after_failed_producer_is_blocked", "status": "pass", "detail": ""}

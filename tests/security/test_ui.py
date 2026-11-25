@@ -40,8 +40,6 @@ from conftest import expect, find_gap, gap_table
 # Filled from observed failures only: (catalog, case, regex, cause).
 # fmt: off
 KNOWN_GAPS = gap_table(("catalog", "case"), [
-    ("gravitino", "host_browser", r"points the browser to compose-only hosts \['keycloak:8080'\]", "gravitino-single-issuer"),
-    ("gravitino", "browser_login", r"the UI's login is refused: 401 .*JWKS JWT validation error", "gravitino-single-issuer"),
 ])
 # fmt: on
 
@@ -164,8 +162,8 @@ def _gravitino_admin() -> dict:
 
 
 def _gravitino_browser_login() -> dict:
-    """The same identity, but its token got from Keycloak as ``localhost:30080`` - the issuer a
-    login in the host's browser gets (only the issuer differs from the positive control).
+    """The UI's own login: user ``lab-ui`` through client ``gravitino-ui``, asked as the host's
+    browser asks - as ``keycloak:8080`` through keycloak-browser (the issuer Gravitino accepts).
 
     Returns:
         Request kwargs.
@@ -173,21 +171,9 @@ def _gravitino_browser_login() -> dict:
     from iceberg_lab import keycloak as kc
     from iceberg_lab.bootstrap import GRAVITINO_ACCEPT
 
-    r = requests.post(
-        f"{kc.KC}/realms/iceberg/protocol/openid-connect/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": "lab-admin",
-            "client_secret": "lab-admin-secret",
-            "scope": "gravitino",
-        },
-        headers={"Host": "localhost:30080"},
-        timeout=10,
-    )
-    r.raise_for_status()
     return {
         "headers": {
-            "Authorization": f"Bearer {r.json()['access_token']}",
+            "Authorization": f"Bearer {kc.gravitino_ui_user_token()}",
             "Accept": GRAVITINO_ACCEPT,
         }
     }
@@ -246,9 +232,9 @@ def test_catalog_has_ui():
         * where the UI is configured at runtime (Polaris Console's ``config.js``), it points
           to the lab's Polaris - a UI wired to another catalog would prove nothing.
     """
-    if PROFILE.name not in UIS:
+    if PROFILE.server not in UIS:
         pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
-    ui = UIS[PROFILE.name]
+    ui = UIS[PROFILE.server]
     r = requests.get(ui.page, headers=ui.headers, timeout=10)
     assert r.ok, f"{ui.page}: {r.status_code} {r.text[:200]}"
     assert "text/html" in r.headers.get("content-type", "") and "<html" in r.text.lower(), (
@@ -269,9 +255,9 @@ def test_ui_data_needs_login():
         * the same GET with admin credentials answers 2xx (positive control: the endpoint
           exists and works, so the refusal above is a refusal and not a broken URL).
     """
-    if PROFILE.name not in UIS:
+    if PROFILE.server not in UIS:
         pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
-    ui = UIS[PROFILE.name]
+    ui = UIS[PROFILE.server]
     anonymous = requests.get(ui.data, headers=ui.headers, timeout=10)
     assert anonymous.status_code in (401, 403), (
         f"the UI's data API answers an anonymous request with {anonymous.status_code}: "
@@ -334,8 +320,33 @@ def _published(services: dict) -> dict[int, tuple[str, int]]:
     out = {}
     for name, svc in services.items():
         for spec in svc.get("ports", ()):
-            *_, host, container = str(spec).split(":")
+            *bind, host, container = str(spec).split(":")
+            if bind and bind[0] not in ("127.0.0.1", "0.0.0.0"):
+                continue  # another loopback address: a name the host maps (HOST_MAPPED)
             out[int(host)] = (name, int(container))
+    return out
+
+
+#: Compose names the lab host resolves itself (/etc/hosts, docs/setup.md): name:port -> the
+#: forwarder service that publishes it on that loopback address. Gravitino accepts one token
+#: issuer, http://keycloak:8080/...: its UI must send the browser to exactly that address.
+HOST_MAPPED = {"keycloak:8080": ("keycloak-browser", "127.0.0.2")}
+
+
+def _host_mapped(services: dict) -> set[str]:
+    """``name:port`` the host resolves through a published forwarder (:data:`HOST_MAPPED`).
+
+    Args:
+        services: The compose services.
+
+    Returns:
+        The addresses whose forwarder is published on its loopback address and port.
+    """
+    out = set()
+    for addr, (svc, ip) in HOST_MAPPED.items():
+        port = addr.split(":")[1]
+        if f"{ip}:{port}:{port}" in [str(s) for s in services.get(svc, {}).get("ports", ())]:
+            out.add(addr)
     return out
 
 
@@ -450,7 +461,7 @@ def test_ui_works_in_the_host_browser():
           runs its image (compose ``WDS_SOCKET_PORT``) - otherwise the page talks to another
           dev server, misses its hot update and reloads endlessly (unity-ui-main).
     """
-    ui = UIS.get(PROFILE.name)
+    ui = UIS.get(PROFILE.server)
     if ui is None:
         pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
     services = _services()
@@ -463,11 +474,21 @@ def test_ui_works_in_the_host_browser():
     found = {(h, int(p) if p else None, path) for h, p, path in _URL.findall(shipped)}
     internal = _internal_hosts(services)
     problems = []
-    bad = sorted({f"{h}:{p}" if p else h for h, p, _ in found if h in internal})
+    mapped = _host_mapped(services)
+    bad = sorted({f"{h}:{p}" if p else h for h, p, _ in found if h in internal} - mapped)
     if bad:
         problems.append(f"{origin}: points the browser to compose-only hosts {bad}")
     if ui.runtime_config:
         problems += _cors_problems(found, origin, host_port, published)
+    for h, p, path in sorted(found, key=str):  # a host-mapped login server: its token endpoint
+        if f"{h}:{p}" in mapped and "/realms/" in (path or ""):
+            r = requests.options(
+                f"http://{h}:{p}{path.rstrip('/')}/protocol/openid-connect/token",
+                headers={"Origin": origin, "Access-Control-Request-Method": "POST"},
+                timeout=10,
+            )
+            if r.headers.get("access-control-allow-origin") not in (origin, "*"):
+                problems.append(f"{origin}: {h}:{p} refuses the UI's origin (CORS)")
     if _DEV_SOCKET.search(shipped):
         problems += _dev_socket_problems(services, services[host]["image"])
     with _gap("host_browser"):
@@ -485,7 +506,7 @@ def test_ui_login_reaches_the_data():
         * a token of the UI's login user, issued for the host's address, reads the UI's data
           API (2xx) - the login in the UI ends in a working session, not in 401.
     """
-    ui = UIS.get(PROFILE.name)
+    ui = UIS.get(PROFILE.server)
     if ui is None:
         pytest.skip(f"catalog {PROFILE.name} has no API for a web UI")
     if ui.browser_login is None:

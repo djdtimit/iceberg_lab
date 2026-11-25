@@ -815,3 +815,23 @@ def test_manifest_reads_every_compose_image():
     services = yaml.safe_load(COMPOSE.read_text())["services"]
     expected = {name: s["image"] for name, s in services.items() if "image" in s}
     assert declared_images() == expected
+
+
+def test_notebook_fronted_profile_takes_a_layers_expectation():
+    """Gravitino in front of a catalog: the limit of either layer (Gravitino, the backend) is
+    expected; its own key would win, an unrelated catalog's key does not count.
+
+    Checks:
+        * the backend's expectation passes for ``gravitino_unity``;
+        * Gravitino's expectation passes too (alternatives);
+        * another catalog's expectation still fails with "forbidden".
+    """
+    layers = ("gravitino_unity", "gravitino", "unity")
+    out = "[gravitino_unity] Create branch not possible: Schema not found"
+    cell = _cell(LIMIT, out, {"expect_unity": "Schema not found", "expect_gravitino": "406"})
+    assert test_notebooks.check_cell(0, cell, layers)
+    cell = _cell(LIMIT, "not possible: 406", {"expect_unity": "Schema", "expect_gravitino": "406"})
+    assert test_notebooks.check_cell(0, cell, layers)
+    cell = _cell(LIMIT, out, {"expect_rustfs": "Schema not found"})
+    with pytest.raises(AssertionError, match="forbidden"):
+        test_notebooks.check_cell(0, cell, layers)

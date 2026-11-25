@@ -56,6 +56,12 @@
 {"test": "tests/catalog/test_catalog_features.py::test_unity_temporary_path_credentials", "status": "na", "detail": "catalog gravitino has no API for temporary credentials for a storage path"}
 {"test": "tests/catalog/test_catalog_features.py::test_unregister", "status": "na", "detail": "catalog gravitino has no API for unregistering tables"}
 {"test": "tests/catalog/test_catalog_features.py::test_warehouse_statistics", "status": "na", "detail": "catalog gravitino has no API for warehouse statistics"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_drop_is_seen", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_table_in_own_api", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_backend_write_is_seen", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_gravitino_write_is_in_the_backend", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_staged_create[empty]", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
+{"test": "tests/catalog/test_gravitino_fronting.py::test_staged_create[with_data]", "status": "na", "detail": "catalog gravitino has no API for fronting another catalog"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-create]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-drop]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-drop_nonempty]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
@@ -10687,19 +10693,19 @@
 {"test": "tests/security/test_security.py::test_bad_sigv4_is_refused[storage-garbage]", "status": "na", "detail": "catalog gravitino has no API for SigV4 request signing (bearer tokens)"}
 {"test": "tests/security/test_security.py::test_bad_sigv4_is_refused[storage-tampered]", "status": "na", "detail": "catalog gravitino has no API for SigV4 request signing (bearer tokens)"}
 {"test": "tests/security/test_security.py::test_bad_sigv4_is_refused[storage-unknown_key]", "status": "na", "detail": "catalog gravitino has no API for SigV4 request signing (bearer tokens)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[alg_confusion]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[alg_none]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[expired]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[garbage]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[no_audience]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[other_issuer]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
-{"test": "tests/security/test_security.py::test_bad_token_is_refused[tampered]", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[alg_confusion]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[alg_none]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[expired]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[garbage]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[no_audience]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[other_issuer]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_bad_token_is_refused[tampered]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_cannot_grant_oneself_rights", "status": "pass", "detail": ""}
-{"test": "tests/security/test_security.py::test_catalog_token_does_not_outlive_identity_token", "status": "na", "detail": "catalog gravitino has no API for authentication (open catalog)"}
+{"test": "tests/security/test_security.py::test_catalog_token_does_not_outlive_identity_token", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[broken_json]", "status": "gap", "detail": "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers", "cause": "gravitino-error-stack-traces"}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[huge_name]", "status": "gap", "detail": "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers", "cause": "gravitino-error-stack-traces"}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[missing_table]", "status": "gap", "detail": "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers", "cause": "gravitino-error-stack-traces"}
-{"test": "tests/security/test_security.py::test_error_response_is_clean[traversal]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database", "cause": "gravitino-dotted-names"}
+{"test": "tests/security/test_security.py::test_error_response_is_clean[traversal]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database; through a REST backend the namespace (and a table with such a name) is created in the fronted catalog, and Gravitino lists nothing of the catalog (or of that namespace) until it is dropped there", "cause": "gravitino-dotted-names"}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[unknown_update]", "status": "gap", "detail": "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers", "cause": "gravitino-error-stack-traces"}
 {"test": "tests/security/test_security.py::test_error_response_is_clean[wrong_types]", "status": "gap", "detail": "Gravitino's Iceberg REST service puts the Java exception class and its stack trace ('stack') into error answers", "cause": "gravitino-error-stack-traces"}
 {"test": "tests/security/test_security.py::test_identity_provider_policy_applies_on_rustfs", "status": "na", "detail": "catalog gravitino has no API for identity-provider STS (AssumeRoleWithWebIdentity)"}
@@ -10712,7 +10718,7 @@
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[write_data_path]", "status": "gap", "detail": "SECURITY: Gravitino accepts every table location - inside, equal to or above another table's directory, set later, registered from foreign metadata or as write.data.path - and vends STS keys for it that read the other table's files", "cause": "gravitino-no-location-checks"}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[backslash-namespace]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[backslash-table]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers creating a table named 'a\\b' with 400 ('Illegal character in path' in the location it builds from the name), but the table is created anyway and is listed", "cause": "gravitino-backslash-table-refused-created"}
-{"test": "tests/security/test_security.py::test_name_is_refused_or_safe[dotdot-namespace]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database", "cause": "gravitino-dotted-names"}
+{"test": "tests/security/test_security.py::test_name_is_refused_or_safe[dotdot-namespace]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database; through a REST backend the namespace (and a table with such a name) is created in the fronted catalog, and Gravitino lists nothing of the catalog (or of that namespace) until it is dropped there", "cause": "gravitino-dotted-names"}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[dotdot-table]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[long-namespace]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[long-table]", "status": "pass", "detail": ""}
@@ -10724,7 +10730,7 @@
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[percent-table]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[slash-namespace]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[slash-table]", "status": "pass", "detail": ""}
-{"test": "tests/security/test_security.py::test_name_is_refused_or_safe[traversal-namespace]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database", "cause": "gravitino-dotted-names"}
+{"test": "tests/security/test_security.py::test_name_is_refused_or_safe[traversal-namespace]", "status": "gap", "detail": "INCONSISTENT: Gravitino answers a namespace name with a dot ('..', '../../escape') with 400 ('.' is reserved as the qualified-name separator) but creates the namespace anyway; it can then not be loaded or dropped (500 'Authorization failed due to system internal error'), and every top-level namespace listing of the catalog fails with 400 - Iceberg REST and Gravitino's own API - until the row is removed from the backend database; through a REST backend the namespace (and a table with such a name) is created in the fronted catalog, and Gravitino lists nothing of the catalog (or of that namespace) until it is dropped there", "cause": "gravitino-dotted-names"}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[traversal-table]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[unicode-namespace]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_name_is_refused_or_safe[unicode-table]", "status": "pass", "detail": ""}
@@ -10769,8 +10775,8 @@
 {"test": "tests/security/test_sts_scope.py::test_write_outside_own_table_is_denied[sibling_prefix]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_ui.py::test_catalog_has_ui", "status": "pass", "detail": ""}
 {"test": "tests/security/test_ui.py::test_ui_data_needs_login", "status": "pass", "detail": ""}
-{"test": "tests/security/test_ui.py::test_ui_login_reaches_the_data", "status": "gap", "detail": "Gravitino checks OAuth tokens against exactly one issuer (oauth.authority), and its web UI logs in at that same address: a login from the host's browser (identity provider under its host address, another issuer than inside the network) is refused, and the UI's login settings name a host the browser cannot resolve", "cause": "gravitino-single-issuer"}
-{"test": "tests/security/test_ui.py::test_ui_works_in_the_host_browser", "status": "gap", "detail": "Gravitino checks OAuth tokens against exactly one issuer (oauth.authority), and its web UI logs in at that same address: a login from the host's browser (identity provider under its host address, another issuer than inside the network) is refused, and the UI's login settings name a host the browser cannot resolve", "cause": "gravitino-single-issuer"}
+{"test": "tests/security/test_ui.py::test_ui_login_reaches_the_data", "status": "pass", "detail": ""}
+{"test": "tests/security/test_ui.py::test_ui_works_in_the_host_browser", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_every_missing_capability_is_checked_or_proven", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[branch_and_tag]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[computing partition statistics]", "status": "pass", "detail": ""}
@@ -10821,7 +10827,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[catalog_lifecycle]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[catalog_update]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[external_table_sync]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[functions]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[grants]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_config]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_credentials]", "status": "pass", "detail": ""}
@@ -10833,7 +10838,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_transactions]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_views]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[non_iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[oauth_tokens]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[policies]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[projects]", "status": "pass", "detail": ""}
@@ -10899,7 +10903,6 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[tags]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[task_queue_config]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[topics]", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unity_own_object_api]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unregister]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[users]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[volumes]", "status": "pass", "detail": ""}
@@ -10922,6 +10925,7 @@
 {"test": "tests/selftest/test_gap_register.py::test_every_cause_is_used", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_findings_list_is_generated", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_gap_refuses_unknown_cause_and_bad_regex", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_gap_register.py::test_layer_rows_are_inherited_through_gravitino", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_references_follow_the_schema", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_references_hold_the_same_tests", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_register_is_canonical", "status": "pass", "detail": ""}
@@ -10963,6 +10967,10 @@
 {"test": "tests/selftest/test_lab_infrastructure.py::test_smoke_files_exist", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_snowflake_horizon_pat_and_role", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_lakekeeper]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_polaris]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_rustfs]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[gravitino_unity]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[polaris]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[reference]", "status": "pass", "detail": ""}
@@ -11002,6 +11010,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_cell_without_checks_is_not_counted", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expect_must_match", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expectation_of_another_catalog_does_not_count", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_notebook_fronted_profile_takes_a_layers_expectation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_with_expectation_passes", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_without_expectation_fails", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_read_after_failed_producer_is_blocked", "status": "pass", "detail": ""}

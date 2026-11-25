@@ -15,6 +15,7 @@ lab self-tests replace them per test).
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import os
 import re
 from pathlib import Path
@@ -223,15 +224,31 @@ FLAKY_GAPS = [
 
 #: Gaps of one catalog that hit EVERY test touching the affected engine (the engine cannot
 #: even connect, or the catalog lacks a whole feature), recognised centrally like FLAKY_GAPS:
-#: (catalog ("a|b" = either), nodeid substring, exception regex, frames that must appear in
-#: the traceback, cause id). The nodeid part names the engines/files the gap belongs to
-#: ("a|b" = either), so an engine's failure in shared setup cannot be booked as a gap of
-#: ANOTHER engine's test (that hid 258 type checks once). Exact messages only - anything else
+#: (catalog ("a|b" = either; globs like "gravitino*"), nodeid substring, exception regex,
+#: frames that must appear in the traceback, cause id). The nodeid part names the
+#: engines/files the gap belongs to ("a|b" = either), so an engine's failure in shared setup
+#: cannot be booked as a gap of ANOTHER engine's test (that hid 258 type checks once). Exact messages only - anything else
 #: on that catalog is still a new failure.
 CATALOG_GAPS = [
     # Spark/Flink resolve "ns.table.snapshots" by first trying table "snapshots" in namespace
     # "ns.table"; they fall back to the metadata table only on NoSuchTable.
     ("unity", "spark|flink", r"NoSuchNamespaceException: Schema not found: lab\.test_\w+\.\w+", (), "unity-nosuchnamespace-for-metadata-tables"),
+    # Gravitino in front of Lakekeeper/RustFS: the commit of a staged create (CTAS, create
+    # and write in one transaction) is refused by the backend.
+    ("gravitino_lakekeeper|gravitino_rustfs", "spark|trino|duckdb|flink|pyiceberg|polars|daft|pg_lake|neutral_source",
+     r"Cannot assign a new UUID|tabular locations have to be empty|cannot reassign table uuid", (), "gravitino-rest-backend-staged-create"),
+    # Gravitino in front of Polaris forwards the caller's token; Polaris decides again by its
+    # own grants, which Gravitino does not set (the catalog-level authorization checks).
+    ("gravitino_polaris", "test_authz|test_privileges|test_rbac|test_idp_outage",
+     r"Principal '\w+' with activated PrincipalRoles .* is not authorized|Forbidden for url: http://gravitino:\d+/iceberg/v1/fed_polaris/", (), "gravitino-rest-backend-grants-not-forwarded"),
+    # Gravitino in front of Lakekeeper refuses DuckDB's staged create at its commit
+    # (gravitino-rest-backend-staged-create); DuckDB shows only the status, not the message.
+    ("gravitino_lakekeeper", "duckdb", r"Failed to commit Iceberg transaction: Request returned HTTP 500 for HTTP POST to '\S+/fed_lakekeeper/namespaces/\w+/tables/\w+'", (), "gravitino-rest-backend-staged-create"),
+    # pg_lake creates tables staged too; it reports success, the table is missing afterwards.
+    ("gravitino_lakekeeper|gravitino_rustfs|gravitino_unity", "pg_lake|pglake",
+     r"NoSuchTableException: (Error getting tabular from catalog|table not found)|could not load table \"fed_\w+\.\w+\.\w+\" from the REST catalog: (Error getting tabular from catalog|table not found)|pg_lake reported success, but the table is not in the catalog", (), "pglake-ignores-refused-create"),
+    # RustFS refuses format v3 (406); through Gravitino a 500, DuckDB shows only the status.
+    ("gravitino_rustfs", "duckdb-create_table-v3|test_v3_delete_writes_deletion_vector[duckdb]", r"Request returned HTTP 500 for HTTP POST to '\S+/fed_rustfs/namespaces/\w+/tables'", (), "rustfs-no-v3"),
     ("unity|gravitino", "pg_lake|pglake", r"pg_lake commits writes through POST /v1/\{prefix\}/transactions/commit", (), "pglake-ignores-refused-commit"),
     # Only without help (LAB_NO_HELP=1, test_stock_connection): the lab's workaround
     # (engines._add_content_sha256) is off while PyIceberg/Polars/Daft is under test.
@@ -291,10 +308,14 @@ def central_gap(nodeid: str, excinfo, catalog: str) -> str | None:
     """
     text = f"{excinfo.type.__name__}: {excinfo.value}"
     files = _traceback_files(excinfo)
+    from iceberg_lab.config import PROFILE
+
+    # A Gravitino-fronted profile takes over the rules of both layers (Gravitino, its backend).
+    layers = set(PROFILE.layers) if catalog == PROFILE.name else {catalog}
     entries = list(FLAKY_GAPS) + [
         (node, regex, frames, cid)
         for cat, node, regex, frames, cid in CATALOG_GAPS
-        if catalog in cat.split("|")
+        if any(fnmatch.fnmatchcase(lay, c) for c in cat.split("|") for lay in layers)
     ]
     from iceberg_lab.lab.gap_register import cause
 

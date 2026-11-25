@@ -45,6 +45,7 @@ from conftest import (
     expect,
     find_gap,
     gap_table,
+    layer_rows,
     not_offered,
     require,
     require_engine,
@@ -60,8 +61,7 @@ N_THREADS = 4
 # fmt: off
 KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
     # RustFS: an alternative to the 409 entry below (the error picks the row).
-    *(("test_append_during_compaction", "duckdb", "2", r"HTTP GET error reading 's3://labtables/\.rustfs-table/\S+/metadata/\d+-[0-9a-f-]+\.metadata\.json' \(HTTP 403 Forbidden\)", "rustfs-deletes-metadata-log")
-      for _ in [1] if PROFILE.name == "rustfs"),
+    *layer_rows("rustfs", [("test_append_during_compaction", "duckdb", "2", r"HTTP GET error reading 's3://labtables/\.rustfs-table/\S+/metadata/\d+-[0-9a-f-]+\.metadata\.json' \(HTTP 403 Forbidden\)", "rustfs-deletes-metadata-log")]),
     ("test_append_during_compaction", "duckdb", "2", r"Conflict_409|table snapshot changed between planning \(\d+\) and execution \(\d+\)", "duckdb-compaction-conflict"),
     ("test_append_during_compaction", "duckdb", "3", r"iceberg_rewrite_data_files does not yet support V3 tables", "duckdb-no-v3-rewrite"),
     ("test_append_during_compaction", "flink", "*", r"getProcedure is not implemented for class org\.apache\.iceberg\.flink\.FlinkCatalog", "flink-no-procedures"),
@@ -75,7 +75,7 @@ KNOWN_GAPS = gap_table(("test", "engine", "fv"), [
     # Seen on Unity only: 8 writers race, PyIceberg's 4 default commit retries
     # (commit.retry.num-retries) can all lose - depends on timing.
     *(("test_all_engines_append_concurrently", e, "2", r"CommitFailedException: (Requirement failed: branch main has changed|Metadata location for \S+ changed concurrently)", "pyiceberg-commit-retries-exhausted", True)
-      for e in ("pyiceberg", "polars", "daft") if PROFILE.name == "unity"),
+      for e in ("pyiceberg", "polars", "daft") if "unity" in PROFILE.layers),
     # DuckDB commits through /transactions/commit, where the REST fixture drops conflicting
     # changes and still answers 204; how many get lost depends on timing.
     *(("test_concurrent_appends", "duckdb", "*", r"appends confirmed but lost", "reference-tx-commit-loses-updates", True)

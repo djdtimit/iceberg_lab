@@ -748,7 +748,7 @@ ADMIN = {
     "unity": Unity,
     "reference": Reference,
     "gravitino": Gravitino,
-}[PROFILE.name]()
+}[PROFILE.server]()
 
 # Filled from observed failures only: (catalog, test, regex, reason).
 # fmt: off
@@ -836,7 +836,7 @@ def test_catalog_update():
     handle = ADMIN.create(name)
     try:
         new = ADMIN.update(handle, name)
-        if PROFILE.name in ("unity", "gravitino"):  # addressed by name: the handle moves
+        if PROFILE.server in ("unity", "gravitino"):  # addressed by name: the handle moves
             handle = new
         usable(new)
     finally:
@@ -1140,10 +1140,10 @@ def test_users():
         if PROFILE.name == "lakekeeper"
         else f"admtest{uuid.uuid4().hex[:6]}"
     )
-    if PROFILE.name not in USERS:
+    if PROFILE.server not in USERS:
         no_api("users or principals")
     with gap("users"):
-        USERS[PROFILE.name](uid)
+        USERS[PROFILE.server](uid)
 
 
 # =========================================================================== background tasks

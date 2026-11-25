@@ -78,7 +78,8 @@ KNOWN_GAPS = gap_table(("catalog", "test"), [
     ("lakekeeper", "unregister", r"/unregister -> HTTP 404", "lakekeeper-functions-unregister-404"),
     ("gravitino", "storage_validation", r"configuration with a missing bucket validated as working", "gravitino-test-connection-no-storage-check"),
     ("polaris", "federation_direct", r"RESTError 500: Received unexpected JSON Payload: \{\"details\":\"Error id", "polaris-federation-brotli"),
-    ("unity", "rename_across_namespaces", r"-> HTTP 501: .*Renaming a table into another namespace is not supported", "unity-rename-same-namespace-only"),
+    ("gravitino_unity", "register_table", r"/register -> HTTP (404|500): .*NotFoundException", "gravitino-rest-backend-advertises-unsupported"),
+    ("unity", "rename_across_namespaces", r"-> HTTP (406|50[01]): .*Renaming a table into another namespace is not supported", "unity-rename-same-namespace-only"),
     ("unity", "pagination", r"assert \d+ == 1", "unity-ignores-page-size"),
     ("polaris", "rename_across_namespaces", r"-> HTTP 403: .*Invalid locations .* is not in the list of allowed locations", "polaris-rename-across-namespaces"),
 ])
@@ -92,7 +93,7 @@ def offered_by(*catalogs: str, what: str) -> None:
         what: The feature (for the skip reason).
         catalogs: Catalogs that offer the feature.
     """
-    if PROFILE.name not in catalogs:
+    if PROFILE.server not in catalogs:  # what the clients reach: Gravitino for a fronted one
         pytest.skip(f"catalog {PROFILE.name} has no API for {what}")
 
 
@@ -711,7 +712,7 @@ def test_tags(rest, table):
     """
     offered_by("lakekeeper", "gravitino", what="tags on catalog objects")
     ns, name, _ = table
-    if PROFILE.name == "gravitino":
+    if PROFILE.server == "gravitino":
         tag = f"lab_class_{uuid.uuid4().hex[:6]}"
         obj = f"objects/table/{WAREHOUSE}.{ns}.{name}/tags"
         with gap("tags"):
@@ -890,7 +891,7 @@ def test_policies(rest, table):
     """
     offered_by("polaris", "gravitino", what="policies")
     ns, name, _ = table
-    if PROFILE.name == "gravitino":
+    if PROFILE.server == "gravitino":
         pol = f"compact_{uuid.uuid4().hex[:6]}"
         on_ns = f"objects/schema/{WAREHOUSE}.{ns}/policies"
         on_table = f"objects/table/{WAREHOUSE}.{ns}.{name}/policies"
@@ -1696,7 +1697,7 @@ def test_storage_validation():
         description).
     """
     offered_by("lakekeeper", "gravitino", what="validating storage access")
-    if PROFILE.name == "gravitino":
+    if PROFILE.server == "gravitino":
         from iceberg_lab.bootstrap import gravitino_catalog_properties
 
         name = f"val_{uuid.uuid4().hex[:6]}"
@@ -1791,7 +1792,7 @@ def test_projects():
         tenants in their API description).
     """
     offered_by("lakekeeper", "gravitino", what="projects (tenants)")
-    if PROFILE.name == "gravitino":
+    if PROFILE.server == "gravitino":
         name = f"lab_proj_{uuid.uuid4().hex[:6]}"
         listed = lambda: [m["name"] for m in ok(gv("GET", "/api/metalakes")).json()["metalakes"]]
         ok(gv("POST", "/api/metalakes", json={"name": name, "comment": "lab", "properties": {}}))

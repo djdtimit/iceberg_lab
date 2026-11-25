@@ -74,7 +74,7 @@
     <p class="lede">On <b data-draw="t-cat">—</b>, <b data-draw="t-works" data-source="catalog_kpis" data-field="works">—</b> of <b data-draw="t-offered" data-source="catalog_kpis" data-field="offered">—</b> offered test cases work. Reliability with every theme weighted equally: <b data-draw="t-rel" data-source="catalog_kpis" data-field="themeReliability">—</b>. <b data-draw="t-severe" data-source="catalog_kpis" data-field="severeCauses">—</b> severe gap causes and <b data-draw="t-new" data-source="catalog_kpis" data-field="news">—</b> new failures. Of <b data-draw="t-planned" data-source="catalog_kpis" data-field="planned">—</b> planned cases, <b data-draw="t-notrun" data-source="catalog_kpis" data-field="notRun">—</b> did not run because a step before them failed; they count at that step, not at the engine that would have read.</p>
     <div class="controls" id="filters">
       <label for="catalog-pick">Catalog</label>
-      <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option><option value="reference">Iceberg REST fixture (reference)</option><option value="gravitino">Apache Gravitino 1.3.1</option></select>
+      <select id="catalog-pick" class="dash-select" aria-label="Catalog"><option value="lakekeeper">Lakekeeper v0.15.1</option><option value="polaris">Apache Polaris 1.9.0</option><option value="rustfs">RustFS 1.0.6 (built-in catalog)</option><option value="unity">Unity Catalog OSS 0.7.0</option><option value="gravitino">Apache Gravitino 1.3.1</option><option value="gravitino_lakekeeper">Gravitino 1.3.1 in front of Lakekeeper</option><option value="gravitino_polaris">Gravitino 1.3.1 in front of Polaris</option><option value="gravitino_unity">Gravitino 1.3.1 in front of Unity</option><option value="gravitino_rustfs">Gravitino 1.3.1 in front of RustFS</option><option value="reference">Iceberg REST fixture (reference)</option></select>
       <label for="engine-pick">Engine</label>
       <select id="engine-pick" class="dash-select" aria-label="Engine"><option value="">All engines</option><option value="pyiceberg">PyIceberg</option><option value="duckdb">DuckDB</option><option value="polars">Polars</option><option value="daft">Daft</option><option value="spark">Spark</option><option value="trino">Trino</option><option value="pg_lake">pg_lake</option><option value="flink">Flink</option></select>
       <button type="button" class="btn" id="reset">Reset engine and theme</button>
@@ -150,13 +150,13 @@
       <p class="note">Every endpoint of the API descriptions belongs to exactly one capability. ✓ described and implemented, ◐ described but not implemented by the server, – not offered.</p>
       <div class="scroll">
         <table data-source="inventory_counts" data-row-key="measure">
-          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="gravitino">Gravitino</th></tr></thead>
+          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="gravitino">Gravitino</th><th data-field="reference">Reference</th></tr></thead>
           <tbody data-draw="inventory-counts-body"></tbody>
         </table>
       </div>
       <div class="scroll" style="margin-top: var(--cds-gap-md)">
         <table data-source="inventory" data-row-key="capability">
-          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="gravitino">Gravitino</th><th data-field="note">Note</th></tr></thead>
+          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="gravitino">Gravitino</th><th data-field="reference">Reference</th><th data-field="note">Note</th></tr></thead>
           <tbody data-draw="inventory-body"></tbody>
         </table>
       </div>
@@ -185,17 +185,24 @@
 </div>
 
 <script>
+  // The reference catalog is the yardstick: always the rightmost column, whatever is added.
+  function refLast(cats) {
+    return [...cats.filter((c) => c !== 'reference'), ...cats.filter((c) => c === 'reference')];
+  }
   window.EV = {
     engines: ['pyiceberg', 'duckdb', 'polars', 'daft', 'spark', 'trino', 'pg_lake', 'flink'],
     engineNames: { pyiceberg: 'PyIceberg', duckdb: 'DuckDB', polars: 'Polars', daft: 'Daft', spark: 'Spark', trino: 'Trino', pg_lake: 'pg_lake', flink: 'Flink', '': 'catalog' },
-    catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference', 'gravitino'],
+    // Column order everywhere; the reference (Iceberg REST fixture) always comes last, rightmost.
+    catalogs: refLast(['lakekeeper', 'polaris', 'rustfs', 'unity', 'gravitino', 'gravitino_lakekeeper', 'gravitino_polaris', 'gravitino_unity', 'gravitino_rustfs', 'reference']),
     // Catalogs whose API the feature inventory classifies (capability tables).
-    inventoryCatalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference', 'gravitino'],
-    catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', reference: 'Reference', gravitino: 'Gravitino', rustfs_nohelp: 'RustFS without help' },
+    inventoryCatalogs: refLast(['lakekeeper', 'polaris', 'rustfs', 'unity', 'gravitino', 'reference']),
+    catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', reference: 'Reference', gravitino: 'Gravitino', gravitino_lakekeeper: 'Gravitino→Lakekeeper', gravitino_polaris: 'Gravitino→Polaris', gravitino_unity: 'Gravitino→Unity', gravitino_rustfs: 'Gravitino→RustFS', rustfs_nohelp: 'RustFS without help' },
     // Same order as src/iceberg_lab/lab/reporting.py THEMES.
     themes: ['Read & write data', 'Types', 'Partitions & evolution', 'Table features', 'Maintenance', 'Concurrency & robustness', 'Security & access', 'Catalog functions'],
     sevOrder: ['Data corruption', 'Data loss', 'Inconsistency', 'Wrong result', 'Security'],
     isHelp: (c) => String(c).endsWith('_nohelp'),
+    // Catalog columns in display order: each catalog, followed by its run without help.
+    order: (cols) => EV.catalogs.flatMap((c) => [c, `${c}_nohelp`]).filter((c) => cols.includes(c)),
     // Compared rows: the six catalogs (not the runs without help), no special features or demos.
     compared: (r) => !EV.isHelp(r.catalog) && r.theme !== 'Not compared',
     inColumns: (r) => r.theme !== 'Not compared',
@@ -280,7 +287,7 @@
     description: 'Per engine and catalog column: reliability (works / offered) and scope (works / all). Columns without help are shown, not counted.',
     inputs: ['results'],
     fn: (results) => {
-      const cols = [...EV.catalogs, ...new Set(results.filter((r) => EV.isHelp(r.catalog)).map((r) => r.catalog))];
+      const cols = EV.order([...EV.catalogs, ...new Set(results.filter((r) => EV.isHelp(r.catalog)).map((r) => r.catalog))]);
       const by = d3.group(results.filter((r) => r.engine && EV.inColumns(r)), (r) => r.engine, (r) => r.catalog);
       const out = [];
       for (const engine of EV.engines) {
@@ -389,7 +396,7 @@
       const eng = EV.eng();
       const theme = dash.params().theme || '';
       const rows = results.filter((r) => r.engine && EV.inColumns(r) && (!eng || r.engine === eng) && (!theme || r.theme === theme));
-      const cols = [...EV.catalogs, ...new Set(rows.filter((r) => EV.isHelp(r.catalog)).map((r) => r.catalog))];
+      const cols = EV.order([...EV.catalogs, ...new Set(rows.filter((r) => EV.isHelp(r.catalog)).map((r) => r.catalog))]);
       const out = [];
       for (const [key, v] of d3.groups(rows, (r) => `${r.theme}\u0000${r.area}\u0000${r.capability}\u0000${r.engine}`)) {
         const st = {};
@@ -518,7 +525,7 @@
   }
   // Catalog columns in display order: each catalog, followed by its run without help.
   function orderCols(cols) {
-    return EV.catalogs.flatMap((c) => [c, `${c}_nohelp`]).filter((c) => cols.includes(c));
+    return EV.order(cols);
   }
   function headRow(table, labels, extraCls = {}) {
     const tr = table.createTHead().insertRow();

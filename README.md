@@ -1,12 +1,16 @@
-# Iceberg Lab – five REST catalogs × eight engines
+# Iceberg Lab – six REST catalogs × eight engines
 
 A local lab that compares Apache Iceberg **catalogs** and **engines**, with tests as evidence for
 every claim about what works and what does not:
 
 - **Catalogs** (Iceberg REST): **Lakekeeper** 0.15, **Apache Polaris** 1.9, the **RustFS catalog**
-  built into RustFS (Table Buckets), **Unity Catalog OSS** 0.7 and the **Apache Iceberg REST
-  fixture** (the reference implementation, `CATALOG=reference`). Select with `CATALOG=…`; the
-  default is Lakekeeper.
+  built into RustFS (Table Buckets), **Unity Catalog OSS** 0.7, **Apache Gravitino** 1.3 and the
+  **Apache Iceberg REST fixture** (the reference implementation, `CATALOG=reference`). Select with
+  `CATALOG=…`; the default is Lakekeeper.
+- **Federation**: Gravitino in front of each of the other catalogs (`CATALOG=gravitino_lakekeeper`,
+  `gravitino_polaris`, `gravitino_unity`, `gravitino_rustfs`) runs the same suite through
+  Gravitino, plus checks that both sides see each other's changes
+  (`tests/catalog/test_gravitino_fronting.py`).
 - **Engines**: PyIceberg, DuckDB, Polars, Daft, Spark, Trino, Postgres/pg_lake and Apache Flink.
 - **Storage**: RustFS (S3-compatible) for all catalogs.
 
@@ -36,6 +40,7 @@ flowchart LR
     UC[Unity Catalog 0.7]
     RC[RustFS catalog<br/>Table Buckets]
     RF[Iceberg REST fixture<br/>reference implementation]
+    GV[Gravitino 1.3]
   end
   subgraph Authz["Authorization instances (test_authz, test_security)"]
     LKA[lakekeeper-authz] --- KC[Keycloak] --- FGA[OpenFGA]
@@ -48,6 +53,8 @@ flowchart LR
   UC -- "AssumeRole" --> STS[unity-sts-shim] --> RS
   RC --- RS
   RF --> RS
+  GV --> RS
+  GV -. "federation profiles<br/>catalog-backend = rest" .-> LK & PL & UC & RC
   CP{{Catalog proxy :18181+<br/>test_robustness}} -.-> Catalogs
   SPX{{Storage proxy :19000<br/>test_storage_faults}} -.-> RS
 ```
@@ -100,10 +107,12 @@ flowchart LR
    docker compose --profile polaris up -d polaris-console     # Polaris Console (web UI), localhost:8184
    docker compose --profile unity  up -d                      # Unity Catalog 0.7 + gateway, shims, authz instance, Unity UI (CATALOG=unity)
    docker compose --profile reference up -d reference         # Apache Iceberg REST fixture (CATALOG=reference)
+   docker compose --profile gravitino up -d gravitino         # Apache Gravitino 1.3 + web UI (CATALOG=gravitino;
+                                                              #   in front of the others: CATALOG=gravitino_<backend>)
    ```
    After a lab restart: Polaris keeps nothing (`CATALOG=polaris uv run python -m
-   iceberg_lab.bootstrap`), neither does OpenFGA (run `lakekeeper-authz-migrate` again, then start
-   `lakekeeper-authz`); `scripts/keycloak_audiences.py` restores the Keycloak clients and scopes.
+   iceberg_lab.bootstrap`); OpenFGA keeps its tuples in Postgres; `scripts/keycloak_audiences.py`
+   restores the Keycloak clients and scopes.
 3. Tests:
    ```bash
    uv run pytest -m offline           # lab self-tests only: no catalog, no engine (seconds)

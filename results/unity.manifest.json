@@ -9,9 +9,9 @@
   "json": "v2.0.1",
   "parquet": "v2.0.1"
  },
- "finished": "2026-11-25T01:56:20Z",
+ "finished": "2026-11-25T15:31:20Z",
  "git": {
-  "commit": "545771f7a5b2904868845d2a23f15418d0c8b61b",
+  "commit": "bd23aad15bc5f475bee9a215ccc21aa6bcd2c65c",
   "dirty": true
  },
  "images_declared": {
@@ -21,6 +21,7 @@
   "gravitino": "apache/gravitino:1.3.1",
   "gravitino-db-init": "postgres:17",
   "keycloak": "quay.io/keycloak/keycloak:26.8.2",
+  "keycloak-browser": "python:3.13-alpine",
   "lakekeeper": "quay.io/lakekeeper/catalog:v0.15.1",
   "lakekeeper-authz": "quay.io/lakekeeper/catalog:v0.15.1",
   "lakekeeper-authz-migrate": "quay.io/lakekeeper/catalog:v0.15.1",

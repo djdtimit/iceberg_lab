@@ -17,7 +17,7 @@ their tests once more without it (separate report, shown next to the comparison,
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -68,6 +68,31 @@ class CatalogProfile:
     #: A cloud catalog outside the lab (:func:`remote_profile`): only the tests in
     #: ``conftest.REMOTE_SAFE`` run, with the engines in ``conftest.REMOTE_ENGINES``.
     remote: bool = False
+    #: Gravitino in front of another lab catalog (``catalog-backend = rest``): the backend's
+    #: profile name. The process talks to Gravitino; Gravitino talks to the backend.
+    fronts: str | None = None
+
+    @property
+    def server(self) -> str:
+        """The server the clients talk to: ``gravitino`` for a Gravitino-fronted profile.
+
+        Code that depends on the server's own API (admin, permissions, UI) asks this, not
+        ``name``.
+
+        Returns:
+            The server's profile name.
+        """
+        return "gravitino" if self.fronts else self.name
+
+    @property
+    def layers(self) -> tuple[str, ...]:
+        """The catalogs whose behaviour this profile shows: itself, and for a Gravitino-fronted
+        profile also Gravitino and the backend.
+
+        Returns:
+            The profile names.
+        """
+        return (self.name, "gravitino", self.fronts) if self.fronts else (self.name,)
 
     @property
     def token_url(self) -> str | None:
@@ -169,6 +194,33 @@ PROFILES = {
         views_catalog="gsts",
     ),
 }
+
+#: Gravitino in front of the other lab catalogs: a lakehouse-iceberg catalog ``fed_<backend>``
+#: with ``catalog-backend = rest`` (created by iceberg_lab.bootstrap). Gravitino forwards the
+#: caller's Keycloak token to the backend (its REST backend always uses its
+#: UserPrincipalForwardingAuthManager) - except for SigV4 (RustFS), which it signs with the
+#: configured keys. Polaris accepts the forwarded token only with audience "polaris": these
+#: profiles ask for ``scope=gravitino polaris``. Trino prefix / views catalog per backend.
+FRONTED = {
+    "lakekeeper": ("grvlk", "glk"),
+    "polaris": ("grvpol", "gpol"),
+    "unity": ("grvuc", "guc"),
+    "rustfs": ("grvrfs", "grfs"),
+}
+for _backend, (_trino, _views) in FRONTED.items():
+    _b = PROFILES[_backend]
+    PROFILES[f"gravitino_{_backend}"] = replace(
+        PROFILES["gravitino"],
+        name=f"gravitino_{_backend}",
+        warehouse_sts=f"fed_{_backend}",
+        oauth_scope="gravitino polaris" if _backend == "polaris" else "gravitino",
+        trino_prefix=_trino,
+        views_catalog=_views,
+        location=_b.location,
+        vended_credentials=_b.vended_credentials,
+        client_s3_endpoint=_b.client_s3_endpoint,
+        fronts=_backend,
+    )
 
 #: Cloud catalogs the lab can run against, with their defaults (docs/cloud-catalogs.md). Each
 #: one is a profile only when ``LAB_<NAME>_URI`` is set (environment or ``.env.cloud``).
@@ -512,12 +564,25 @@ def catalog_auth_props(s: Settings | None = None) -> dict[str, str]:
             "s3.path-style-access": "true",
             "client.region": s.s3_region,
         }
-    return {
+    props = {
         "credential": PROFILE.oauth_credential,
         "scope": PROFILE.oauth_scope or "",
         "oauth2-server-uri": s.token_endpoint,
         "header.X-Iceberg-Access-Delegation": "vended-credentials",
     }
+    if not PROFILE.vended_credentials:
+        # Nothing is vended (e.g. Gravitino in front of RustFS, whose SigV4 catalog vends no
+        # credentials): the client's own keys serve the data files.
+        props |= {
+            "header.X-Iceberg-Access-Delegation": "",
+            "s3.endpoint": s.s3_endpoint,
+            "s3.access-key-id": s.s3_access_key,
+            "s3.secret-access-key": s.s3_secret_key,
+            "s3.region": s.s3_region,
+            "s3.path-style-access": "true",
+            "client.region": s.s3_region,
+        }
+    return props
 
 
 def catalog_auth(s: Settings | None = None):

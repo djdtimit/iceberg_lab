@@ -9,9 +9,10 @@ are imported by name (`from authz_backends import backend`).
 |---|---|
 | [`authz_backends.py`](authz_backends.py) | Permission tests on every catalog: one backend per catalog behind the same interface. |
 | [`datagen.py`](datagen.py) | Generate ``n`` rows ``(id, md5(id) as name, id * 0.5 as amount)`` with each engine's OWN write path. |
-| [`feature_inventory.py`](feature_inventory.py) | Feature inventory: every endpoint of the five catalogs -> a capability -> tests (evidence). |
+| [`feature_inventory.py`](feature_inventory.py) | Feature inventory: every endpoint of the six catalogs -> a capability -> tests (evidence). |
+| [`fronting.py`](fronting.py) | The catalog behind Gravitino, used directly (profiles `gravitino_<backend>`): its own PyIceberg catalog, and cleanup of names Gravitino cannot address. |
 | [`reference_writer.py`](reference_writer.py) | Neutral source: tables written with Iceberg's Java core API (the reference implementation). |
-| [`reporting.py`](reporting.py) | Engine comparison report: collects every test result and writes a side-by-side overview. |
+| [`reporting.py`](../../src/iceberg_lab/lab/reporting.py) (in `src/iceberg_lab/lab/`) | Engine comparison report: collects every test result and writes a side-by-side overview. |
 | [`rest_client.py`](rest_client.py) | Raw Iceberg REST client for catalog-level tests: no engine or client library in between, so a library bug can never be booked as a catalog gap. |
 | [`storage_proxy.py`](storage_proxy.py) | Fault-injecting HTTP proxy (tests/storage/test_storage_faults.py: in front of RustFS; tests/security/test_idp_outage.py: in front of a token endpoint). |
 

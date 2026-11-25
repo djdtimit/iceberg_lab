@@ -56,7 +56,6 @@
 
 [pyiceberg]
 "Catalog.create_table_if_not_exists" = "untested: no test yet"
-"Catalog.create_table_transaction" = "untested: no test yet"
 "Catalog.identifier_to_database" = "ignored: name helper, no Iceberg feature"
 "Catalog.identifier_to_database_and_table" = "ignored: name helper, no Iceberg feature"
 "Catalog.identifier_to_tuple" = "ignored: name helper, no Iceberg feature"
@@ -87,7 +86,6 @@
 "Table.to_daft" = "ignored: conversion; Daft is tested through its own reader"
 "Table.to_polars" = "ignored: conversion; Polars is tested through its own reader"
 "Transaction.add_files" = "untested: no test yet"
-"Transaction.commit_transaction" = "untested: no test yet"
 "Transaction.dynamic_partition_overwrite" = "untested: no test yet"
 "Transaction.remove_properties" = "untested: no test yet"
 "Transaction.update_location" = "untested: no test yet"

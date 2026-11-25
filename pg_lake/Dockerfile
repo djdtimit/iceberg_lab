@@ -1,5 +1,5 @@
 # Postgres 19 + pg_lake built from source - the latest releases: PostgreSQL 19.0 (official
-# image) and pg_lake v3.7.0 (git tag, with its DuckDB submodule). pg_lake publishes no runnable
+# image) and pg_lake v3.7.1 (git tag, with its DuckDB submodule). pg_lake publishes no runnable
 # images (its docker/ setup is a development environment that compiles Postgres 16-19 itself).
 #
 # Build (alone - DuckDB's link step needs ~3 GB RAM per job, JOBS=2 keeps it under ~7 GB;

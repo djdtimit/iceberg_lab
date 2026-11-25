@@ -98,6 +98,7 @@ from iceberg_lab.lab.gap_register import (  # noqa: F401
     find_gap,
     gap,
     gap_table,
+    layer_rows,
     matching,
 )
 from iceberg_lab.lab.gaps import (  # noqa: F401
@@ -609,7 +610,7 @@ def drop_namespace_tree(cat, ns) -> None:
     try:
         cat.drop_namespace(ns)
     except NamespaceNotEmptyError:
-        if PROFILE.name != "rustfs" or cat.list_tables(ns) or cat.list_views(ns):
+        if "rustfs" not in PROFILE.layers or cat.list_tables(ns) or cat.list_views(ns):
             raise
         warnings.warn(
             f"RustFS: namespace {'.'.join(ns)} keeps a renamed table's old name", stacklevel=2
