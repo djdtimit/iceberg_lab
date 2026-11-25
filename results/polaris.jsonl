@@ -16,7 +16,6 @@
 {"test": "tests/catalog/test_catalog_consistency.py::test_parallel_transaction_commits_are_not_lost", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_consistency.py::test_recreate_at_dropped_location[explicit_location]", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_consistency.py::test_recreate_at_dropped_location[same_name]", "status": "pass", "detail": ""}
-{"test": "tests/catalog/test_catalog_features.py::test_catalog_functions", "status": "na", "detail": "catalog polaris has no API for functions in the catalog"}
 {"test": "tests/catalog/test_catalog_features.py::test_drop_namespace_after_rename", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_drop_protection", "status": "na", "detail": "catalog polaris has no API for drop protection"}
 {"test": "tests/catalog/test_catalog_features.py::test_etag_not_modified", "status": "pass", "detail": ""}
@@ -24,14 +23,13 @@
 {"test": "tests/catalog/test_catalog_features.py::test_federation", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_federation_direct", "status": "gap", "detail": "Polaris 1.9.0 image: federation asks the remote catalog for brotli, but brotli4j has no native library for x86_64 (UnsatisfiedLinkError) - every answer from Lakekeeper (Content-Encoding: br) fails with HTTP 500; without compression federation works (test_federation)", "cause": "polaris-federation-brotli"}
 {"test": "tests/catalog/test_catalog_features.py::test_format_version_policy", "status": "na", "detail": "catalog polaris has no API for format-version policies"}
-{"test": "tests/catalog/test_catalog_features.py::test_generic_tables", "status": "pass", "detail": ""}
+{"test": "tests/catalog/test_catalog_features.py::test_gravitino_owners", "status": "na", "detail": "catalog polaris has no API for owners of catalog objects"}
+{"test": "tests/catalog/test_catalog_features.py::test_gravitino_statistics", "status": "na", "detail": "catalog polaris has no API for statistics on catalog objects"}
 {"test": "tests/catalog/test_catalog_features.py::test_idempotency_key", "status": "na", "detail": "catalog polaris has no API for idempotency keys"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_endpoint_statistics", "status": "na", "detail": "catalog polaris has no API for endpoint statistics"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_maintenance_mode", "status": "na", "detail": "catalog polaris has no API for a server maintenance mode"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_managed_by", "status": "na", "detail": "catalog polaris has no API for marking a warehouse as externally managed"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_permission_check", "status": "na", "detail": "catalog polaris has no API for checking allowed actions"}
-{"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_projects", "status": "na", "detail": "catalog polaris has no API for projects (tenants)"}
-{"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_storage_validation", "status": "na", "detail": "catalog polaris has no API for validating storage access"}
 {"test": "tests/catalog/test_catalog_features.py::test_lakekeeper_task_queue_config", "status": "na", "detail": "catalog polaris has no API for task queue configuration"}
 {"test": "tests/catalog/test_catalog_features.py::test_load_credentials", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_metrics_report", "status": "pass", "detail": ""}
@@ -39,6 +37,7 @@
 {"test": "tests/catalog/test_catalog_features.py::test_pagination", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_polaris_openlineage", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_policies", "status": "pass", "detail": ""}
+{"test": "tests/catalog/test_catalog_features.py::test_projects", "status": "na", "detail": "catalog polaris has no API for projects (tenants)"}
 {"test": "tests/catalog/test_catalog_features.py::test_register_table", "status": "pass", "detail": ""}
 {"test": "tests/catalog/test_catalog_features.py::test_remote_signing", "status": "gap", "detail": "Polaris 1.9 has the Iceberg signing endpoint in its API but answers 501 Not Implemented (not advertised in /v1/config; no switch to enable S3 remote signing)", "cause": "polaris-signing-501"}
 {"test": "tests/catalog/test_catalog_features.py::test_rename_across_namespaces", "status": "gap", "detail": "Polaris 1.9 refuses moving a table into another namespace: the table keeps its location under the old namespace, which is outside the new namespace's allowed location (1.7 allowed it)", "cause": "polaris-rename-across-namespaces"}
@@ -52,12 +51,9 @@
 {"test": "tests/catalog/test_catalog_features.py::test_rustfs_unknown_table_bucket_is_not_found", "status": "na", "detail": "catalog polaris has no API for table buckets (enable/disable a bucket as warehouse)"}
 {"test": "tests/catalog/test_catalog_features.py::test_search_tables", "status": "na", "detail": "catalog polaris has no API for table search"}
 {"test": "tests/catalog/test_catalog_features.py::test_soft_delete_and_undrop", "status": "na", "detail": "catalog polaris has no API for soft delete / undrop"}
+{"test": "tests/catalog/test_catalog_features.py::test_storage_validation", "status": "na", "detail": "catalog polaris has no API for validating storage access"}
 {"test": "tests/catalog/test_catalog_features.py::test_tags", "status": "na", "detail": "catalog polaris has no API for tags on catalog objects"}
-{"test": "tests/catalog/test_catalog_features.py::test_unity_functions", "status": "na", "detail": "catalog polaris has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
-{"test": "tests/catalog/test_catalog_features.py::test_unity_models", "status": "na", "detail": "catalog polaris has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
-{"test": "tests/catalog/test_catalog_features.py::test_unity_schema_api", "status": "na", "detail": "catalog polaris has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
-{"test": "tests/catalog/test_catalog_features.py::test_unity_temporary_path_credentials", "status": "na", "detail": "catalog polaris has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
-{"test": "tests/catalog/test_catalog_features.py::test_unity_volumes", "status": "na", "detail": "catalog polaris has no API for Unity's own API (volumes, functions, models, temporary credentials)"}
+{"test": "tests/catalog/test_catalog_features.py::test_unity_temporary_path_credentials", "status": "na", "detail": "catalog polaris has no API for temporary credentials for a storage path"}
 {"test": "tests/catalog/test_catalog_features.py::test_unregister", "status": "na", "detail": "catalog polaris has no API for unregistering tables"}
 {"test": "tests/catalog/test_catalog_features.py::test_warehouse_statistics", "status": "na", "detail": "catalog polaris has no API for warehouse statistics"}
 {"test": "tests/catalog/test_namespaces.py::test_namespace[daft-create]", "status": "na", "detail": "daft has no API for namespaces (checked: no /namespace/ in its API)"}
@@ -10839,9 +10835,13 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[iceberg_views]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[non_iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[oauth_tokens]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[policies]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[projects]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[roles]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[server_info]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[storage_config]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[storage_validation]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[tags]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[unregister]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[users]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[web_ui]", "status": "pass", "detail": ""}
@@ -10869,6 +10869,7 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[iceberg_transactions]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[iceberg_views]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[jobs]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[maintenance_mode]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[managed_by]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[metadata_location_api]", "status": "pass", "detail": ""}
@@ -10876,7 +10877,11 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[namespace_move]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[non_iceberg_tables]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[oauth_tokens]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[object_credentials]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[object_statistics]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[openlineage]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[own_object_api]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[ownership]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[path_credentials]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[permission_check]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[policies]", "status": "pass", "detail": ""}
@@ -10893,6 +10898,7 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[table_refs_api]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[tags]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[task_queue_config]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[topics]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unity_own_object_api]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[unregister]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[users]", "status": "pass", "detail": ""}
@@ -10900,6 +10906,7 @@
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[warehouse_statistics]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[web_ui]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_capability_is_tested[whoami]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[gravitino]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[lakekeeper]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[polaris]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_every_endpoint_has_exactly_one_capability[reference]", "status": "pass", "detail": ""}

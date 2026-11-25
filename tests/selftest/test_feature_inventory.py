@@ -2,7 +2,8 @@
 
 * every endpoint of every catalog (docs/api/) belongs to exactly one capability;
 * every test named as evidence exists;
-* every capability has tests - or a written reason why none is needed;
+* every capability has tests - or a written reason why none is needed; one outside the lab's
+  scope (no bearing on Iceberg tables) has a reason and no tests;
 * every ◐ (described but not implemented) is backed by a known gap in its test;
 * docs/feature-inventory.md is generated from the current inventory;
 * a base capability is proven by a base test, and a test that proves only special features of
@@ -85,6 +86,11 @@ def test_capability_is_tested(name):
         name: Capability of the inventory.
     """
     cap = inv.CAPABILITIES[name]
+    if cap.get("scope") == "out":
+        assert cap.get("out_reason") and not cap["tests"], (
+            f"out-of-scope capability '{cap['title']}' needs an out_reason and no tests"
+        )
+        return
     assert cap["tests"] or cap.get("untested_reason"), (
         f"capability '{cap['title']}' ({inv.kind(name, cap)}, offered by "
         f"{', '.join(inv.offered_by(cap))}) has no test yet"

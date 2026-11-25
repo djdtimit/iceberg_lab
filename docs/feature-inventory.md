@@ -4,7 +4,9 @@ Generated from `tests/lab/feature_inventory.py` (`uv run python -m feature_inven
 in the folder `tests/lab/`). Source of the endpoints: `docs/api/` (extracted per catalog
 from its API description). Rule: a capability that at least two catalogs offer or that
 the Iceberg REST specification defines is **Base** (the same test for all); a
-capability of exactly one catalog is **Specific**. `tests/selftest/test_feature_inventory.py`
+capability of exactly one catalog is **Specific**. The lab tests Iceberg REST catalogs:
+capabilities without a bearing on Iceberg tables are listed as **Out of scope** (so every
+endpoint stays classified) and not tested. `tests/selftest/test_feature_inventory.py`
 checks that every endpoint belongs to exactly one capability.
 
 Symbols: **✓** described in the API and implemented (whether it works in detail is shown
@@ -12,67 +14,73 @@ by the tests) · **◐** described in the API, but the server does not implement
 code and proving test in the note) · **–** not offered. Partial failures stay ✓ with a
 note.
 
-| | Lakekeeper | Polaris | RustFS | Unity | Reference |
-|---|---|---|---|---|---|
-| Capabilities described (of 54) | 39 | 23 | 18 | 21 | 10 |
-| of which implemented | 36 | 22 | 18 | 21 | 10 |
+| | Lakekeeper | Polaris | RustFS | Unity | Reference | Gravitino |
+|---|---|---|---|---|---|---|
+| Capabilities in scope described (of 51) | 38 | 22 | 18 | 16 | 10 | 23 |
+| of which implemented | 36 | 21 | 18 | 16 | 10 | 23 |
+| Out of scope (recorded only) | 1 | 1 | 0 | 5 | 0 | 7 |
 
-| Capability | Kind | Lakekeeper | Polaris | RustFS | Unity | Reference | Evidence (tests) | Note |
-|---|---|---|---|---|---|---|---|---|
-| Iceberg REST: fetch configuration (/v1/config) | Base | ✓ | ✓ | ✓ | ✓ | ✓ | `test_scan_planning::test_plan_endpoint_is_advertised` | Unity: Iceberg REST under /api/2.1/unity-catalog/iceberg (not described in all.yaml, used by all tests). |
-| Iceberg REST: create, list, properties, drop namespaces | Base | ✓ | ✓ | ✓ | ✓ | ✓ | `test_namespaces::test_namespace` |  |
-| Iceberg REST: create, load, commit, drop, rename tables | Base | ✓ | ✓ | ✓ | ✓ | ✓ | `test_operations::test_operation`<br>`test_interop::test_write_then_read` |  |
-| Iceberg REST: create, load, replace, drop, rename views | Base | ✓ | ✓ | ✓ | ✓ | ✓ | `test_views::test_create_view`<br>`test_views::test_read_view` |  |
-| Iceberg REST: register a table (or view) from existing metadata | Base | ✓ | ✓ | ✓ | – | ✓ | `test_catalog_features::test_register_table` |  |
-| Iceberg REST: transaction across several tables (/transactions/commit) | Base | ✓ | ✓ | – | – | ✓ | `test_transactions::test_multi_table_commit` |  |
-| Fetch short-lived credentials for a table | Base | ✓ | ✓ | ✓ | ✓ | – | `test_catalog_features::test_load_credentials`<br>`test_sts_scope::test_write_and_delete_inside_own_table` | Unity additionally with its own API (temporary-table-credentials); RustFS: route exists but vends no credentials. |
-| Iceberg REST: report scan/commit metrics | Base | ✓ | ✓ | – | ✓ | ✓ | `test_catalog_features::test_metrics_report` |  |
-| Iceberg REST: server-side scan planning | Base | ◐ | – | – | – | ✓ | `test_scan_planning::test_server_side_plan_with_projection_and_filter` | Lakekeeper: described, not implemented (404, not advertised in /v1/config; `test_scan_planning::test_server_side_plan_with_projection_and_filter`). Base test on all catalogs; only the Iceberg REST fixture implements it, the others answer 404/501. |
-| Catalog issues access tokens | Base | ✓ | ✓ | – | ✓ | ✓ | `test_authz::test_engine_reads` | Lakekeeper: endpoint from the specification; in the lab the tokens come from Keycloak. Unity: token exchange (unity/token_shim.py). Reference: served by the fixture, not tested (no authentication in the lab). |
-| Iceberg REST: catalog signs S3 requests (remote signing) | Base | ✓ | ◐ | – | – | – | `test_catalog_features::test_remote_signing` | Polaris: described, not implemented (501, not advertised in /v1/config; `test_catalog_features::test_remote_signing`). |
-| Unregister a table from the catalog (files stay) | Base | ◐ | – | – | – | ✓ | `test_catalog_features::test_unregister` | Lakekeeper: described, not implemented (404, not advertised in /v1/config; `test_catalog_features::test_unregister`). |
-| Receive OpenLineage events | Specific | – | ✓ | – | – | – | `test_catalog_features::test_polaris_openlineage` |  |
-| Create, list, show, drop warehouses/catalogs | Base | ✓ | ✓ | ✓ | ✓ | – | `test_catalog_admin::test_catalog_lifecycle`<br>`test_catalog_features::test_rustfs_table_bucket_lifecycle` | RustFS: table bucket = S3 bucket with the catalog enabled; cannot be disabled after a table exists (special-feature test). |
-| Alter a warehouse/catalog (rename, properties) | Base | ✓ | ✓ | – | ✓ | – | `test_catalog_admin::test_catalog_update` | Lakekeeper and Unity: rename; Polaris cannot rename, only change properties. |
-| Disable and re-enable a warehouse/catalog | Base | ✓ | – | ✓ | – | – | `test_catalog_admin::test_catalog_deactivate` | RustFS disables and enables table buckets through DELETE/PUT /buckets/{b} (see catalog_lifecycle). |
-| Configure the catalog's storage access (profile, credentials, locations) | Base | ✓ | ✓ | – | ✓ | – | `test_catalog_admin::test_storage_config` | Polaris: the storage configuration is part of PUT /catalogs/{name} (catalog_update). |
-| Validate storage access before creating | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_storage_validation` |  |
-| Manage users/principals (create, list, alter, drop) | Base | ✓ | ✓ | ✓ | ✓ | – | `test_catalog_admin::test_users` | RustFS: IAM users through the RustFS admin API (not part of the catalog API). |
-| Who am I (logged-in identity) | Base | ✓ | – | – | ✓ | – | `test_authz::test_whoami` |  |
-| Manage and assign roles | Base | ✓ | ✓ | ✓ | – | – | `test_rbac::test_role_grant_reaches_every_member`<br>`test_rbac::test_removed_member_loses_access`<br>`test_rbac::test_roles_add_up`<br>`test_rbac::test_idp_role_is_a_catalog_role` | RustFS: IAM groups with a group policy (admin API). Unity Catalog OSS 0.7: no roles or groups (its API describes only SCIM /Users and /Me; /Groups answers 500) - checked by test_rbac on every run. |
-| Web UI of the catalog | Base | ✓ | ✓ | ✓ | ✓ | – | `test_ui::test_catalog_has_ui`<br>`test_ui::test_ui_data_needs_login` | Lakekeeper /ui/ and the RustFS console (:9001) from the server; Polaris Console (apache/polaris-tools, built in the lab) and Unity UI (unitycatalog-ui) as separate containers. |
-| Grant, revoke, list privileges | Base | ✓ | ✓ | – | ✓ | – | `test_authz::test_revoke_takes_effect`<br>`test_authz::test_select_grant_cannot_append`<br>`test_privileges::test_privilege_allows_its_action`<br>`test_privileges::test_action_needs_its_privilege`<br>`test_privileges::test_recorded_privileges_are_accepted` |  |
-| Query allowed actions (what may I do here?) | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_permission_check` |  |
-| Reset/rotate a principal's credentials | Specific | – | ✓ | – | – | – | `test_authz::test_engine_reads` | reset with fixed credentials is used in the authorization setup; rotate untested. |
-| Manage projects (tenants) | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_projects` |  |
-| Server/metastore information | Base | ✓ | – | – | ✓ | – | `test_catalog_admin::test_server_info` |  |
-| Set up the server for the first time (bootstrap) | Specific | ✓ | – | – | – | – | – *(Part of every setup (bootstrap.py, authz_backends.py): without bootstrap no test runs.)* |  |
-| Put the server into maintenance mode | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_maintenance_mode` |  |
-| Call statistics per endpoint | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_endpoint_statistics` |  |
-| Statistics of a warehouse (number of tables/views) | Specific | ✓ | – | – | – | – | `test_catalog_features::test_warehouse_statistics` |  |
-| Tags on catalog objects (definitions, assignment, permissions) | Specific | ✓ | – | – | – | – | `test_catalog_features::test_tags` |  |
-| Deletion protection for warehouse, namespace, table, view | Specific | ✓ | – | – | – | – | `test_catalog_features::test_drop_protection` |  |
-| Trash bin: show and restore dropped tables, delete profile | Specific | ✓ | – | – | – | – | `test_catalog_features::test_soft_delete_and_undrop` | Unity deletes managed tables with a delay (7 days) but offers no API to restore them. |
-| Show and control the catalog's background tasks | Base | ✓ | – | ✓ | – | – | `test_catalog_admin::test_background_tasks` |  |
-| Configure the task queues (drop, purge, log cleanup) | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_task_queue_config` |  |
-| Table maintenance by the catalog (configuration, metadata) | Specific | – | – | ✓ | – | – | `test_catalog_features::test_rustfs_table_maintenance` |  |
-| Search tables and views | Specific | ✓ | – | – | – | – | `test_catalog_features::test_search_tables` |  |
-| Move a namespace | Specific | ✓ | – | – | – | – | `test_catalog_features::test_namespace_move` |  |
-| Format-version policy of a warehouse | Specific | ✓ | – | – | – | – | `test_catalog_features::test_format_version_policy` |  |
-| Mark a warehouse as externally managed | Specific | ✓ | – | – | – | – | `test_catalog_features::test_lakekeeper_managed_by` |  |
-| Non-Iceberg tables in the catalog (generic tables, Delta) | Base | – | ✓ | – | ✓ | – | `test_catalog_features::test_generic_tables` | Lakekeeper: permissions/tags/protection for generic tables exist, but no endpoint to create them (404). |
-| Adopt/sync a table from externally written metadata | Base | – | ✓ | ✓ | – | – | `test_catalog_features::test_external_table_sync` |  |
-| Create policies, attach them to objects, inherit them | Specific | – | ✓ | – | – | – | `test_catalog_features::test_policies` |  |
-| Integrate a foreign catalog (federation) | Specific | – | ✓ | – | – | – | `test_catalog_features::test_federation`<br>`test_catalog_features::test_federation_direct` | Polaris: catalog type EXTERNAL through POST /catalogs (covered by catalog_lifecycle). |
-| Own object API next to Iceberg REST (schemas through the Unity API) | Specific | – | – | – | ✓ | – | `test_catalog_features::test_unity_schema_api` |  |
-| Volumes (files managed by the catalog) | Specific | – | – | – | ✓ | – | `test_catalog_features::test_unity_volumes` |  |
-| Register functions in the catalog | Base | ◐ | – | – | ✓ | – | `test_catalog_features::test_catalog_functions`<br>`test_catalog_features::test_unity_functions` | Lakekeeper: described, not implemented (404, not advertised in /v1/config; `test_catalog_features::test_catalog_functions`). |
-| ML models and model versions | Specific | – | – | – | ✓ | – | `test_catalog_features::test_unity_models` |  |
-| Temporary credentials for a storage path | Specific | – | – | – | ✓ | – | `test_catalog_features::test_unity_temporary_path_credentials` |  |
-| Branches/tags of a table through an own API | Specific | – | – | ✓ | – | – | `test_catalog_features::test_rustfs_refs_api` |  |
-| Read/set a table's metadata location directly | Specific | – | – | ✓ | – | – | `test_catalog_features::test_rustfs_metadata_location_api` |  |
-| Export/import, diagnose, restore, reset a table | Specific | – | – | ✓ | – | – | `test_catalog_features::test_rustfs_table_admin` |  |
-| Back up, restore, export, import, migrate the catalog | Specific | – | – | ✓ | – | – | `test_catalog_features::test_rustfs_catalog_backup` | RustFS: directory status and index backfill work, GET backup answers 501. |
+| Capability | Kind | Lakekeeper | Polaris | RustFS | Unity | Reference | Gravitino | Evidence (tests) | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| Iceberg REST: fetch configuration (/v1/config) | Base | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `test_scan_planning::test_plan_endpoint_is_advertised` | Unity: Iceberg REST under /api/2.1/unity-catalog/iceberg (not described in all.yaml, used by all tests). |
+| Iceberg REST: create, list, properties, drop namespaces | Base | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `test_namespaces::test_namespace` |  |
+| Iceberg REST: create, load, commit, drop, rename tables | Base | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `test_operations::test_operation`<br>`test_interop::test_write_then_read` |  |
+| Iceberg REST: create, load, replace, drop, rename views | Base | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `test_views::test_create_view`<br>`test_views::test_read_view` |  |
+| Iceberg REST: register a table (or view) from existing metadata | Base | ✓ | ✓ | ✓ | – | ✓ | ✓ | `test_catalog_features::test_register_table` |  |
+| Iceberg REST: transaction across several tables (/transactions/commit) | Base | ✓ | ✓ | – | – | ✓ | – | `test_transactions::test_multi_table_commit` |  |
+| Fetch short-lived credentials for a table | Base | ✓ | ✓ | ✓ | ✓ | – | ✓ | `test_catalog_features::test_load_credentials`<br>`test_sts_scope::test_write_and_delete_inside_own_table` | Unity additionally with its own API (temporary-table-credentials); RustFS: route exists but vends no credentials. |
+| Iceberg REST: report scan/commit metrics | Base | ✓ | ✓ | – | ✓ | ✓ | ✓ | `test_catalog_features::test_metrics_report` |  |
+| Iceberg REST: server-side scan planning | Base | ◐ | – | – | – | ✓ | ✓ | `test_scan_planning::test_server_side_plan_with_projection_and_filter` | Lakekeeper: described, not implemented (404, not advertised in /v1/config; `test_scan_planning::test_server_side_plan_with_projection_and_filter`). Base test on all catalogs; only the Iceberg REST fixture implements it, the others answer 404/501. |
+| Catalog issues access tokens | Base | ✓ | ✓ | – | ✓ | ✓ | – | `test_authz::test_engine_reads` | Lakekeeper: endpoint from the specification; in the lab the tokens come from Keycloak. Unity: token exchange (unity/token_shim.py). Reference: served by the fixture, not tested (no authentication in the lab). |
+| Iceberg REST: catalog signs S3 requests (remote signing) | Base | ✓ | ◐ | – | – | – | – | `test_catalog_features::test_remote_signing` | Polaris: described, not implemented (501, not advertised in /v1/config; `test_catalog_features::test_remote_signing`). |
+| Unregister a table from the catalog (files stay) | Base | ◐ | – | – | – | ✓ | – | `test_catalog_features::test_unregister` | Lakekeeper: described, not implemented (404, not advertised in /v1/config; `test_catalog_features::test_unregister`). |
+| Receive OpenLineage events | Specific | – | ✓ | – | – | – | – | `test_catalog_features::test_polaris_openlineage` |  |
+| Create, list, show, drop warehouses/catalogs | Base | ✓ | ✓ | ✓ | ✓ | – | ✓ | `test_catalog_admin::test_catalog_lifecycle`<br>`test_catalog_features::test_rustfs_table_bucket_lifecycle` | RustFS: table bucket = S3 bucket with the catalog enabled; cannot be disabled after a table exists (special-feature test). |
+| Alter a warehouse/catalog (rename, properties) | Base | ✓ | ✓ | – | ✓ | – | ✓ | `test_catalog_admin::test_catalog_update` | Lakekeeper and Unity: rename; Polaris cannot rename, only change properties. |
+| Disable and re-enable a warehouse/catalog | Base | ✓ | – | ✓ | – | – | ✓ | `test_catalog_admin::test_catalog_deactivate` | RustFS disables and enables table buckets through DELETE/PUT /buckets/{b} (see catalog_lifecycle). |
+| Configure the catalog's storage access (profile, credentials, locations) | Base | ✓ | ✓ | – | ✓ | – | – | `test_catalog_admin::test_storage_config` | Polaris: the storage configuration is part of PUT /catalogs/{name} (catalog_update). |
+| Validate a catalog's storage configuration before using it | Base | ✓ | – | – | – | – | ✓ | `test_catalog_features::test_storage_validation` | Lakekeeper validates the storage profile; Gravitino's testConnection checks the catalog backend (JDBC) only. |
+| Manage users/principals and groups (create, list, alter, drop) | Base | ✓ | ✓ | ✓ | ✓ | – | ✓ | `test_catalog_admin::test_users` | RustFS: IAM users through the RustFS admin API (not part of the catalog API). |
+| Who am I (logged-in identity) | Base | ✓ | – | – | ✓ | – | ✓ | `test_authz::test_whoami` |  |
+| Manage and assign roles | Base | ✓ | ✓ | ✓ | – | – | ✓ | `test_rbac::test_role_grant_reaches_every_member`<br>`test_rbac::test_removed_member_loses_access`<br>`test_rbac::test_roles_add_up`<br>`test_rbac::test_idp_role_is_a_catalog_role` | RustFS: IAM groups with a group policy (admin API). Unity Catalog OSS 0.7: no roles or groups (its API describes only SCIM /Users and /Me; /Groups answers 500) - checked by test_rbac on every run. |
+| Web UI of the catalog | Base | ✓ | ✓ | ✓ | ✓ | – | ✓ | `test_ui::test_catalog_has_ui`<br>`test_ui::test_ui_data_needs_login` | Lakekeeper /ui/ and the RustFS console (:9001) from the server; Polaris Console (apache/polaris-tools, built in the lab) and Unity UI (unitycatalog-ui) as separate containers; Gravitino's web UI from the server (:8090). |
+| Grant, revoke, list privileges | Base | ✓ | ✓ | – | ✓ | – | ✓ | `test_authz::test_revoke_takes_effect`<br>`test_authz::test_select_grant_cannot_append`<br>`test_privileges::test_privilege_allows_its_action`<br>`test_privileges::test_action_needs_its_privilege`<br>`test_privileges::test_recorded_privileges_are_accepted` |  |
+| Query allowed actions (what may I do here?) | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_lakekeeper_permission_check` |  |
+| Reset/rotate a principal's credentials | Specific | – | ✓ | – | – | – | – | `test_authz::test_engine_reads` | reset with fixed credentials is used in the authorization setup; rotate untested. |
+| Manage projects (tenants above the catalogs) | Base | ✓ | – | – | – | – | ✓ | `test_catalog_features::test_projects` | Gravitino: metalakes (the level above its catalogs). |
+| Server/metastore information | Base | ✓ | – | – | ✓ | – | ✓ | `test_catalog_admin::test_server_info` |  |
+| Set up the server for the first time (bootstrap) | Specific | ✓ | – | – | – | – | – | – *(Part of every setup (bootstrap.py, authz_backends.py): without bootstrap no test runs.)* |  |
+| Put the server into maintenance mode | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_lakekeeper_maintenance_mode` |  |
+| Call statistics per endpoint | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_lakekeeper_endpoint_statistics` |  |
+| Statistics of a warehouse (number of tables/views) | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_warehouse_statistics` |  |
+| Tags on catalog objects (definitions, assignment) | Base | ✓ | – | – | – | – | ✓ | `test_catalog_features::test_tags` |  |
+| Deletion protection for warehouse, namespace, table, view | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_drop_protection` |  |
+| Trash bin: show and restore dropped tables, delete profile | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_soft_delete_and_undrop` | Unity deletes managed tables with a delay (7 days) but offers no API to restore them. |
+| Show and control the catalog's background tasks | Base | ✓ | – | ✓ | – | – | – | `test_catalog_admin::test_background_tasks` |  |
+| Configure the task queues (drop, purge, log cleanup) | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_lakekeeper_task_queue_config` |  |
+| Table maintenance by the catalog (configuration, metadata) | Specific | – | – | ✓ | – | – | – | `test_catalog_features::test_rustfs_table_maintenance` |  |
+| Search tables and views | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_search_tables` |  |
+| Move a namespace | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_namespace_move` |  |
+| Format-version policy of a warehouse | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_format_version_policy` |  |
+| Mark a warehouse as externally managed | Specific | ✓ | – | – | – | – | – | `test_catalog_features::test_lakekeeper_managed_by` |  |
+| Non-Iceberg tables in the catalog (generic tables, Delta) | Out of scope | – | ✓ | – | ✓ | – | – | – *(out of scope: not Iceberg tables)* | Lakekeeper: permissions/tags/protection for generic tables exist, but no endpoint to create them (404). |
+| Adopt/sync a table from externally written metadata | Base | – | ✓ | ✓ | – | – | – | `test_catalog_features::test_external_table_sync` |  |
+| Create policies, attach them to objects, inherit them | Base | – | ✓ | – | – | – | ✓ | `test_catalog_features::test_policies` |  |
+| Integrate a foreign catalog (federation) | Specific | – | ✓ | – | – | – | – | `test_catalog_features::test_federation`<br>`test_catalog_features::test_federation_direct` | Polaris: catalog type EXTERNAL through POST /catalogs (covered by catalog_lifecycle). Gravitino: a lakehouse-iceberg catalog with catalog-backend rest can front another Iceberg REST catalog (documented; the lab runs it with its own JDBC backend, not tried). |
+| Own object API next to Iceberg REST (schemas, tables, views) | Out of scope | – | – | – | ✓ | – | ✓ | – *(out of scope: the same objects as through Iceberg REST, which is what the lab tests)* | Gravitino: partitions of lakehouse-iceberg tables answer 501 (not supported). |
+| Volumes (files managed by the catalog) | Out of scope | – | – | – | ✓ | – | ✓ | – *(out of scope: files, not Iceberg tables)* |  |
+| Register functions in the catalog | Out of scope | ✓ | – | – | ✓ | – | ✓ | – *(out of scope: not Iceberg tables)* |  |
+| ML models and model versions | Out of scope | – | – | – | ✓ | – | ✓ | – *(out of scope: ML models, not Iceberg tables)* |  |
+| Messaging topics (Kafka catalogs) | Out of scope | – | – | – | – | – | ✓ | – *(out of scope: Kafka topics, not Iceberg tables)* |  |
+| Job templates and job runs | Out of scope | – | – | – | – | – | ✓ | – *(out of scope: runs Spark jobs outside the catalog, not a catalog API)* | Gravitino ships templates for Iceberg maintenance (rewrite data files, update stats) that run as Spark jobs. |
+| Credentials for filesets and catalogs through the own API | Out of scope | – | – | – | – | – | ✓ | – *(out of scope: for non-Iceberg objects; Iceberg tables get credentials through Iceberg REST)* | Gravitino: a table answers 500 'Doesn't support credential operations for metadata object type'. |
+| Owner of each catalog object (read, hand over) | Specific | – | – | – | – | – | ✓ | `test_catalog_features::test_gravitino_owners` |  |
+| Custom statistics on tables and partitions | Specific | – | – | – | – | – | ✓ | `test_catalog_features::test_gravitino_statistics` |  |
+| Temporary credentials for a storage path | Specific | – | – | – | ✓ | – | – | `test_catalog_features::test_unity_temporary_path_credentials` |  |
+| Branches/tags of a table through an own API | Specific | – | – | ✓ | – | – | – | `test_catalog_features::test_rustfs_refs_api` |  |
+| Read/set a table's metadata location directly | Specific | – | – | ✓ | – | – | – | `test_catalog_features::test_rustfs_metadata_location_api` |  |
+| Export/import, diagnose, restore, reset a table | Specific | – | – | ✓ | – | – | – | `test_catalog_features::test_rustfs_table_admin` |  |
+| Back up, restore, export, import, migrate the catalog | Specific | – | – | ✓ | – | – | – | `test_catalog_features::test_rustfs_catalog_backup` | RustFS: directory status and index backfill work, GET backup answers 501. |
 
 ## Endpoints per capability
 
@@ -81,30 +89,35 @@ note.
 - **polaris**: `GET /api/catalog/v1/config`
 - **rustfs**: `ANY /iceberg/v1/config`
 - **reference**: `GET /v1/config`
+- **gravitino**: `GET /iceberg/v1/config`
 
 ### Iceberg REST: create, list, properties, drop namespaces (`iceberg_namespaces`)
 - **lakekeeper**: `DELETE /catalog/v1/{prefix}/namespaces/{namespace}`, `GET /catalog/v1/{prefix}/namespaces`, `GET /catalog/v1/{prefix}/namespaces/{namespace}`, `HEAD /catalog/v1/{prefix}/namespaces/{namespace}`, `POST /catalog/v1/{prefix}/namespaces`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/properties`
 - **polaris**: `DELETE /api/catalog/v1/{prefix}/namespaces/{namespace}`, `GET /api/catalog/v1/{prefix}/namespaces`, `GET /api/catalog/v1/{prefix}/namespaces/{namespace}`, `HEAD /api/catalog/v1/{prefix}/namespaces/{namespace}`, `POST /api/catalog/v1/{prefix}/namespaces`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/properties`
 - **rustfs**: `ANY /iceberg/v1/{warehouse}/namespaces`, `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}`, `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/properties`
 - **reference**: `DELETE /v1/{prefix}/namespaces/{namespace}`, `GET /v1/{prefix}/namespaces`, `GET /v1/{prefix}/namespaces/{namespace}`, `HEAD /v1/{prefix}/namespaces/{namespace}`, `POST /v1/{prefix}/namespaces`, `POST /v1/{prefix}/namespaces/{namespace}/properties`
+- **gravitino**: `DELETE /iceberg/v1/{prefix}/namespaces/{namespace}`, `GET /iceberg/v1/{prefix}/namespaces`, `GET /iceberg/v1/{prefix}/namespaces/{namespace}`, `HEAD /iceberg/v1/{prefix}/namespaces/{namespace}`, `POST /iceberg/v1/{prefix}/namespaces`, `POST /iceberg/v1/{prefix}/namespaces/{namespace}/properties`
 
 ### Iceberg REST: create, load, commit, drop, rename tables (`iceberg_tables`)
 - **lakekeeper**: `DELETE /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/tables`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `HEAD /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/tables`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /catalog/v1/{prefix}/tables/rename`
 - **polaris**: `DELETE /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `GET /api/catalog/v1/{prefix}/namespaces/{namespace}/tables`, `GET /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `HEAD /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/tables`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /api/catalog/v1/{prefix}/tables/rename`
 - **rustfs**: `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables`, `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}`, `ANY /iceberg/v1/{warehouse}/tables/rename`
 - **reference**: `DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table}`, `GET /v1/{prefix}/namespaces/{namespace}/tables`, `GET /v1/{prefix}/namespaces/{namespace}/tables/{table}`, `HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /v1/{prefix}/namespaces/{namespace}/tables`, `POST /v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /v1/{prefix}/tables/rename`
+- **gravitino**: `DELETE /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables`, `GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `HEAD /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables`, `POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}`, `POST /iceberg/v1/{prefix}/tables/rename`
 
 ### Iceberg REST: create, load, replace, drop, rename views (`iceberg_views`)
 - **lakekeeper**: `DELETE /catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/views`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `HEAD /catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/views`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /catalog/v1/{prefix}/views/rename`
 - **polaris**: `DELETE /api/catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `GET /api/catalog/v1/{prefix}/namespaces/{namespace}/views`, `GET /api/catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `HEAD /api/catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/views`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /api/catalog/v1/{prefix}/views/rename`
 - **rustfs**: `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/views`, `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/views/{view}`
 - **reference**: `DELETE /v1/{prefix}/namespaces/{namespace}/views/{view}`, `GET /v1/{prefix}/namespaces/{namespace}/views`, `GET /v1/{prefix}/namespaces/{namespace}/views/{view}`, `HEAD /v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /v1/{prefix}/namespaces/{namespace}/views`, `POST /v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /v1/{prefix}/views/rename`
+- **gravitino**: `DELETE /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}`, `GET /iceberg/v1/{prefix}/namespaces/{namespace}/views`, `GET /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}`, `HEAD /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /iceberg/v1/{prefix}/namespaces/{namespace}/views`, `POST /iceberg/v1/{prefix}/namespaces/{namespace}/views/{view}`, `POST /iceberg/v1/{prefix}/views/rename`
 
 ### Iceberg REST: register a table (or view) from existing metadata (`iceberg_register`)
 - **lakekeeper**: `POST /catalog/v1/{prefix}/namespaces/{namespace}/register`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/register-view`
 - **polaris**: `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/register`, `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/register-view`
 - **rustfs**: `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/register`
 - **reference**: `POST /v1/{prefix}/namespaces/{namespace}/register`, `POST /v1/{prefix}/namespaces/{namespace}/register-view`
+- **gravitino**: `POST /iceberg/v1/{prefix}/namespaces/{namespace}/register`
 
 ### Iceberg REST: transaction across several tables (/transactions/commit) (`iceberg_transactions`)
 - **lakekeeper**: `POST /catalog/v1/{prefix}/transactions/commit`
@@ -116,15 +129,18 @@ note.
 - **polaris**: `GET /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials`
 - **rustfs**: `ANY /iceberg/v1/{warehouse}/namespaces/{namespace}/tables/{table}/credentials`
 - **unity**: `POST /api/2.1/unity-catalog/temporary-table-credentials`
+- **gravitino**: `GET /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials`
 
 ### Iceberg REST: report scan/commit metrics (`iceberg_metrics`)
 - **lakekeeper**: `POST /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics`
 - **polaris**: `POST /api/catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics`
 - **reference**: `POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics`
+- **gravitino**: `POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics`
 
 ### Iceberg REST: server-side scan planning (`iceberg_scan_planning`)
 - **lakekeeper**: `DELETE /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan`, `POST /catalog/v1/{prefix}/namespaces/{namespace}/tables/{table}/tasks`
 - **reference**: `DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}`, `GET /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan/{plan-id}`, `POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/plan`, `POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/tasks`
+- **gravitino**: `POST /iceberg/v1/{prefix}/namespaces/{namespace}/tables/{table}/plan`
 
 ### Catalog issues access tokens (`oauth_tokens`)
 - **lakekeeper**: `POST /catalog/v1/oauth/tokens`
@@ -148,34 +164,41 @@ note.
 - **polaris**: `DELETE /api/management/v1/catalogs/{catalogName}`, `GET /api/management/v1/catalogs`, `GET /api/management/v1/catalogs/{catalogName}`, `POST /api/management/v1/catalogs`
 - **rustfs**: `ANY /iceberg/v1/buckets/{warehouse}`
 - **unity**: `DELETE /api/2.1/unity-catalog/catalogs/{name}`, `GET /api/2.1/unity-catalog/catalogs`, `GET /api/2.1/unity-catalog/catalogs/{name}`, `POST /api/2.1/unity-catalog/catalogs`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}`, `GET /api/metalakes/{metalake}/catalogs`, `GET /api/metalakes/{metalake}/catalogs/{catalog}`, `POST /api/metalakes/{metalake}/catalogs`
 
 ### Alter a warehouse/catalog (rename, properties) (`catalog_update`)
 - **lakekeeper**: `POST /management/v1/warehouse/{warehouse_id}/rename`
 - **polaris**: `PUT /api/management/v1/catalogs/{catalogName}`
 - **unity**: `PATCH /api/2.1/unity-catalog/catalogs/{name}`
+- **gravitino**: `PUT /api/metalakes/{metalake}/catalogs/{catalog}`
 
 ### Disable and re-enable a warehouse/catalog (`catalog_deactivate`)
 - **lakekeeper**: `POST /management/v1/warehouse/{warehouse_id}/activate`, `POST /management/v1/warehouse/{warehouse_id}/deactivate`
+- **gravitino**: `PATCH /api/metalakes/{metalake}/catalogs/{catalog}`
 
 ### Configure the catalog's storage access (profile, credentials, locations) (`storage_config`)
 - **lakekeeper**: `POST /management/v1/warehouse/{warehouse_id}/storage`, `POST /management/v1/warehouse/{warehouse_id}/storage-credential`
 - **unity**: `DELETE /api/2.1/unity-catalog/credentials/{name}`, `DELETE /api/2.1/unity-catalog/external-locations/{name}`, `GET /api/2.1/unity-catalog/credentials`, `GET /api/2.1/unity-catalog/credentials/{name}`, `GET /api/2.1/unity-catalog/external-locations`, `GET /api/2.1/unity-catalog/external-locations/{name}`, `PATCH /api/2.1/unity-catalog/credentials/{name}`, `PATCH /api/2.1/unity-catalog/external-locations/{name}`, `POST /api/2.1/unity-catalog/credentials`, `POST /api/2.1/unity-catalog/external-locations`
 
-### Validate storage access before creating (`storage_validation`)
+### Validate a catalog's storage configuration before using it (`storage_validation`)
 - **lakekeeper**: `POST /management/v1/warehouse-creation-validation`, `POST /management/v1/warehouse/{warehouse_id}/storage/validate-access`, `POST /management/v1/warehouse/{warehouse_id}/storage/validate-credential`, `POST /management/v1/warehouse/{warehouse_id}/storage/validate-profile`
+- **gravitino**: `POST /api/metalakes/{metalake}/catalogs/testConnection`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/testConnection`
 
-### Manage users/principals (create, list, alter, drop) (`users`)
+### Manage users/principals and groups (create, list, alter, drop) (`users`)
 - **lakekeeper**: `DELETE /management/v1/user/{user_id}`, `GET /management/v1/user`, `GET /management/v1/user/{user_id}`, `POST /management/v1/search/user`, `POST /management/v1/user`, `PUT /management/v1/user/{user_id}`
 - **polaris**: `DELETE /api/management/v1/principals/{principalName}`, `GET /api/management/v1/principals`, `GET /api/management/v1/principals/{principalName}`, `POST /api/management/v1/principals`, `PUT /api/management/v1/principals/{principalName}`
 - **unity**: `DELETE /api/1.0/unity-control/scim2/Users/{id}`, `GET /api/1.0/unity-control/scim2/Users`, `GET /api/1.0/unity-control/scim2/Users/{id}`, `POST /api/1.0/unity-control/scim2/Users`, `PUT /api/1.0/unity-control/scim2/Users/{id}`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/groups/{group}`, `DELETE /api/metalakes/{metalake}/users/{user}`, `GET /api/metalakes/{metalake}/groups`, `GET /api/metalakes/{metalake}/groups/{group}`, `GET /api/metalakes/{metalake}/users`, `GET /api/metalakes/{metalake}/users/{user}`, `POST /api/metalakes/{metalake}/groups`, `POST /api/metalakes/{metalake}/users`
 
 ### Who am I (logged-in identity) (`whoami`)
 - **lakekeeper**: `GET /management/v1/whoami`
 - **unity**: `GET /api/1.0/unity-control/scim2/Me`
+- **gravitino**: `GET /api/authn/me`
 
 ### Manage and assign roles (`roles`)
 - **lakekeeper**: `DELETE /management/v1/role/{role_id}`, `DELETE /management/v1/role/{role_id}/members/{member_type}/{member_id}`, `GET /management/v1/role`, `GET /management/v1/role/{role_id}`, `GET /management/v1/role/{role_id}/member-of`, `GET /management/v1/role/{role_id}/member-of/transitive`, `GET /management/v1/role/{role_id}/members`, `GET /management/v1/role/{role_id}/members/transitive`, `GET /management/v1/role/{role_id}/metadata`, `GET /management/v1/user/{user_id}/roles`, `GET /management/v1/user/{user_id}/roles/transitive`, `POST /management/v1/role`, `POST /management/v1/role/{role_id}`, `POST /management/v1/role/{role_id}/members`, `POST /management/v1/search/role`, `PUT /management/v1/role/{role_id}/source-system`
 - **polaris**: `DELETE /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}`, `DELETE /api/management/v1/principal-roles/{principalRoleName}`, `DELETE /api/management/v1/principal-roles/{principalRoleName}/catalog-roles/{catalogName}/{catalogRoleName}`, `DELETE /api/management/v1/principals/{principalName}/principal-roles/{principalRoleName}`, `GET /api/management/v1/catalogs/{catalogName}/catalog-roles`, `GET /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}`, `GET /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}/principal-roles`, `GET /api/management/v1/principal-roles`, `GET /api/management/v1/principal-roles/{principalRoleName}`, `GET /api/management/v1/principal-roles/{principalRoleName}/catalog-roles/{catalogName}`, `GET /api/management/v1/principal-roles/{principalRoleName}/principals`, `GET /api/management/v1/principals/{principalName}/principal-roles`, `POST /api/management/v1/catalogs/{catalogName}/catalog-roles`, `POST /api/management/v1/principal-roles`, `PUT /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}`, `PUT /api/management/v1/principal-roles/{principalRoleName}`, `PUT /api/management/v1/principal-roles/{principalRoleName}/catalog-roles/{catalogName}`, `PUT /api/management/v1/principals/{principalName}/principal-roles`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/roles/{role}`, `GET /api/metalakes/{metalake}/roles`, `GET /api/metalakes/{metalake}/roles/{role}`, `POST /api/metalakes/{metalake}/roles`, `PUT /api/metalakes/{metalake}/permissions/groups/{group}/grant`, `PUT /api/metalakes/{metalake}/permissions/groups/{group}/revoke`, `PUT /api/metalakes/{metalake}/permissions/users/{user}/grant`, `PUT /api/metalakes/{metalake}/permissions/users/{user}/revoke`
 
 ### Web UI of the catalog (`web_ui`)
 
@@ -183,6 +206,7 @@ note.
 - **lakekeeper**: `GET /management/v1/grants`, `GET /management/v1/grants/grantable-privileges`, `GET /management/v1/project/grants`, `GET /management/v1/project/grants/grantable-privileges`, `GET /management/v1/server/grants`, `GET /management/v1/server/grants/grantable-privileges`, `GET /management/v1/tag-definition/{tag_definition_id}/grants`, `GET /management/v1/tag-definition/{tag_definition_id}/grants/grantable-privileges`, `GET /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/grants`, `GET /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/grants/grantable-privileges`, `GET /management/v1/warehouse/{warehouse_id}/grants`, `GET /management/v1/warehouse/{warehouse_id}/grants/grantable-privileges`, `GET /management/v1/warehouse/{warehouse_id}/grants/subtree`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/grants`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/grants/grantable-privileges`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/grants/subtree`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/grants`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/grants/grantable-privileges`, `GET /management/v1/warehouse/{warehouse_id}/view/{view_id}/grants`, `GET /management/v1/warehouse/{warehouse_id}/view/{view_id}/grants/grantable-privileges`, `POST /management/v1/project/grants`, `POST /management/v1/server/grants`, `POST /management/v1/tag-definition/{tag_definition_id}/grants`, `POST /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/grants`, `POST /management/v1/warehouse/{warehouse_id}/grants`, `POST /management/v1/warehouse/{warehouse_id}/grants/subtree/revoke`, `POST /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/grants`, `POST /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/grants/subtree/revoke`, `POST /management/v1/warehouse/{warehouse_id}/table/{table_id}/grants`, `POST /management/v1/warehouse/{warehouse_id}/view/{view_id}/grants`
 - **polaris**: `GET /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}/grants`, `POST /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}/grants`, `PUT /api/management/v1/catalogs/{catalogName}/catalog-roles/{catalogRoleName}/grants`
 - **unity**: `GET /api/2.1/unity-catalog/permissions/{securable_type}/{full_name}`, `PATCH /api/2.1/unity-catalog/permissions/{securable_type}/{full_name}`
+- **gravitino**: `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/roles`, `PUT /api/metalakes/{metalake}/permissions/roles/{role}`, `PUT /api/metalakes/{metalake}/permissions/roles/{role}/{type}/{fullName}/grant`, `PUT /api/metalakes/{metalake}/permissions/roles/{role}/{type}/{fullName}/revoke`
 
 ### Query allowed actions (what may I do here?) (`permission_check`)
 - **lakekeeper**: `GET /management/v1/project/actions`, `GET /management/v1/role/{role_id}/actions`, `GET /management/v1/server/actions`, `GET /management/v1/tag-definition/{tag_definition_id}/actions`, `GET /management/v1/user/{user_id}/actions`, `GET /management/v1/warehouse/{warehouse_id}/actions`, `GET /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/actions`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/actions`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/actions`, `GET /management/v1/warehouse/{warehouse_id}/view/{view_id}/actions`, `POST /management/v1/action/batch-check`
@@ -190,12 +214,14 @@ note.
 ### Reset/rotate a principal's credentials (`credential_rotation`)
 - **polaris**: `POST /api/management/v1/principals/{principalName}/reset`, `POST /api/management/v1/principals/{principalName}/rotate`
 
-### Manage projects (tenants) (`projects`)
+### Manage projects (tenants above the catalogs) (`projects`)
 - **lakekeeper**: `DELETE /management/v1/project`, `DELETE /management/v1/project/{project_id}`, `GET /management/v1/project`, `GET /management/v1/project-list`, `GET /management/v1/project/{project_id}`, `POST /management/v1/project`, `POST /management/v1/project/rename`, `POST /management/v1/project/{project_id}/rename`
+- **gravitino**: `DELETE /api/metalakes/{name}`, `GET /api/metalakes`, `GET /api/metalakes/{name}`, `PATCH /api/metalakes/{name}`, `POST /api/metalakes`, `PUT /api/metalakes/{name}`
 
 ### Server/metastore information (`server_info`)
 - **lakekeeper**: `GET /management/v1/info`
 - **unity**: `GET /api/2.1/unity-catalog/metastore_summary`
+- **gravitino**: `GET /api/health`, `GET /api/health/live`, `GET /api/health/ready`, `GET /api/system/iceberg-rest`, `GET /api/version`
 
 ### Set up the server for the first time (bootstrap) (`bootstrap`)
 - **lakekeeper**: `POST /management/v1/bootstrap`
@@ -209,8 +235,9 @@ note.
 ### Statistics of a warehouse (number of tables/views) (`warehouse_statistics`)
 - **lakekeeper**: `GET /management/v1/warehouse/{warehouse_id}/statistics`
 
-### Tags on catalog objects (definitions, assignment, permissions) (`tags`)
+### Tags on catalog objects (definitions, assignment) (`tags`)
 - **lakekeeper**: `DELETE /management/v1/tag-definition/{tag_definition_id}`, `DELETE /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/tags/{tag_name}`, `DELETE /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/tags/{tag_name}`, `DELETE /management/v1/warehouse/{warehouse_id}/table/{table_id}/column/{column_name}/tags/{tag_name}`, `DELETE /management/v1/warehouse/{warehouse_id}/table/{table_id}/tags/{tag_name}`, `DELETE /management/v1/warehouse/{warehouse_id}/tags/{tag_name}`, `DELETE /management/v1/warehouse/{warehouse_id}/view/{view_id}/tags/{tag_name}`, `GET /management/v1/tag-definition`, `GET /management/v1/tag-definition/{tag_definition_id}`, `GET /management/v1/tag-definition/{tag_definition_id}/attachments`, `GET /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/tags`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/tags`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/column-tags`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/column/{column_name}/tags`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/tags`, `GET /management/v1/warehouse/{warehouse_id}/tags`, `GET /management/v1/warehouse/{warehouse_id}/view/{view_id}/tags`, `POST /management/v1/tag-definition`, `POST /management/v1/tag-definition/{tag_definition_id}`, `PUT /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/tags/{tag_name}`, `PUT /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/tags/{tag_name}`, `PUT /management/v1/warehouse/{warehouse_id}/table/{table_id}/column/{column_name}/tags/{tag_name}`, `PUT /management/v1/warehouse/{warehouse_id}/table/{table_id}/tags/{tag_name}`, `PUT /management/v1/warehouse/{warehouse_id}/tags/{tag_name}`, `PUT /management/v1/warehouse/{warehouse_id}/view/{view_id}/tags/{tag_name}`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/tags/{tag}`, `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/tags`, `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/tags/{tag}`, `GET /api/metalakes/{metalake}/tags`, `GET /api/metalakes/{metalake}/tags/{tag}`, `GET /api/metalakes/{metalake}/tags/{tag}/objects`, `GET /api/metalakes/{metalake}/tags/{type}/{fullName}`, `GET /api/metalakes/{metalake}/tags/{type}/{fullName}/{tag}`, `POST /api/metalakes/{metalake}/objects/{type}/{fullName}/tags`, `POST /api/metalakes/{metalake}/tags`, `POST /api/metalakes/{metalake}/tags/{type}/{fullName}`, `PUT /api/metalakes/{metalake}/tags/{tag}`
 
 ### Deletion protection for warehouse, namespace, table, view (`protection`)
 - **lakekeeper**: `GET /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/protection`, `GET /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/protection`, `GET /management/v1/warehouse/{warehouse_id}/table/{table_id}/protection`, `GET /management/v1/warehouse/{warehouse_id}/view/{view_id}/protection`, `POST /management/v1/warehouse/{warehouse_id}/generic-table/{generic_table_id}/protection`, `POST /management/v1/warehouse/{warehouse_id}/namespace/{namespace_id}/protection`, `POST /management/v1/warehouse/{warehouse_id}/protection`, `POST /management/v1/warehouse/{warehouse_id}/table/{table_id}/protection`, `POST /management/v1/warehouse/{warehouse_id}/view/{view_id}/protection`
@@ -250,21 +277,41 @@ note.
 
 ### Create policies, attach them to objects, inherit them (`policies`)
 - **polaris**: `DELETE /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies/{policy-name}`, `GET /api/catalog/polaris/v1/{prefix}/applicable-policies`, `GET /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies`, `GET /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies/{policy-name}`, `POST /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies`, `POST /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies/{policy-name}/mappings`, `PUT /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies/{policy-name}`, `PUT /api/catalog/polaris/v1/{prefix}/namespaces/{namespace}/policies/{policy-name}/mappings`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/policies/{policy}`, `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/policies`, `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/policies/{policy}`, `GET /api/metalakes/{metalake}/policies`, `GET /api/metalakes/{metalake}/policies/{policy}`, `GET /api/metalakes/{metalake}/policies/{policy}/objects`, `PATCH /api/metalakes/{metalake}/policies/{policy}`, `POST /api/metalakes/{metalake}/objects/{type}/{fullName}/policies`, `POST /api/metalakes/{metalake}/policies`, `PUT /api/metalakes/{metalake}/policies/{policy}`
 
 ### Integrate a foreign catalog (federation) (`federation`)
 
-### Own object API next to Iceberg REST (schemas through the Unity API) (`unity_own_object_api`)
+### Own object API next to Iceberg REST (schemas, tables, views) (`own_object_api`)
 - **unity**: `DELETE /api/2.1/unity-catalog/schemas/{full_name}`, `GET /api/2.1/unity-catalog/schemas`, `GET /api/2.1/unity-catalog/schemas/{full_name}`, `PATCH /api/2.1/unity-catalog/schemas/{full_name}`, `POST /api/2.1/unity-catalog/schemas`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}`, `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}`, `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions/{partition}`, `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions/{partition}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}/partitions`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/views/{view}`
 
 ### Volumes (files managed by the catalog) (`volumes`)
 - **unity**: `DELETE /api/2.1/unity-catalog/volumes/{name}`, `GET /api/2.1/unity-catalog/volumes`, `GET /api/2.1/unity-catalog/volumes/{name}`, `PATCH /api/2.1/unity-catalog/volumes/{name}`, `POST /api/2.1/unity-catalog/temporary-volume-credentials`, `POST /api/2.1/unity-catalog/volumes`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}/files`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}/location`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}`
 
 ### Register functions in the catalog (`functions`)
 - **lakekeeper**: `GET /catalog/v1/{prefix}/namespaces/{namespace}/functions`, `GET /catalog/v1/{prefix}/namespaces/{namespace}/functions/{function}`
 - **unity**: `DELETE /api/2.1/unity-catalog/functions/{name}`, `GET /api/2.1/unity-catalog/functions`, `GET /api/2.1/unity-catalog/functions/{name}`, `POST /api/2.1/unity-catalog/functions`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/functions/{function}`
 
 ### ML models and model versions (`models`)
 - **unity**: `DELETE /api/2.1/unity-catalog/models/{full_name}`, `DELETE /api/2.1/unity-catalog/models/{full_name}/versions/{version}`, `GET /api/2.1/unity-catalog/models`, `GET /api/2.1/unity-catalog/models/{full_name}`, `GET /api/2.1/unity-catalog/models/{full_name}/versions`, `GET /api/2.1/unity-catalog/models/{full_name}/versions/{version}`, `PATCH /api/2.1/unity-catalog/models/{full_name}`, `PATCH /api/2.1/unity-catalog/models/{full_name}/versions/{version}`, `PATCH /api/2.1/unity-catalog/models/{full_name}/versions/{version}/finalize`, `POST /api/2.1/unity-catalog/models`, `POST /api/2.1/unity-catalog/models/versions`, `POST /api/2.1/unity-catalog/temporary-model-version-credentials`
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}`, `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}`, `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}/uri`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}/uri`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/aliases/{alias}`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/models/{model}/versions/{version}`
+
+### Messaging topics (Kafka catalogs) (`topics`)
+- **gravitino**: `DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics`, `GET /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}`, `POST /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics`, `PUT /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/topics/{topic}`
+
+### Job templates and job runs (`jobs`)
+- **gravitino**: `DELETE /api/metalakes/{metalake}/jobs/templates/{name}`, `GET /api/metalakes/{metalake}/jobs/runs`, `GET /api/metalakes/{metalake}/jobs/runs/{jobId}`, `GET /api/metalakes/{metalake}/jobs/templates`, `GET /api/metalakes/{metalake}/jobs/templates/{name}`, `POST /api/metalakes/{metalake}/jobs/runs`, `POST /api/metalakes/{metalake}/jobs/runs/{jobId}`, `POST /api/metalakes/{metalake}/jobs/templates`, `PUT /api/metalakes/{metalake}/jobs/templates/{name}`
+
+### Credentials for filesets and catalogs through the own API (`object_credentials`)
+- **gravitino**: `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/credentials`
+
+### Owner of each catalog object (read, hand over) (`ownership`)
+- **gravitino**: `GET /api/metalakes/{metalake}/owners/{metadataObjectType}/{fullName}`, `PUT /api/metalakes/{metalake}/owners/{metadataObjectType}/{fullName}`
+
+### Custom statistics on tables and partitions (`object_statistics`)
+- **gravitino**: `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics`, `GET /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions`, `POST /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics`, `POST /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions`, `PUT /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics`, `PUT /api/metalakes/{metalake}/objects/{type}/{fullName}/statistics/partitions`
 
 ### Temporary credentials for a storage path (`path_credentials`)
 - **unity**: `POST /api/2.1/unity-catalog/temporary-path-credentials`

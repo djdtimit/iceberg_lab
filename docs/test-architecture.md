@@ -9,7 +9,7 @@ There are two layers for this.
 
 ## 1. Base tests (feed the comparison)
 
-The base tests are identical on both levels, and **all five catalogs and all eight engines take
+The base tests are identical on both levels, and **all six catalogs and all eight engines take
 part**: every base case runs for every combination. Exceptions exist only as a result, never as a
 missing row.
 
@@ -164,10 +164,13 @@ The history of the rework (2026-11-15 to 2026-11-20) is in [CHANGELOG.md](../CHA
 
 ## Feature inventory (as of the pinned versions)
 
-All 384 endpoints of the five catalogs (Lakekeeper 178, Polaris 76, RustFS 37, Unity 62,
-reference 31) are assigned in `tests/lab/feature_inventory.py` to exactly one of 54 capabilities; the overview is in
-`docs/feature-inventory.md`. Every capability has a test as evidence, every base capability a test
-that runs on all catalogs. The inventory distinguishes ✓ (described and implemented), ◐ (described,
+All 540 endpoints of the six catalogs (Lakekeeper 178, Polaris 76, RustFS 37, Unity 62,
+reference 31, Gravitino 156) are assigned in `tests/lab/feature_inventory.py` to exactly one of 59 capabilities; the overview is in
+`docs/feature-inventory.md`. The lab tests Iceberg REST catalogs: 8 capabilities without a bearing
+on Iceberg tables (ML models, volumes/filesets, functions, generic/Delta tables, topics, jobs, the
+own schema/table APIs next to Iceberg REST, credentials for non-Iceberg objects) are recorded as
+**Out of scope** - listed so every endpoint stays classified, not tested. Every other capability
+has a test as evidence, every base capability a test that runs on all catalogs. The inventory distinguishes ✓ (described and implemented), ◐ (described,
 not implemented by the server – example: Lakekeeper describes scan planning but answers 404;
 Polaris describes remote signing but answers 501) and – (not offered).
 

@@ -2124,6 +2124,21 @@ class GravitinoAuthz(Backend):
         """
         return f"service-account-{client}"
 
+    def whoami(self, user):
+        """Gravitino's ``/api/authn/me`` for a user.
+
+        Args:
+            user: Lab user (``alice`` or ``bob``).
+
+        Returns:
+            The principal (``service-account-<client>``).
+        """
+        from iceberg_lab.bootstrap import GRAVITINO_API
+
+        r = requests.get(f"{GRAVITINO_API}/api/authn/me", headers=self._h(user), timeout=10)
+        r.raise_for_status()
+        return r.json()["principal"]
+
     def _h(self, client="lab-admin"):
         """Headers for Gravitino's API with a Keycloak token (scope gravitino) of ``client``.
 

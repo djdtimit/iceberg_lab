@@ -249,7 +249,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 
 - Lakekeeper accepts a table named '..'; HTTP clients must remove '..' path segments (RFC 3986), so the table can only be reached percent-encoded (%2E%2E) - Polaris, RustFS and Unity refuse the name — lakekeeper 0.15.1 · hit in lakekeeper (1) `lakekeeper-dotdot-table-name`
 - Lakekeeper answers a path it does not have (404) or a method a path does not support (405) with an empty body - no Iceberg error document (Iceberg clients cannot parse the error; same as unitycatalog#1835) — lakekeeper 0.15.1 · [bug report](bug-reports/13-lakekeeper-error-bodies-and-snapshots-param.md) · hit in lakekeeper (2) `lakekeeper-error-body-empty`
-- Lakekeeper 0.15 describes GET .../namespaces/{ns}/functions and POST .../tables/{t}/unregister in its API, but the server answers 404 (not advertised in /v1/config) — lakekeeper 0.15.1 · hit in lakekeeper (2) `lakekeeper-functions-unregister-404`
+- Lakekeeper 0.15 describes GET .../namespaces/{ns}/functions and POST .../tables/{t}/unregister in its API, but the server answers 404 (not advertised in /v1/config) — lakekeeper 0.15.1 · hit in lakekeeper (1) `lakekeeper-functions-unregister-404`
 - Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException) — lakekeeper 0.15.1, spark 4.1.4+iceberg1.12.0 · intermittent · hit in lakekeeper (1) `lakekeeper-hard-delete-race`
 - Lakekeeper's update-namespace-properties response lacks the field 'missing' that PyIceberg 0.12 requires (Polaris sends it) — lakekeeper 0.15.1, pyiceberg 0.12.0 · hit in lakekeeper (1) `lakekeeper-ns-properties-missing-field`
 - Lakekeeper 0.15 with OpenFGA ignores roles from the token: LAKEKEEPER__OPENID_ROLES_CLAIM is used only by the Cedar authorizer (docs: 'The default OpenFGA implementation does not use token roles') - membership must be granted in Lakekeeper — lakekeeper 0.15.1, openfga 1.23.0 · hit in lakekeeper (1) `lakekeeper-openfga-ignores-token-roles`
@@ -317,7 +317,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - The Iceberg REST fixture accepts names it cannot serve afterwards: Jetty refuses an encoded '/', '\', newline or '%' in the path (400 'Ambiguous URI path separator'), and the JDBC store splits namespace names at '.' ('../../x' is listed as ''): such objects can be neither loaded nor dropped — reference sha256:009f9f6897cc · hit in reference (8) `reference-names-unaddressable`
 - The Iceberg REST fixture refuses a v3 type in a v2 table with HTTP 500 (IllegalStateException) instead of 400 (Bad Request) — reference sha256:009f9f6897cc · hit in reference (3) `reference-v3-type-in-v2-500`
 
-**gravitino** (11 causes, 5 severe)
+**gravitino** (12 causes, 5 severe)
 
 - **INCONSISTENT** Gravitino answers creating a table named 'a\b' with 400 ('Illegal character in path' in the location it builds from the name), but the table is created anyway and is listed — gravitino 1.3.1 · hit in gravitino (1) `gravitino-backslash-table-refused-created`
 - **INCONSISTENT** A switched-off Gravitino catalog (inUse=false) still serves Iceberg REST reads, and a write it answers with 500 'not in use' takes effect anyway — gravitino 1.3.1 · hit in gravitino (1) `gravitino-disabled-catalog-served`
@@ -329,6 +329,7 @@ applies (their `KNOWN_GAPS` tables name the cause id at the end of each line).
 - Gravitino has no /transactions/commit - no multi-table transaction (DuckDB refuses the COMMIT) — gravitino 1.3.1, duckdb 2.0.1 · hit in gravitino (2) `gravitino-no-transactions-commit`
 - Gravitino checks OAuth tokens against exactly one issuer (oauth.authority), and its web UI logs in at that same address: a login from the host's browser (identity provider under its host address, another issuer than inside the network) is refused, and the UI's login settings name a host the browser cannot resolve — gravitino 1.3.1 · hit in gravitino (2) `gravitino-single-issuer`
 - Gravitino accepts any value of loadTable's 'snapshots' parameter (spec: all|refs) — gravitino 1.3.1 · hit in gravitino (1) `gravitino-snapshots-param`
+- Gravitino's testConnection for a lakehouse-iceberg catalog checks only the catalog backend (JDBC): a warehouse in a bucket that does not exist (or wrong S3 keys) passes as working (200) - Lakekeeper's validate-profile reports such a profile as not valid — gravitino 1.3.1 · hit in gravitino (1) `gravitino-test-connection-no-storage-check`
 - Gravitino refuses a v3-only type in a format-v2 table with HTTP 500 instead of 400 — gravitino 1.3.1 · hit in gravitino (3) `gravitino-v3-type-in-v2-500`
 
 **catalogs** (2 causes)

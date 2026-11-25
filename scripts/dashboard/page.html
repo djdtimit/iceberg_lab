@@ -150,13 +150,13 @@
       <p class="note">Every endpoint of the API descriptions belongs to exactly one capability. ✓ described and implemented, ◐ described but not implemented by the server, – not offered.</p>
       <div class="scroll">
         <table data-source="inventory_counts" data-row-key="measure">
-          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th></tr></thead>
+          <thead><tr><th data-field="measure">Capabilities</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="gravitino">Gravitino</th></tr></thead>
           <tbody data-draw="inventory-counts-body"></tbody>
         </table>
       </div>
       <div class="scroll" style="margin-top: var(--cds-gap-md)">
         <table data-source="inventory" data-row-key="capability">
-          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="note">Note</th></tr></thead>
+          <thead><tr><th data-field="title">Capability</th><th data-field="kind">Kind</th><th data-field="lakekeeper">Lakekeeper</th><th data-field="polaris">Polaris</th><th data-field="rustfs">RustFS</th><th data-field="unity">Unity</th><th data-field="reference">Reference</th><th data-field="gravitino">Gravitino</th><th data-field="note">Note</th></tr></thead>
           <tbody data-draw="inventory-body"></tbody>
         </table>
       </div>
@@ -190,7 +190,7 @@
     engineNames: { pyiceberg: 'PyIceberg', duckdb: 'DuckDB', polars: 'Polars', daft: 'Daft', spark: 'Spark', trino: 'Trino', pg_lake: 'pg_lake', flink: 'Flink', '': 'catalog' },
     catalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference', 'gravitino'],
     // Catalogs whose API the feature inventory classifies (capability tables).
-    inventoryCatalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference'],
+    inventoryCatalogs: ['lakekeeper', 'polaris', 'rustfs', 'unity', 'reference', 'gravitino'],
     catalogNames: { lakekeeper: 'Lakekeeper', polaris: 'Polaris', rustfs: 'RustFS', unity: 'Unity', reference: 'Reference', gravitino: 'Gravitino', rustfs_nohelp: 'RustFS without help' },
     // Same order as src/iceberg_lab/lab/reporting.py THEMES.
     themes: ['Read & write data', 'Types', 'Partitions & evolution', 'Table features', 'Maintenance', 'Concurrency & robustness', 'Security & access', 'Catalog functions'],
@@ -431,12 +431,18 @@
 
   dash.calc('inventory_counts', {
     title: 'Capabilities per catalog',
-    description: 'From the feature inventory: capabilities a catalog describes in its API (✓ and ◐), and those implemented (✓ only).',
+    description: 'From the feature inventory: capabilities in scope a catalog describes in its API (✓ and ◐), those implemented (✓ only), and those outside the lab\'s scope (no bearing on Iceberg tables, recorded only).',
     inputs: ['inventory'],
-    fn: (inventory) => [
-      { measure: `described in the API (of ${inventory.length})`, ...Object.fromEntries(EV.inventoryCatalogs.map((c) => [c, inventory.filter((r) => r[c] === '✓' || r[c] === '◐').length])) },
-      { measure: 'of which implemented', ...Object.fromEntries(EV.inventoryCatalogs.map((c) => [c, inventory.filter((r) => r[c] === '✓').length])) },
-    ],
+    fn: (inventory) => {
+      const scoped = inventory.filter((r) => r.kind !== 'Out of scope');
+      const outside = inventory.filter((r) => r.kind === 'Out of scope');
+      const per = (rows, ok) => Object.fromEntries(EV.inventoryCatalogs.map((c) => [c, rows.filter((r) => ok(r[c])).length]));
+      return [
+        { measure: `described in the API (of ${scoped.length} in scope)`, ...per(scoped, (v) => v === '✓' || v === '◐') },
+        { measure: 'of which implemented', ...per(scoped, (v) => v === '✓') },
+        { measure: `out of scope, recorded only (of ${outside.length})`, ...per(outside, (v) => v === '✓' || v === '◐') },
+      ];
+    },
   });
 
   dash.calc('run_info', {

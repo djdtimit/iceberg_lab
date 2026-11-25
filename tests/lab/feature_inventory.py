@@ -1,15 +1,18 @@
-"""Feature inventory: every endpoint of the five catalogs -> a capability -> tests (evidence).
+"""Feature inventory: every endpoint of the catalogs -> a capability -> tests (evidence).
 
 Source of the endpoints: ``docs/api/<catalog>-<version>.txt`` (extracted from each catalog's API
 description, see the file headers). Rule (docs/test-architecture.md): a capability that at least
 two catalogs offer is a BASE capability (same test for all, adapter per catalog); a capability
-of exactly one catalog is SPECIFIC. ``kind`` is derived, not written down.
+of exactly one catalog is SPECIFIC. ``kind`` is derived, not written down. The lab tests Iceberg
+REST catalogs: a capability without a bearing on Iceberg tables (ML models, files, topics, ...)
+is recorded with ``scope: "out"`` - listed so every endpoint stays classified, never tested.
 
 Each capability:
     title      what it does (shown in docs/feature-inventory.md)
     endpoints  catalog -> regex matched against "METHOD /path" lines of that catalog's file
     tests      test ids (``file::test``) that prove it; empty = not tested yet (listed as open)
     note       why something is not tested, or how a catalog does it differently
+    scope      ``"out"``: outside the lab's scope (``out_reason`` says why); kind "Out of scope"
     not_implemented
                catalog -> {status, test, cause}: the catalog DESCRIBES the capability in its API,
                but the server does not implement it at all (shown as ◐). ``test`` proves it
@@ -24,13 +27,15 @@ docs/feature-inventory.md is up to date.
 
 from __future__ import annotations
 
-ICEBERG = r"(/catalog)?(/api/catalog)?/v1/"  # Iceberg REST prefix (Lakekeeper /catalog, Polaris /api/catalog)
+ICEBERG = r"(/catalog)?(/api/catalog)?(/iceberg)?/v1/"  # Iceberg REST prefix (Lakekeeper /catalog, Polaris /api/catalog, Gravitino /iceberg)
 RFS = r"ANY /iceberg/v1/"
 UC = r"/api/2\.1/unity-catalog/"
 UCC = r"/api/1\.0/unity-control/"
 LK = r"/management/v1/"
 PM = r"/api/management/v1/"
 PC = r"/api/catalog/polaris/v1/\{prefix\}/"
+GV = r"/api/metalakes/\{metalake\}/"  # Gravitino's own API, below a metalake
+GS = GV + r"catalogs/\{catalog\}/schemas/\{schema\}/"  # ... below a schema
 
 CAPABILITIES: dict[str, dict] = {
     # ===================================================================== Iceberg REST spec
@@ -38,6 +43,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: fetch configuration (/v1/config)",
         "endpoints": {
             "lakekeeper": rf"^GET {ICEBERG}config$",
+            "gravitino": rf"^GET {ICEBERG}config$",
             "reference": rf"^GET {ICEBERG}config$",
             "polaris": rf"^GET {ICEBERG}config$",
             "rustfs": rf"^{RFS}config$",
@@ -52,6 +58,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, list, properties, drop namespaces",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
+            "gravitino": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
             "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces(/\{{namespace\}}(/properties)?)?$",
@@ -65,6 +72,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, load, commit, drop, rename tables",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
+            "gravitino": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
             "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/(namespaces/\{{namespace\}}/tables(/\{{table\}})?|tables/rename)$",
@@ -78,6 +86,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: create, load, replace, drop, rename views",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/views(/\{{view\}})?|views/rename)$",
+            "gravitino": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/views(/\{{view\}})?|views/rename)$",
             "reference": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}\{{prefix\}}/(namespaces/\{{namespace\}}/views(/\{{view\}})?|views/rename)$",
             "polaris": rf"^(GET|POST|HEAD|DELETE) {ICEBERG}(\{{prefix\}})?(/namespaces/\{{namespace\}}/views(/\{{view\}})?|/views/rename)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces/\{{namespace\}}/views(/\{{view\}})?$",
@@ -91,6 +100,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: register a table (or view) from existing metadata",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
+            "gravitino": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
             "reference": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
             "polaris": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/register(-view)?$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces/\{{namespace\}}/register$",
@@ -110,6 +120,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Fetch short-lived credentials for a table",
         "endpoints": {
             "lakekeeper": rf"^GET {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/credentials$",
+            "gravitino": rf"^GET {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/credentials$",
             "polaris": rf"^GET {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/credentials$",
             "rustfs": rf"^{RFS}\{{warehouse\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/credentials$",
             "unity": rf"^POST {UC}temporary-table-credentials$",
@@ -124,6 +135,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: report scan/commit metrics",
         "endpoints": {
             "lakekeeper": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
+            "gravitino": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
             "reference": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
             "polaris": rf"^POST {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/metrics$",
         },
@@ -136,6 +148,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Iceberg REST: server-side scan planning",
         "endpoints": {
             "lakekeeper": rf"^(POST|GET|DELETE) {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/(plan(/\{{plan-id\}})?|tasks)$",
+            "gravitino": rf"^(POST|GET|DELETE) {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/(plan(/\{{plan-id\}})?|tasks)$",
             "reference": rf"^(POST|GET|DELETE) {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/tables/\{{table\}}/(plan(/\{{plan-id\}})?|tasks)$",
         },
         "tests": ["test_scan_planning::test_server_side_plan_with_projection_and_filter"],
@@ -202,6 +215,7 @@ CAPABILITIES: dict[str, dict] = {
             "polaris": rf"^(GET|POST|DELETE) {PM}catalogs(/\{{catalogName\}})?$",
             "rustfs": rf"^{RFS}buckets/\{{warehouse\}}$",
             "unity": rf"^(GET|POST|DELETE) {UC}catalogs(/\{{name\}})?$",
+            "gravitino": rf"^(GET|POST|DELETE) {GV}catalogs(/\{{catalog\}})?$",
         },
         "tests": [
             "test_catalog_admin::test_catalog_lifecycle",
@@ -215,6 +229,7 @@ CAPABILITIES: dict[str, dict] = {
             "lakekeeper": rf"^POST {LK}warehouse/\{{warehouse_id\}}/rename$",
             "polaris": rf"^PUT {PM}catalogs/\{{catalogName\}}$",
             "unity": rf"^PATCH {UC}catalogs/\{{name\}}$",
+            "gravitino": rf"^PUT {GV}catalogs/\{{catalog\}}$",
         },
         "tests": ["test_catalog_admin::test_catalog_update"],
         "note": "Lakekeeper and Unity: rename; Polaris cannot rename, only change properties.",
@@ -223,6 +238,7 @@ CAPABILITIES: dict[str, dict] = {
         "title": "Disable and re-enable a warehouse/catalog",
         "endpoints": {
             "lakekeeper": rf"^POST {LK}warehouse/\{{warehouse_id\}}/(activate|deactivate)$",
+            "gravitino": rf"^PATCH {GV}catalogs/\{{catalog\}}$",
         },
         "also": ["rustfs"],  # RustFS: DELETE/PUT /iceberg/v1/buckets/{b} schaltet ab/an
         "tests": ["test_catalog_admin::test_catalog_deactivate"],
@@ -239,18 +255,21 @@ CAPABILITIES: dict[str, dict] = {
         "note": "Polaris: the storage configuration is part of PUT /catalogs/{name} (catalog_update).",
     },
     "storage_validation": {
-        "title": "Validate storage access before creating",
+        "title": "Validate a catalog's storage configuration before using it",
         "endpoints": {
             "lakekeeper": rf"^POST {LK}(warehouse-creation-validation|warehouse/\{{warehouse_id\}}/storage/validate-(access|credential|profile))$",
+            "gravitino": rf"^POST {GV}catalogs/(\{{catalog\}}/)?testConnection$",
         },
-        "tests": ["test_catalog_features::test_lakekeeper_storage_validation"],
+        "tests": ["test_catalog_features::test_storage_validation"],
+        "note": "Lakekeeper validates the storage profile; Gravitino's testConnection checks the catalog backend (JDBC) only.",
     },
     "users": {
-        "title": "Manage users/principals (create, list, alter, drop)",
+        "title": "Manage users/principals and groups (create, list, alter, drop)",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|PUT|DELETE) {LK}(user(/\{{user_id\}})?|search/user)$",
             "polaris": rf"^(GET|POST|PUT|DELETE) {PM}principals(/\{{principalName\}})?$",
             "unity": rf"^(GET|POST|PUT|DELETE) {UCC}scim2/Users(/\{{id\}})?$",
+            "gravitino": rf"^(GET|POST|DELETE) {GV}(users(/\{{user\}})?|groups(/\{{group\}})?)$",
         },
         "also": [
             "rustfs"
@@ -263,6 +282,7 @@ CAPABILITIES: dict[str, dict] = {
         "endpoints": {
             "lakekeeper": rf"^GET {LK}whoami$",
             "unity": rf"^GET {UCC}scim2/Me$",
+            "gravitino": r"^GET /api/authn/me$",
         },
         "tests": ["test_authz::test_whoami"],
     },
@@ -271,6 +291,7 @@ CAPABILITIES: dict[str, dict] = {
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|PUT|DELETE) {LK}(role(?!.*/actions$).*|search/role|user/\{{user_id\}}/roles.*)$",
             "polaris": rf"^(GET|POST|PUT|DELETE) {PM}(principal-roles.*|catalogs/\{{catalogName\}}/catalog-roles(/\{{catalogRoleName\}})?(/principal-roles)?|principals/\{{principalName\}}/principal-roles.*)$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GV}(roles(/\{{role\}})?|permissions/(users|groups)/.*)$",
         },
         "also": [
             "rustfs"
@@ -286,9 +307,9 @@ CAPABILITIES: dict[str, dict] = {
     "web_ui": {
         "title": "Web UI of the catalog",
         "endpoints": {},
-        "also": ["lakekeeper", "polaris", "rustfs", "unity"],
+        "also": ["lakekeeper", "polaris", "rustfs", "unity", "gravitino"],
         "tests": ["test_ui::test_catalog_has_ui", "test_ui::test_ui_data_needs_login"],
-        "note": "Lakekeeper /ui/ and the RustFS console (:9001) from the server; Polaris Console (apache/polaris-tools, built in the lab) and Unity UI (unitycatalog-ui) as separate containers.",
+        "note": "Lakekeeper /ui/ and the RustFS console (:9001) from the server; Polaris Console (apache/polaris-tools, built in the lab) and Unity UI (unitycatalog-ui) as separate containers; Gravitino's web UI from the server (:8090).",
     },
     "grants": {
         "title": "Grant, revoke, list privileges",
@@ -296,6 +317,7 @@ CAPABILITIES: dict[str, dict] = {
             "lakekeeper": rf"^(GET|POST) {LK}(.*/)?grants(/.*)?$",
             "polaris": rf"^(GET|PUT|POST) {PM}catalogs/\{{catalogName\}}/catalog-roles/\{{catalogRoleName\}}/grants$",
             "unity": rf"^(GET|PATCH) {UC}permissions/\{{securable_type\}}/\{{full_name\}}$",
+            "gravitino": rf"^(GET|PUT) {GV}(permissions/roles/.*|objects/\{{type\}}/\{{fullName\}}/roles)$",
         },
         "tests": [
             "test_authz::test_revoke_takes_effect",
@@ -321,17 +343,20 @@ CAPABILITIES: dict[str, dict] = {
         "note": "reset with fixed credentials is used in the authorization setup; rotate untested.",
     },
     "projects": {
-        "title": "Manage projects (tenants)",
+        "title": "Manage projects (tenants above the catalogs)",
         "endpoints": {
             "lakekeeper": rf"^(GET|POST|DELETE) {LK}(project(-list)?|project/\{{project_id\}}(/rename)?|project/rename)$",
+            "gravitino": r"^(GET|POST|PUT|PATCH|DELETE) /api/metalakes(/\{name\})?$",
         },
-        "tests": ["test_catalog_features::test_lakekeeper_projects"],
+        "tests": ["test_catalog_features::test_projects"],
+        "note": "Gravitino: metalakes (the level above its catalogs).",
     },
     "server_info": {
         "title": "Server/metastore information",
         "endpoints": {
             "lakekeeper": rf"^GET {LK}info$",
             "unity": rf"^GET {UC}metastore_summary$",
+            "gravitino": r"^GET /api/(version|health(/live|/ready)?|system/iceberg-rest)$",
         },
         "tests": ["test_catalog_admin::test_server_info"],
     },
@@ -357,9 +382,10 @@ CAPABILITIES: dict[str, dict] = {
         "tests": ["test_catalog_features::test_warehouse_statistics"],
     },
     "tags": {
-        "title": "Tags on catalog objects (definitions, assignment, permissions)",
+        "title": "Tags on catalog objects (definitions, assignment)",
         "endpoints": {
-            "lakekeeper": rf"^(GET|POST|PUT|DELETE) {LK}(tag-definition(?!.*/(grants|actions)).*|.*/tags(/.*)?|.*/column-tags)$"
+            "lakekeeper": rf"^(GET|POST|PUT|DELETE) {LK}(tag-definition(?!.*/(grants|actions)).*|.*/tags(/.*)?|.*/column-tags)$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GV}(tags.*|objects/\{{type\}}/\{{fullName\}}/tags.*)$",
         },
         "tests": ["test_catalog_features::test_tags"],
     },
@@ -426,12 +452,14 @@ CAPABILITIES: dict[str, dict] = {
     },
     # ===================================================================== tables beyond Iceberg
     "non_iceberg_tables": {
+        "scope": "out",
+        "out_reason": "not Iceberg tables",
         "title": "Non-Iceberg tables in the catalog (generic tables, Delta)",
         "endpoints": {
             "polaris": rf"^(GET|POST|DELETE) {PC}namespaces/\{{namespace\}}/generic-tables(/\{{generic-table\}})?$",
             "unity": rf"^(GET|POST|DELETE) {UC}(tables(/\{{full_name\}})?|staging-tables|delta/preview/commits)$",
         },
-        "tests": ["test_catalog_features::test_generic_tables"],
+        "tests": [],
         "note": "Lakekeeper: permissions/tags/protection for generic tables exist, but no endpoint to create them (404).",
     },
     "external_table_sync": {
@@ -445,7 +473,8 @@ CAPABILITIES: dict[str, dict] = {
     "policies": {
         "title": "Create policies, attach them to objects, inherit them",
         "endpoints": {
-            "polaris": rf"^(GET|POST|PUT|DELETE) {PC}(namespaces/\{{namespace\}}/policies.*|applicable-policies)$"
+            "polaris": rf"^(GET|POST|PUT|DELETE) {PC}(namespaces/\{{namespace\}}/policies.*|applicable-policies)$",
+            "gravitino": rf"^(GET|POST|PUT|PATCH|DELETE) {GV}(policies.*|objects/\{{type\}}/\{{fullName\}}/policies.*)$",
         },
         "tests": ["test_catalog_features::test_policies"],
     },
@@ -459,44 +488,86 @@ CAPABILITIES: dict[str, dict] = {
             "test_catalog_features::test_federation",
             "test_catalog_features::test_federation_direct",
         ],
-        "note": "Polaris: catalog type EXTERNAL through POST /catalogs (covered by catalog_lifecycle).",
+        "note": "Polaris: catalog type EXTERNAL through POST /catalogs (covered by catalog_lifecycle). Gravitino: a lakehouse-iceberg catalog with catalog-backend rest can front another Iceberg REST catalog (documented; the lab runs it with its own JDBC backend, not tried).",
     },
-    "unity_own_object_api": {
-        "title": "Own object API next to Iceberg REST (schemas through the Unity API)",
-        "endpoints": {"unity": rf"^(GET|POST|PATCH|DELETE) {UC}schemas(/\{{full_name\}})?$"},
-        "tests": ["test_catalog_features::test_unity_schema_api"],
+    "own_object_api": {
+        "scope": "out",
+        "out_reason": "the same objects as through Iceberg REST, which is what the lab tests",
+        "title": "Own object API next to Iceberg REST (schemas, tables, views)",
+        "endpoints": {
+            "unity": rf"^(GET|POST|PATCH|DELETE) {UC}schemas(/\{{full_name\}})?$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GV}catalogs/\{{catalog\}}/schemas(/\{{schema\}}(/(tables|views)(/\{{(table|view)\}}(/partitions(/\{{partition\}})?)?)?)?)?$",
+        },
+        "tests": [],
+        "note": "Gravitino: partitions of lakehouse-iceberg tables answer 501 (not supported).",
     },
     "volumes": {
+        "scope": "out",
+        "out_reason": "files, not Iceberg tables",
         "title": "Volumes (files managed by the catalog)",
         "endpoints": {
-            "unity": rf"^(GET|POST|PATCH|DELETE) {UC}(volumes(/\{{name\}})?|temporary-volume-credentials)$"
+            "unity": rf"^(GET|POST|PATCH|DELETE) {UC}(volumes(/\{{name\}})?|temporary-volume-credentials)$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GS}filesets.*$",
         },
-        "tests": ["test_catalog_features::test_unity_volumes"],
+        "tests": [],
     },
     "functions": {
+        "scope": "out",
+        "out_reason": "not Iceberg tables",
         "title": "Register functions in the catalog",
         "endpoints": {
             "lakekeeper": rf"^GET {ICEBERG}\{{prefix\}}/namespaces/\{{namespace\}}/functions(/\{{function\}})?$",
             "unity": rf"^(GET|POST|DELETE) {UC}functions(/\{{name\}})?$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GS}functions.*$",
         },
-        "tests": [
-            "test_catalog_features::test_catalog_functions",
-            "test_catalog_features::test_unity_functions",
-        ],
-        "not_implemented": {
-            "lakekeeper": {
-                "status": "404, not advertised in /v1/config",
-                "test": "test_catalog_features::test_catalog_functions",
-                "cause": "lakekeeper-functions-unregister-404",
-            },
-        },
+        "tests": [],
     },
     "models": {
+        "scope": "out",
+        "out_reason": "ML models, not Iceberg tables",
         "title": "ML models and model versions",
         "endpoints": {
-            "unity": rf"^(GET|POST|PATCH|DELETE) {UC}(models.*|temporary-model-version-credentials)$"
+            "unity": rf"^(GET|POST|PATCH|DELETE) {UC}(models.*|temporary-model-version-credentials)$",
+            "gravitino": rf"^(GET|POST|PUT|DELETE) {GS}models.*$",
         },
-        "tests": ["test_catalog_features::test_unity_models"],
+        "tests": [],
+    },
+    "topics": {
+        "scope": "out",
+        "out_reason": "Kafka topics, not Iceberg tables",
+        "title": "Messaging topics (Kafka catalogs)",
+        "endpoints": {"gravitino": rf"^(GET|POST|PUT|DELETE) {GS}topics.*$"},
+        "tests": [],
+    },
+    "jobs": {
+        "scope": "out",
+        "out_reason": "runs Spark jobs outside the catalog, not a catalog API",
+        "title": "Job templates and job runs",
+        "endpoints": {"gravitino": rf"^(GET|POST|PUT|DELETE) {GV}jobs/.*$"},
+        "tests": [],
+        "note": "Gravitino ships templates for Iceberg maintenance (rewrite data files, update stats) that run as Spark jobs.",
+    },
+    "object_credentials": {
+        "scope": "out",
+        "out_reason": "for non-Iceberg objects; Iceberg tables get credentials through Iceberg REST",
+        "title": "Credentials for filesets and catalogs through the own API",
+        "endpoints": {"gravitino": rf"^GET {GV}objects/\{{type\}}/\{{fullName\}}/credentials$"},
+        "tests": [],
+        "note": "Gravitino: a table answers 500 'Doesn't support credential operations for metadata object type'.",
+    },
+    "ownership": {
+        "title": "Owner of each catalog object (read, hand over)",
+        "endpoints": {
+            "gravitino": rf"^(GET|PUT) {GV}owners/\{{metadataObjectType\}}/\{{fullName\}}$"
+        },
+        "tests": ["test_catalog_features::test_gravitino_owners"],
+    },
+    "object_statistics": {
+        "title": "Custom statistics on tables and partitions",
+        "endpoints": {
+            "gravitino": rf"^(GET|POST|PUT) {GV}objects/\{{type\}}/\{{fullName\}}/statistics(/partitions)?$"
+        },
+        "tests": ["test_catalog_features::test_gravitino_statistics"],
     },
     "path_credentials": {
         "title": "Temporary credentials for a storage path",
@@ -534,13 +605,14 @@ CAPABILITIES: dict[str, dict] = {
     },
 }
 
-CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference")
+CATALOGS = ("lakekeeper", "polaris", "rustfs", "unity", "reference", "gravitino")
 NAMES = {
     "lakekeeper": "Lakekeeper",
     "polaris": "Polaris",
     "rustfs": "RustFS",
     "unity": "Unity",
     "reference": "Reference",
+    "gravitino": "Gravitino",
 }
 API_FILES = {
     "lakekeeper": "lakekeeper-0.15.1.txt",
@@ -548,6 +620,7 @@ API_FILES = {
     "rustfs": "rustfs-1.0.6.txt",
     "unity": "unity-0.7.0.txt",
     "reference": "reference-c75374c.txt",
+    "gravitino": "gravitino-1.3.1.txt",
 }
 
 
@@ -577,15 +650,18 @@ def works_on(cap: dict) -> list[str]:
 
 def kind(name: str, cap: dict) -> str:
     """BASE if two or more catalogs offer it - or if the Iceberg REST spec defines it (the
-    standard asks it of every catalog) - else SPECIFIC (docs/test-architecture.md).
+    standard asks it of every catalog) - else SPECIFIC (docs/test-architecture.md); capabilities
+    without a bearing on Iceberg tables are OUT OF SCOPE.
 
     Args:
         name: Capability key.
         cap: Capability entry.
 
     Returns:
-        ``Base`` or ``Specific``.
+        ``Base``, ``Specific`` or ``Out of scope``.
     """
+    if cap.get("scope") == "out":
+        return "Out of scope"
     if name.startswith("iceberg_") or len(set(offered_by(cap))) >= 2:
         return "Base"
     return "Specific"
@@ -597,6 +673,8 @@ def render() -> str:
     Returns:
         The Markdown text.
     """
+    scoped = [c for c in CAPABILITIES.values() if c.get("scope") != "out"]
+    outside = [c for c in CAPABILITIES.values() if c.get("scope") == "out"]
     lines = [
         "# Feature inventory of the catalogs",
         "",
@@ -604,7 +682,9 @@ def render() -> str:
         "in the folder `tests/lab/`). Source of the endpoints: `docs/api/` (extracted per catalog",
         "from its API description). Rule: a capability that at least two catalogs offer or that",
         "the Iceberg REST specification defines is **Base** (the same test for all); a",
-        "capability of exactly one catalog is **Specific**. `tests/selftest/test_feature_inventory.py`",
+        "capability of exactly one catalog is **Specific**. The lab tests Iceberg REST catalogs:",
+        "capabilities without a bearing on Iceberg tables are listed as **Out of scope** (so every",
+        "endpoint stays classified) and not tested. `tests/selftest/test_feature_inventory.py`",
         "checks that every endpoint belongs to exactly one capability.",
         "",
         "Symbols: **✓** described in the API and implemented (whether it works in detail is shown",
@@ -614,13 +694,16 @@ def render() -> str:
         "",
         "| | " + " | ".join(NAMES[c] for c in CATALOGS) + " |",
         "|---|" + "---|" * len(CATALOGS),
-        "| Capabilities described (of "
-        + str(len(CAPABILITIES))
+        "| Capabilities in scope described (of "
+        + str(len(scoped))
         + ") | "
-        + " | ".join(str(sum(c in offered_by(x) for x in CAPABILITIES.values())) for c in CATALOGS)
+        + " | ".join(str(sum(c in offered_by(x) for x in scoped)) for c in CATALOGS)
         + " |",
         "| of which implemented | "
-        + " | ".join(str(sum(c in works_on(x) for x in CAPABILITIES.values())) for c in CATALOGS)
+        + " | ".join(str(sum(c in works_on(x) for x in scoped)) for c in CATALOGS)
+        + " |",
+        "| Out of scope (recorded only) | "
+        + " | ".join(str(sum(c in offered_by(x) for x in outside)) for c in CATALOGS)
         + " |",
         "",
         "| Capability | Kind | "
@@ -632,9 +715,12 @@ def render() -> str:
         offered = set(offered_by(cap))
         missing = cap.get("not_implemented", {})
         cells = ["◐" if c in missing else "✓" if c in offered else "–" for c in CATALOGS]
-        tests = "<br>".join(f"`{t}`" for t in cap["tests"]) or (
-            "– *(" + cap["untested_reason"] + ")*" if "untested_reason" in cap else "**open**"
-        )
+        if cap.get("scope") == "out":
+            tests = "– *(out of scope: " + cap["out_reason"] + ")*"
+        else:
+            tests = "<br>".join(f"`{t}`" for t in cap["tests"]) or (
+                "– *(" + cap["untested_reason"] + ")*" if "untested_reason" in cap else "**open**"
+            )
         gaps = [
             f"{NAMES[c]}: described, not implemented ({m['status']}; `{m['test']}`)."
             for c, m in missing.items()

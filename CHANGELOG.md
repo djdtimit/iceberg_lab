@@ -2,6 +2,38 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-25: Gravitino in the feature inventory, scope = Iceberg REST
+
+- **The lab tests Iceberg REST catalogs.** Capabilities without a bearing on Iceberg tables are
+  now recorded as **Out of scope** in `tests/lab/feature_inventory.py` (`scope: "out"` with an
+  `out_reason`). Their endpoints stay classified, so a new route still has to be sorted in, but
+  they need no test. Eight capabilities: ML models, volumes/filesets, functions, generic/Delta
+  tables, topics, jobs, the own schema/table APIs next to Iceberg REST, and credentials for
+  non-Iceberg objects. Their tests were removed: `test_generic_tables`,
+  `test_catalog_functions`, `test_unity_volumes`, `test_unity_functions`, `test_unity_models`,
+  `test_unity_schema_api`.
+- **Gravitino's 156 routes are classified** (`docs/api/gravitino-1.3.1.txt`). Gravitino
+  implements every Iceberg REST capability it advertises, server-side scan planning included.
+  Four capabilities of a single catalog became base capabilities. Their tests now run on every
+  catalog, with one adapter per catalog:
+  - `test_tags`: Lakekeeper and Gravitino.
+  - `test_policies`: Polaris and Gravitino. A policy attached to the namespace is inherited by
+    the table.
+  - `test_projects`: Lakekeeper projects and Gravitino metalakes. It was `test_lakekeeper_projects`.
+  - `test_storage_validation`: Lakekeeper `validate-profile` and Gravitino `testConnection`. It
+    was `test_lakekeeper_storage_validation`.
+
+  New for Gravitino only: `test_gravitino_owners` (hand over ownership) and
+  `test_gravitino_statistics` (custom statistics). `test_whoami` now also asks Gravitino
+  (`/api/authn/me`).
+- **New gap `gravitino-test-connection-no-storage-check`**: `testConnection` checks only the JDBC
+  backend. A warehouse in a bucket that does not exist, or wrong S3 keys, pass as working.
+- **Fix**: on Gravitino, `test_catalog_update` deleted the catalog under its old name after the
+  rename. Gravitino answers that with 200 `dropped: false`, so four catalogs had been left
+  behind. The handle now moves with the name, as on Unity, and the delete checks `dropped`.
+- Dashboard: the capability tables show Gravitino. The counts separate capabilities in scope
+  from those out of scope.
+
 ## Lab changes 2026-11-24 (3): pg_lake 3.7.1, Polars 2.2.0, web UIs, persistent OpenFGA, Gravitino
 
 - **Version updates**: pg_lake 3.7.1 (one fix: a CVE in brotli), Polars 2.2.0 and
@@ -59,8 +91,7 @@ What changed in the lab and what each run found, by date. Current findings by to
       `Privilege.Name` enum (`scripts/privilege_inventory.py gravitino`).
     - Web UI in `test_ui.py` (`gravitino:8090`; login settings from `/configs`).
   - Gravitino's routes are recorded in `docs/api/gravitino-1.3.1.txt` (155, read from the
-    jars). They are not classified in the feature inventory yet: with Gravitino about eight
-    capabilities of a single catalog become base capabilities and need tests for every catalog.
+    jars). They are classified in the feature inventory since 2026-11-25 (see above).
 
   Findings of the first full run (11,435 tests, 37 new failures, all classified):
   - **`gravitino-disabled-catalog-served`** (INCONSISTENT): a switched-off catalog

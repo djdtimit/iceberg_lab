@@ -1,8 +1,8 @@
 # Apache Gravitino 1.3.1 (apache/gravitino:1.3.1): JAX-RS resources read by reflection from
 # gravitino-server-1.3.1.jar (own API under /api, Jetty context) and
 # gravitino-iceberg-rest-server-1.3.1.jar (Iceberg REST service under /iceberg; the same list as
-# advertised-gravitino.txt plus GET /v1/config and the health check). Recorded 2026-11-25, not yet
-# classified in tests/lab/feature_inventory.py.
+# advertised-gravitino.txt plus GET /v1/config). Recorded 2026-11-25, classified in
+# tests/lab/feature_inventory.py.
 DELETE /api/metalakes/{metalake}/catalogs/{catalog}  # CatalogOperations.dropCatalog
 DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}  # SchemaOperations.dropSchema
 DELETE /api/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/filesets/{fileset}  # FilesetOperations.dropFileset

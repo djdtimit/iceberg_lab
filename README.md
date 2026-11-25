@@ -20,7 +20,7 @@ Example notebooks show every engine on every catalog. Python environment managed
 
 ## Overview in pictures
 
-**Lab layout** – eight engines talk Iceberg REST to one of the five catalogs; all of them store in
+**Lab layout** – eight engines talk Iceberg REST to one of the six catalogs; all of them store in
 RustFS. The fault proxies run inside the test process and are only put in between for their
 tests.
 

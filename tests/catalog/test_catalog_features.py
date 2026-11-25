@@ -9,19 +9,23 @@ catalog is judged (a client bug must not count as a catalog gap).
 Base (two or more catalogs, or the Iceberg REST spec):
     register_table, rename_across_namespaces, drop_namespace_after_rename, metrics_report,
     load_credentials, pagination, etag_not_modified, idempotency_key, remote_signing,
-    generic_tables (Polaris, Unity), external_table_sync (Polaris notifications, RustFS
-    operator sync), catalog_functions (Lakekeeper, Unity)
+    external_table_sync (Polaris notifications, RustFS operator sync), tags (Lakekeeper,
+    Gravitino), policies (Polaris, Gravitino), storage_validation (Lakekeeper, Gravitino),
+    projects (Lakekeeper projects, Gravitino metalakes)
 
 Special features of one catalog (marker ``specific``, area "Catalog-specific", not compared):
-    Lakekeeper  soft_delete_and_undrop, drop_protection, tags, warehouse_statistics,
-                search_tables, namespace_move, format_version_policy, storage_validation,
-                permission_check, projects, maintenance_mode, endpoint_statistics,
-                task_queue_config, managed_by, unregister
-    Polaris     policies, federation / federation_direct (an external catalog -> Lakekeeper),
-                openlineage
+    Lakekeeper  soft_delete_and_undrop, drop_protection, warehouse_statistics, search_tables,
+                namespace_move, format_version_policy, permission_check, maintenance_mode,
+                endpoint_statistics, task_queue_config, managed_by, unregister
+    Polaris     federation / federation_direct (an external catalog -> Lakekeeper), openlineage
     RustFS      table_bucket_lifecycle, compat_endpoint, unknown_table_bucket_is_not_found,
                 table_maintenance, refs_api, metadata_location_api, table_admin, catalog_backup
-    Unity       volumes, functions, models, temporary_path_credentials, schema_api
+    Unity       temporary_path_credentials
+    Gravitino   owners, statistics
+
+Not tested: features without a bearing on Iceberg tables (ML models, volumes/filesets,
+functions, generic/Delta tables, topics, jobs) - the lab tests Iceberg REST catalogs; they are
+recorded as "Out of scope" in tests/lab/feature_inventory.py.
 
 Permissions of every catalog: test_authz.py, test_rbac.py, test_privileges.py.
 """
@@ -71,8 +75,8 @@ KNOWN_GAPS = gap_table(("catalog", "test"), [
     ("rustfs", "rustfs_recovery", r"/catalog/recovery -> HTTP 501", "rustfs-routes-501"),
     ("rustfs", "rustfs_backup", r"/catalog/backup -> HTTP 501", "rustfs-routes-501"),
     ("polaris", "remote_signing", r"/tables/\w+/sign -> HTTP 501", "polaris-signing-501"),
-    ("lakekeeper", "functions", r"/functions -> HTTP 404", "lakekeeper-functions-unregister-404"),
     ("lakekeeper", "unregister", r"/unregister -> HTTP 404", "lakekeeper-functions-unregister-404"),
+    ("gravitino", "storage_validation", r"configuration with a missing bucket validated as working", "gravitino-test-connection-no-storage-check"),
     ("polaris", "federation_direct", r"RESTError 500: Received unexpected JSON Payload: \{\"details\":\"Error id", "polaris-federation-brotli"),
     ("unity", "rename_across_namespaces", r"-> HTTP 501: .*Renaming a table into another namespace is not supported", "unity-rename-same-namespace-only"),
     ("unity", "pagination", r"assert \d+ == 1", "unity-ignores-page-size"),
@@ -205,6 +209,30 @@ def polaris(method: str, path: str, api: str = "management", **kw) -> requests.R
         f"{SETTINGS.catalog_base.rstrip('/')}{root}/{path.lstrip('/')}",
         headers=headers,
         timeout=30,
+        **kw,
+    )
+
+
+def gv(method: str, path: str, **kw) -> requests.Response:
+    """Gravitino's own REST API as lab-admin (service admin, owner of metalake ``lab``).
+
+    Args:
+        method: HTTP method.
+        path: Path below ``/api/metalakes/lab``, or an absolute ``/api/...`` path.
+        kw: Passed to ``requests.request`` (json, params, ...).
+
+    Returns:
+        The response.
+    """
+    from iceberg_lab.bootstrap import GRAVITINO_ACCEPT, GRAVITINO_API, GRAVITINO_METALAKE
+
+    root = "" if path.startswith("/api/") else f"/api/metalakes/{GRAVITINO_METALAKE}/"
+    headers = catalog_headers(SETTINGS) | {"Accept": GRAVITINO_ACCEPT}
+    return requests.request(
+        method,
+        f"{GRAVITINO_API}{root}{path.lstrip('/') if root else path}",
+        headers=headers,
+        timeout=60,
         **kw,
     )
 
@@ -664,23 +692,41 @@ def test_drop_protection(rest, table):
         ok(rest.call("DELETE", f"namespaces/{ns}/tables/{name}", params={"purgeRequested": "true"}))
 
 
-@pytest.mark.specific
 def test_tags(rest, table):
-    """A tag definition with allowed values can be applied to a table and read back.
+    """Base: a tag is defined, attached to a table, read back on it, and removed again.
+
+    Lakekeeper: tag definitions with allowed values; Gravitino: metalake tags.
 
     Checks:
-        * a value outside the allowed values is refused (>= 400);
-        * an allowed value is set and read back on the table;
-        * the tag can be removed.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
+        * the tag is created and attached to the table;
+        * the table's tags include it (Lakekeeper: with the value set; a value outside the
+          allowed values is refused first);
+        * the tag can be detached (Gravitino: no longer listed on the table, and the tag lists
+          the table as its object while attached).
+        Polaris, RustFS, Unity, Reference: not offered (no tag API in their API description).
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
     """
-    offered_by("lakekeeper", what="tags on catalog objects")
+    offered_by("lakekeeper", "gravitino", what="tags on catalog objects")
     ns, name, _ = table
+    if PROFILE.name == "gravitino":
+        tag = f"lab_class_{uuid.uuid4().hex[:6]}"
+        obj = f"objects/table/{WAREHOUSE}.{ns}.{name}/tags"
+        with gap("tags"):
+            ok(gv("POST", "tags", json={"name": tag, "comment": "lab", "properties": {"c": "pii"}}))
+            try:
+                ok(gv("POST", obj, json={"tagsToAdd": [tag], "tagsToRemove": []}))
+                got = ok(gv("GET", obj, params={"details": "true"})).json()["tags"]
+                assert any(t["name"] == tag and t["properties"] == {"c": "pii"} for t in got), got
+                used = ok(gv("GET", f"tags/{tag}/objects")).json()["metadataObjects"]
+                assert {"type": "table", "fullName": f"{WAREHOUSE}.{ns}.{name}"} in used, used
+                ok(gv("POST", obj, json={"tagsToAdd": [], "tagsToRemove": [tag]}))
+                assert tag not in ok(gv("GET", obj)).json()["names"]
+            finally:
+                gv("DELETE", f"tags/{tag}")
+        return
     ids = _lk_ids(rest, ns, name)
     tag = f"lab.class_{uuid.uuid4().hex[:6]}"
     with gap("tags"):
@@ -822,107 +868,47 @@ def test_format_version_policy(rest, namespace, table_name):
             ok(lk("POST", path, json={"allowed-format-versions": [1, 2, 3]}))
 
 
-# ---------------------------------------------------------------------- Polaris extras
+# ---------------------------------------------------------------------- policies
 
 
-def test_generic_tables(rest, namespace, table_name):
-    """Base: a non-Iceberg (Delta) table is registered, loaded with its format, kept apart.
-
-    Polaris: Generic Tables API; Unity: its own table API.
-
-    Checks:
-        * the Delta table is created (2xx);
-        * loading it returns format ``delta`` and the property set at creation;
-        * it is NOT listed among the Iceberg tables of the namespace;
-        * it can be dropped.
-        Lakekeeper (no create endpoint for generic tables) and RustFS: not offered.
-
-    Args:
-        rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
-        namespace: Fresh namespace of the test session.
-        table_name: Unique table name for this test.
-    """
-    name = f"{table_name}_delta"
-    location = f"{PROFILE.location}/{namespace}/{name}"
-    if PROFILE.name == "lakekeeper":
-        # Checked, not assumed: the generic-tables create call (the shape Polaris uses) must be
-        # refused as an unknown route. Should it ever succeed, the claim is outdated.
-        body = {"name": name, "format": "delta", "base-location": location}
-        r = rest.call("POST", f"namespaces/{namespace}/generic-tables", json=body)
-        if r.ok:
-            rest.call("DELETE", f"namespaces/{namespace}/generic-tables/{name}")
-            pytest.fail("[claim outdated?] Lakekeeper created a generic table - test it here")
-        assert r.status_code in (404, 405, 501), (
-            f"unexpected answer: HTTP {r.status_code} {r.text[:300]}"
-        )
-        pytest.skip(
-            f"catalog lakekeeper has no API for creating non-Iceberg tables (generic-tables "
-            f"create: HTTP {r.status_code}; only grants/tags/protection endpoints exist)"
-        )
-    offered_by("polaris", "unity", what="non-Iceberg (generic/Delta) tables")
-    with gap("generic_tables"):
-        if PROFILE.name == "polaris":
-            path = f"{rest.prefix}/namespaces/{namespace}/generic-tables"
-            body = {
-                "name": name,
-                "format": "delta",
-                "base-location": location,
-                "doc": "lab",
-                "properties": {"k": "v"},
-            }
-            ok(polaris("POST", path, api="catalog", json=body))
-            drop = lambda: polaris("DELETE", f"{path}/{name}", api="catalog")
-            load = lambda: ok(polaris("GET", f"{path}/{name}", api="catalog")).json()["table"]
-            fmt = lambda t: t["format"]
-        else:  # unity
-            full = f"{WAREHOUSE}.{namespace}.{name}"
-            col = {
-                "name": "id",
-                "type_name": "LONG",
-                "type_text": "bigint",
-                "position": 0,
-                "nullable": True,
-                "type_json": '{"name":"id","type":"long","nullable":true,"metadata":{}}',
-            }
-            body = {
-                "name": name,
-                "catalog_name": WAREHOUSE,
-                "schema_name": namespace,
-                "table_type": "EXTERNAL",
-                "data_source_format": "DELTA",
-                "storage_location": location,
-                "columns": [col],
-                "properties": {"k": "v"},
-            }
-            ok(uc("POST", "tables", json=body), 200)
-            drop = lambda: uc("DELETE", f"tables/{full}")
-            load = lambda: ok(uc("GET", f"tables/{full}"), 200).json()
-            fmt = lambda t: t["data_source_format"].lower()
-        try:
-            got = load()
-            assert fmt(got) == "delta" and got.get("properties", {}).get("k") == "v", got
-            iceberg = [t[-1] for t in pyiceberg_catalog(WAREHOUSE).list_tables(namespace)]
-            assert name not in iceberg, "non-Iceberg table listed as Iceberg table"
-        finally:
-            drop()
-
-
-@pytest.mark.specific
 def test_policies(rest, table):
-    """A compaction policy attached to a namespace applies to (is inherited by) its tables.
+    """Base: a policy attached to a namespace applies to (is inherited by) its tables.
+
+    Polaris: a compaction policy (Polaris' catalog extension); Gravitino: a custom metalake
+    policy for schemas and tables.
 
     Checks:
         * a policy is created and attached to the namespace (2xx);
-        * the applicable policies of the table include it, marked as inherited.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
+        * the policies that apply to the table include it, marked as inherited;
+        * after detaching, it no longer applies to the table.
+        Lakekeeper, RustFS, Unity, Reference: not offered (no policy API in their API
+        description).
 
     Args:
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
     """
-    offered_by("polaris", what="policies")
+    offered_by("polaris", "gravitino", what="policies")
     ns, name, _ = table
+    if PROFILE.name == "gravitino":
+        pol = f"compact_{uuid.uuid4().hex[:6]}"
+        on_ns = f"objects/schema/{WAREHOUSE}.{ns}/policies"
+        on_table = f"objects/table/{WAREHOUSE}.{ns}.{name}/policies"
+        content = {"customRules": {"compact": "true"}, "supportedObjectTypes": ["SCHEMA", "TABLE"]}
+        body = {"name": pol, "policyType": "custom", "enabled": True, "content": content}
+        with gap("policies"):
+            ok(gv("POST", "policies", json=body))
+            try:
+                ok(gv("POST", on_ns, json={"policiesToAdd": [pol], "policiesToRemove": []}))
+                found = ok(gv("GET", on_table, params={"details": "true"})).json()["policies"]
+                assert any(p["name"] == pol and p.get("inherited") for p in found), found
+                ok(gv("POST", on_ns, json={"policiesToAdd": [], "policiesToRemove": [pol]}))
+                found = ok(gv("GET", on_table)).json()["names"]
+                assert pol not in found, f"still applies after detaching: {found}"
+            finally:
+                gv("POST", on_ns, json={"policiesToAdd": [], "policiesToRemove": [pol]})
+                gv("DELETE", f"policies/{pol}")
+        return
     pol = f"compact_{uuid.uuid4().hex[:6]}"
     base = f"{rest.prefix}/namespaces/{ns}/policies"
     with gap("policies"):
@@ -1360,183 +1346,6 @@ def _split(url: str) -> tuple[str, str]:
     return bucket, key
 
 
-@pytest.fixture
-def uc_schema(namespace):
-    """The session namespace as Unity schema ``lab.<namespace>`` (exists already).
-
-    Args:
-        namespace: Namespace of the table (the session namespace for fixtures).
-
-    Returns:
-        ``lab.<namespace>``.
-    """
-    offered_by("unity", what="Unity's own API (volumes, functions, models, temporary credentials)")
-    return f"{WAREHOUSE}.{namespace}"
-
-
-@pytest.mark.specific
-def test_unity_volumes(uc_schema):
-    """Managed volume: write with WRITE_VOLUME credentials, read with READ_VOLUME ones.
-
-    Checks:
-        * a file written with the volume's WRITE_VOLUME credentials is read back unchanged with
-          READ_VOLUME credentials;
-        * READ_VOLUME credentials cannot write (403 / AccessDenied).
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
-
-    Args:
-        uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
-    """
-    from botocore.exceptions import ClientError
-
-    cat, schema = uc_schema.split(".")
-    name = f"v_{uuid.uuid4().hex[:6]}"
-    v = ok(
-        uc(
-            "POST",
-            "volumes",
-            json={
-                "catalog_name": cat,
-                "schema_name": schema,
-                "name": name,
-                "volume_type": "MANAGED",
-            },
-        ),
-        200,
-    ).json()
-    try:
-        bucket, key = _split(v["storage_location"])
-        w = ok(
-            uc(
-                "POST",
-                "temporary-volume-credentials",
-                json={"volume_id": v["volume_id"], "operation": "WRITE_VOLUME"},
-            ),
-            200,
-        ).json()
-        _s3_with(w["aws_temp_credentials"]).put_object(
-            Bucket=bucket, Key=f"{key}/hello.txt", Body=b"hi"
-        )
-        rd = ok(
-            uc(
-                "POST",
-                "temporary-volume-credentials",
-                json={"volume_id": v["volume_id"], "operation": "READ_VOLUME"},
-            ),
-            200,
-        ).json()
-        s3r = _s3_with(rd["aws_temp_credentials"])
-        assert s3r.get_object(Bucket=bucket, Key=f"{key}/hello.txt")["Body"].read() == b"hi"
-        with pytest.raises(ClientError) as exc:
-            s3r.put_object(Bucket=bucket, Key=f"{key}/evil.txt", Body=b"x")
-        assert exc.value.response["Error"]["Code"] in ("403", "AccessDenied")
-    finally:
-        uc("DELETE", f"volumes/{uc_schema}.{name}")
-
-
-@pytest.mark.specific
-def test_unity_functions(uc_schema):
-    """Register a (Python) function in the catalog; it can be read back and listed.
-
-    Checks:
-        * creating the function answers 200;
-        * reading it back returns its definition and data type INT;
-        * it is in the schema's function list.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
-
-    Args:
-        uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
-    """
-    cat, schema = uc_schema.split(".")
-    name = f"f_{uuid.uuid4().hex[:6]}"
-    info = {
-        "name": name,
-        "catalog_name": cat,
-        "schema_name": schema,
-        "input_params": {
-            "parameters": [
-                {
-                    "name": "x",
-                    "type_text": "int",
-                    "type_json": '{"name":"x","type":"integer","nullable":false,"metadata":{}}',
-                    "type_name": "INT",
-                    "position": 0,
-                }
-            ]
-        },
-        "data_type": "INT",
-        "full_data_type": "INT",
-        "return_params": {"parameters": []},
-        "routine_body": "EXTERNAL",
-        "routine_definition": "return x + 1",
-        "parameter_style": "S",
-        "is_deterministic": True,
-        "sql_data_access": "NO_SQL",
-        "is_null_call": False,
-        "security_type": "DEFINER",
-        "specific_name": name,
-        "external_language": "python",
-    }
-    ok(uc("POST", "functions", json={"function_info": info}), 200)
-    try:
-        got = ok(uc("GET", f"functions/{uc_schema}.{name}"), 200).json()
-        assert got["routine_definition"] == "return x + 1" and got["data_type"] == "INT"
-        listed = ok(
-            uc("GET", "functions", params={"catalog_name": cat, "schema_name": schema}), 200
-        ).json()
-        assert name in [f["name"] for f in listed.get("functions", [])]
-    finally:
-        uc("DELETE", f"functions/{uc_schema}.{name}")
-
-
-@pytest.mark.specific
-def test_unity_models(uc_schema):
-    """A registered ML model gets a version that is finalized (PENDING_REGISTRATION -> READY).
-
-    Checks:
-        * model and version are created (200);
-        * the new version is PENDING_REGISTRATION;
-        * after finalizing it is READY.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
-
-    Args:
-        uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
-    """
-    cat, schema = uc_schema.split(".")
-    name = f"m_{uuid.uuid4().hex[:6]}"
-    ok(uc("POST", "models", json={"catalog_name": cat, "schema_name": schema, "name": name}), 200)
-    try:
-        v = ok(
-            uc(
-                "POST",
-                "models/versions",
-                json={
-                    "catalog_name": cat,
-                    "schema_name": schema,
-                    "model_name": name,
-                    "source": "s3://unitylab/x",
-                    "run_id": "r1",
-                },
-            ),
-            200,
-        ).json()
-        assert v["status"] == "PENDING_REGISTRATION"
-        f = ok(
-            uc(
-                "PATCH",
-                f"models/{uc_schema}.{name}/versions/{v['version']}/finalize",
-                json={"full_name": f"{uc_schema}.{name}", "version": v["version"]},
-            ),
-            200,
-        ).json()
-        assert f["status"] == "READY", f
-    finally:
-        uc("DELETE", f"models/{uc_schema}.{name}", params={"force": "true"})
-
-
 @pytest.mark.specific
 def test_unity_temporary_path_credentials(table):
     """``PATH_READ`` credentials for a table's location read its files but cannot write.
@@ -1553,7 +1362,7 @@ def test_unity_temporary_path_credentials(table):
     """
     from botocore.exceptions import ClientError
 
-    offered_by("unity", what="Unity's own API (volumes, functions, models, temporary credentials)")
+    offered_by("unity", what="temporary credentials for a storage path")
     *_, t = table
     creds = ok(
         uc(
@@ -1873,17 +1682,33 @@ def _lk_wid(name: str = WAREHOUSE) -> str:
     return {w["name"]: w["id"] for w in ok(lk("GET", "warehouse")).json()["warehouses"]}[name]
 
 
-@pytest.mark.specific
-def test_lakekeeper_storage_validation():
-    """A warehouse's storage profile can be validated before use.
+def test_storage_validation():
+    """Base: a catalog's storage configuration can be validated before it is used.
+
+    Lakekeeper: ``validate-profile`` of a warehouse; Gravitino: ``testConnection`` with the
+    properties of a lakehouse-iceberg catalog (and of the existing catalog).
 
     Checks:
-        * the warehouse's own (working) profile validates as valid;
-        * a profile with a wrong bucket validates as not valid, with a failed check listed.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
+        * the catalog's own (working) configuration validates as valid;
+        * the same configuration with a bucket that does not exist is reported as not valid
+          (Lakekeeper: with a failed check listed).
+        Polaris, RustFS, Unity, Reference: not offered (no validation call in their API
+        description).
     """
-    offered_by("lakekeeper", what="validating storage access")
+    offered_by("lakekeeper", "gravitino", what="validating storage access")
+    if PROFILE.name == "gravitino":
+        from iceberg_lab.bootstrap import gravitino_catalog_properties
+
+        name = f"val_{uuid.uuid4().hex[:6]}"
+        props = gravitino_catalog_properties(SETTINGS, name, f"s3://{SETTINGS.s3_bucket}/{name}")
+        body = {"name": name, "type": "RELATIONAL", "provider": "lakehouse-iceberg"}
+        with gap("storage_validation"):
+            ok(gv("POST", f"catalogs/{WAREHOUSE}/testConnection"))
+            ok(gv("POST", "catalogs/testConnection", json=body | {"properties": props}))
+            bad = props | {"warehouse": f"s3://missing-{uuid.uuid4().hex[:8]}/{name}"}
+            r = gv("POST", "catalogs/testConnection", json=body | {"properties": bad})
+            assert not r.ok, f"configuration with a missing bucket validated as working: {r.text}"
+        return
     wid = _lk_wid()
     w = ok(lk("GET", f"warehouse/{wid}")).json()
     from iceberg_lab.bootstrap import warehouse_payload
@@ -1953,18 +1778,36 @@ def test_lakekeeper_permission_check():
         b.drop_namespace(ns)
 
 
-@pytest.mark.specific
-def test_lakekeeper_projects():
-    """Projects (tenants): create, rename, list, delete.
+def test_projects():
+    """Base: projects (tenants above the warehouses/catalogs): create, rename, list, delete.
+
+    Lakekeeper: projects; Gravitino: metalakes.
 
     Checks:
-        * a project is created (201) and renamed; its name reads back renamed;
+        * a project is created and renamed; its name reads back renamed;
         * it is in the project list;
         * after deletion it is no longer listed.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
+        Polaris, RustFS, Unity, Reference: not offered (one fixed realm/root, no API for
+        tenants in their API description).
     """
-    offered_by("lakekeeper", what="projects (tenants)")
+    offered_by("lakekeeper", "gravitino", what="projects (tenants)")
+    if PROFILE.name == "gravitino":
+        name = f"lab_proj_{uuid.uuid4().hex[:6]}"
+        listed = lambda: [m["name"] for m in ok(gv("GET", "/api/metalakes")).json()["metalakes"]]
+        ok(gv("POST", "/api/metalakes", json={"name": name, "comment": "lab", "properties": {}}))
+        try:
+            rename = {"updates": [{"@type": "rename", "newName": name + "_r"}]}
+            ok(gv("PUT", f"/api/metalakes/{name}", json=rename))
+            assert (
+                ok(gv("GET", f"/api/metalakes/{name}_r")).json()["metalake"]["name"] == name + "_r"
+            )
+            assert name + "_r" in listed() and name not in listed()
+        finally:
+            for n in (name, name + "_r"):  # a metalake must be switched off before dropping
+                if gv("PATCH", f"/api/metalakes/{n}", json={"inUse": False}).ok:
+                    ok(gv("DELETE", f"/api/metalakes/{n}"))
+        assert name + "_r" not in listed()
+        return
     name = f"lab-proj-{uuid.uuid4().hex[:6]}"
     pid = ok(lk("POST", "project", json={"project-name": name}), 201).json()["project-id"]
     h = {"x-project-id": pid}
@@ -2117,91 +1960,7 @@ def test_lakekeeper_managed_by():
 # ----------------------------------------------------------------- Unity extras
 
 
-@pytest.mark.specific
-def test_unity_schema_api(uc_schema):
-    """Unity's own schema API: create, change, list, delete - visible as Iceberg namespace.
-
-    Checks:
-        * a schema is created (200) and its comment changed and read back;
-        * it is in the schema list and appears as namespace in Iceberg REST;
-        * after deletion GET answers 404.
-        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
-        the others: not offered.
-
-    Args:
-        uc_schema: The session namespace as Unity schema ``lab.<namespace>``.
-    """
-    cat_name = uc_schema.split(".")[0]
-    name = f"us_{uuid.uuid4().hex[:6]}"
-    ok(uc("POST", "schemas", json={"name": name, "catalog_name": cat_name}), 200)
-    try:
-        ok(uc("PATCH", f"schemas/{cat_name}.{name}", json={"comment": "lab"}), 200)
-        assert ok(uc("GET", f"schemas/{cat_name}.{name}"), 200).json()["comment"] == "lab"
-        assert name in [
-            s["name"]
-            for s in ok(uc("GET", "schemas", params={"catalog_name": cat_name}), 200).json()[
-                "schemas"
-            ]
-        ]
-        assert (name,) in pyiceberg_catalog(WAREHOUSE).list_namespaces()
-    finally:
-        uc("DELETE", f"schemas/{cat_name}.{name}")
-    assert uc("GET", f"schemas/{cat_name}.{name}").status_code == 404
-
-
 # ----------------------------------------------------------------- functions, unregister, lineage
-
-
-def test_catalog_functions(rest, namespace):
-    """Base: functions are kept in the catalog and can be listed.
-
-    Lakekeeper: Iceberg REST functions endpoint; Unity: its own function API.
-
-    Checks:
-        * Lakekeeper: listing the namespace's functions answers 2xx with an identifier list;
-        * Unity: a created function is in the schema's function list.
-        Polaris and RustFS: not offered.
-
-    Args:
-        rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
-        namespace: Fresh namespace of the test session.
-    """
-    offered_by("lakekeeper", "unity", what="functions in the catalog")
-    with gap("functions"):
-        if PROFILE.name == "lakekeeper":
-            got = ok(rest.call("GET", f"namespaces/{namespace}/functions")).json()
-            assert "identifiers" in got or "functions" in got, got
-            return
-        name = f"fl_{uuid.uuid4().hex[:6]}"
-        info = {
-            "name": name,
-            "catalog_name": WAREHOUSE,
-            "schema_name": namespace,
-            "input_params": {"parameters": []},
-            "data_type": "INT",
-            "full_data_type": "INT",
-            "return_params": {"parameters": []},
-            "routine_body": "EXTERNAL",
-            "routine_definition": "return 1",
-            "parameter_style": "S",
-            "is_deterministic": True,
-            "sql_data_access": "NO_SQL",
-            "is_null_call": False,
-            "security_type": "DEFINER",
-            "specific_name": name,
-            "external_language": "python",
-        }
-        ok(uc("POST", "functions", json={"function_info": info}), 200)
-        try:
-            listed = ok(
-                uc(
-                    "GET", "functions", params={"catalog_name": WAREHOUSE, "schema_name": namespace}
-                ),
-                200,
-            ).json()
-            assert name in [f["name"] for f in listed.get("functions", [])]
-        finally:
-            uc("DELETE", f"functions/{WAREHOUSE}.{namespace}.{name}")
 
 
 def test_unregister(rest, table):
@@ -2258,3 +2017,65 @@ def test_polaris_openlineage():
     ok(requests.post(url, json=event, headers=h, timeout=20))
     batch = [event | {"run": {"runId": str(uuid.uuid4())}} for _ in range(2)]
     ok(requests.post(f"{url}/batch", json=batch, headers=h, timeout=20))
+
+
+# ----------------------------------------------------------------- Gravitino: owners, statistics
+
+
+@pytest.mark.specific
+def test_gravitino_owners(table):
+    """Every Gravitino object has an owner, and ownership can be handed to another user.
+
+    Checks:
+        * a new table is owned by the user that created it (lab-admin's service account);
+        * after setting a lab user as owner, the table reads back that owner;
+        * ownership can be handed back.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
+
+    Args:
+        table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
+    """
+    offered_by("gravitino", what="owners of catalog objects")
+    ns, name, _ = table
+    path = f"owners/table/{WAREHOUSE}.{ns}.{name}"
+    me = ok(gv("GET", "/api/authn/me")).json()["principal"]
+    user = f"lab_owner_{uuid.uuid4().hex[:6]}"
+    with gap("owners"):
+        assert ok(gv("GET", path)).json()["owner"] == {"name": me, "type": "user"}
+        ok(gv("POST", "users", json={"name": user}))
+        try:
+            ok(gv("PUT", path, json={"name": user, "type": "USER"}))
+            assert ok(gv("GET", path)).json()["owner"]["name"] == user
+        finally:
+            gv("PUT", path, json={"name": me, "type": "USER"})
+            gv("DELETE", f"users/{user}")
+        assert ok(gv("GET", path)).json()["owner"]["name"] == me
+
+
+@pytest.mark.specific
+def test_gravitino_statistics(table):
+    """Custom statistics are stored on a table, read back, and dropped.
+
+    Checks:
+        * a custom statistic (``custom-`` prefix) set on the table is listed with its value;
+        * a reserved name (without the prefix) is refused;
+        * after dropping, the statistic is no longer listed.
+        Only the catalogs named in ``offered_by`` describe it (not part of the REST spec);
+        the others: not offered.
+
+    Args:
+        table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
+    """
+    offered_by("gravitino", what="statistics on catalog objects")
+    ns, name, _ = table
+    path = f"objects/table/{WAREHOUSE}.{ns}.{name}/statistics"
+    stat = f"custom-lab_{uuid.uuid4().hex[:6]}"
+    listed = lambda: {s["name"]: s["value"] for s in ok(gv("GET", path)).json()["statistics"]}
+    with gap("statistics"):
+        ok(gv("PUT", path, json={"updates": {stat: 3}}))
+        assert listed().get(stat) == 3, listed()
+        r = gv("PUT", path, json={"updates": {"lab_reserved": 1}})
+        assert r.status_code >= 400, f"statistic without custom- prefix accepted: {r.text}"
+        ok(gv("POST", path, json={"names": [stat]}))
+        assert stat not in listed()

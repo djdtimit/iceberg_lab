@@ -666,14 +666,11 @@ class Gravitino:
         Args:
             handle: Catalog name.
         """
-        ok(
-            requests.delete(
-                f"{self.base}/catalogs/{handle}",
-                params={"force": "true"},
-                headers=self.h,
-                timeout=60,
-            )
+        r = requests.delete(
+            f"{self.base}/catalogs/{handle}", params={"force": "true"}, headers=self.h, timeout=60
         )
+        # 200 with dropped=false for a name that does not exist - a silent leak otherwise
+        assert ok(r).json().get("dropped") is True, f"catalog {handle} not dropped: {r.text}"
 
     def _update(self, handle, *updates):
         """Apply catalog updates (``PUT`` with a list of changes).
@@ -839,7 +836,7 @@ def test_catalog_update():
     handle = ADMIN.create(name)
     try:
         new = ADMIN.update(handle, name)
-        if PROFILE.name == "unity":
+        if PROFILE.name in ("unity", "gravitino"):  # addressed by name: the handle moves
             handle = new
         usable(new)
     finally:
