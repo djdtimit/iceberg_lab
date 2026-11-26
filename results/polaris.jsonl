@@ -10912,6 +10912,7 @@
 {"test": "tests/selftest/test_export_reference.py::test_export_writes_sorted_lines_without_self", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_export_reference.py::test_history_counts_and_replaces_its_run", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_export_reference.py::test_name_of_report_directories", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_rows_of_another_run_are_reported", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_export_reference.py::test_still_exists_follows_the_function", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_export_reference.py::test_with_causes_sets_the_current_reason", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_advertised_endpoints_are_recorded", "status": "pass", "detail": ""}
@@ -11070,6 +11071,7 @@
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[reference]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[rustfs]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_infrastructure.py::test_trino_proxy_catalog_names_the_catalogs_port[unity]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_a_failed_request_is_no_proof_of_a_missing_api", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_blocked_case_is_charged_to_its_cause[duckdb could not delete on v3: HTTP Error--duckdb-duckdb]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_blocked_case_is_charged_to_its_cause[neither an engine nor the neutral source wrote geometry on v3--spark-catalog]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_blocked_case_is_charged_to_its_cause[not testable on rustfs: the catalog is the storage itself---catalog]", "status": "pass", "detail": ""}

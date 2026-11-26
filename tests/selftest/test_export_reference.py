@@ -159,3 +159,24 @@ def test_history_counts_and_replaces_its_run(ex, tmp_path):
         ("r0", {"gap": 2, "pass": 1}),
         ("r1", {"pass": 3}),
     ]
+
+
+def test_rows_of_another_run_are_reported(ex):
+    """Results of a run that was not meant as the reference are named at the export.
+
+    A plain pytest wrote into Lakekeeper's report directory, and the next export took its 322
+    rows into the reference.
+
+    Checks:
+        * rows of the full run and rows without run id (older results) -> no warning;
+        * rows of another run -> one SHIFT line with their count;
+        * no full run known -> nothing to compare.
+
+    Args:
+        ex: The script as a module.
+    """
+    rows = [{"run": "full"}] * 3 + [{"run": ""}] + [{"run": "adhoc"}] * 2
+    assert ex.foreign_runs(rows[:4], "full") == []
+    (line,) = ex.foreign_runs(rows, "full")
+    assert line.startswith("SHIFT 2 rows from run adhoc, not from the full run full")
+    assert ex.foreign_runs(rows, None) == []

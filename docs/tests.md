@@ -4,9 +4,11 @@ Back to the [README](../README.md).
 
 ## Engine comparison
 
-Every test run writes `reports/results.json` (raw data, one entry per test) and
-`reports/comparison_rows.json` (one row per test with theme, area, capability, severity and
-run; Lakekeeper in `reports/`, other catalogs in `reports/<catalog>/`).
+Every run of the run scripts (`run_all.sh`, `rerun.sh`) writes `reports/results.json` (raw
+data, one entry per test) and `reports/comparison_rows.json` (one row per test with theme,
+area, capability, severity and run; Lakekeeper in `reports/`, other catalogs in
+`reports/<catalog>/`). A plain `pytest` (no `LAB_RUN_ID`) writes to `reports/adhoc/<catalog>/`
+instead, so it never ends up in a reference; `REPORT_DIR=<dir>` sends a run anywhere.
 `scripts/export_reference.py` turns them into the references in `results/`, and the dashboard
 shows them (overview "works / applicable" per engine and area, matrices, causes).
 **Coverage** = works / all cases of the engine (not offered and its own "not testable" count as
@@ -15,12 +17,16 @@ not working), **reliability** = works / offered cases. Only the base tests are c
 belongs explicitly to one area (`src/iceberg_lab/lab/reporting.py`), and every area to one of
 eight themes (`THEMES`); without an area it shows up as "unassigned" and is counted.
 
-Three guards keep a lab error from distorting the figures unnoticed:
+Guards that keep a lab error from distorting the figures unnoticed:
 
 - a test the area rules (`DIMENSIONS`, `THEMES`) cannot place is a NEW failure of the run
   (`reporting.unclassified`), not an "Unassigned" row compared like a base test;
 - the dashboard shows `works/offered` instead of a percentage when fewer than 5 % of the planned
   cases were offered ("1 of 1 works" is not 100 %);
+- "not offered" needs evidence: a self-test refuses a `has no API` skip decided by a failed
+  request alone (`if not r.ok`) - only "no such route" (404/405/406/501) or the advertised
+  endpoints count;
+- the export prints a `SHIFT` line for rows of another run than the reference's full run;
 - `scripts/reference_shifts.py` (end of `run_all.sh` and `rerun.sh`) prints a `SHIFT` line per
   engine whose reliability moved by more than 5 points, or whose offered cases changed by more
   than 10 %, against the committed reference - a warning to look at before the commit.

@@ -177,7 +177,11 @@ def _create_view(rest: Rest, ns: str) -> str:
     name = _new("rcv")
     r = rest.call("POST", f"namespaces/{ns}/views", json=_view_body(ns, name))
     if not r.ok:
-        pytest.skip(f"catalog {PROFILE.name} has no API for views ({r.status_code})")
+        # Only "no such endpoint" is "not offered"; a 500, 401 ... is a failure (it would
+        # otherwise leave the denominator and improve the figures).
+        if _no_route(r, Endpoint("", None)):
+            pytest.skip(f"catalog {PROFILE.name} has no API for views ({r.status_code})")
+        raise AssertionError(f"creating a view failed: {r.status_code} {r.text[:300]}")
     return name
 
 

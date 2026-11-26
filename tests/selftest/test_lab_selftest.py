@@ -983,3 +983,66 @@ def test_collection_records_only_whole_paths_as_scopes(monkeypatch, tmp_path):
     reporting.pytest_collection_finish(session)
     assert reporting._whole_scopes == ["tests/a.py", "tests/d"]
     assert reporting._collected == {"tests/a.py::t[1]"}
+
+
+def test_a_failed_request_is_no_proof_of_a_missing_api():
+    """ "Not offered" leaves the denominator: a plain failed request must not decide it.
+
+    ``if not r.ok: pytest.skip("... has no API ...")`` turned every failure (500, 401, 503)
+    into "not offered" - a crash improved the figures. Such a skip needs a "no such route"
+    check (404/405/406/501, ``_no_route`` in test_rest_conformance.py) or the catalog's
+    advertised endpoints.
+
+    Checks:
+        * in ``tests/`` (self-tests aside) no ``pytest.skip`` with "has no API" directly in an
+          ``if`` whose condition is ``not <response>.ok``.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+
+    def failed_request(test: ast.AST) -> bool:
+        """Whether a condition is ``not <x>.ok``.
+
+        Args:
+            test: The if's condition.
+
+        Returns:
+            True for ``not <x>.ok``.
+        """
+        return (
+            isinstance(test, ast.UnaryOp)
+            and isinstance(test.op, ast.Not)
+            and isinstance(test.operand, ast.Attribute)
+            and test.operand.attr == "ok"
+        )
+
+    def no_api_skip(stmt: ast.stmt) -> bool:
+        """Whether a statement is ``pytest.skip(<text with "has no API">)``.
+
+        Args:
+            stmt: The statement.
+
+        Returns:
+            True for such a skip.
+        """
+        if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)):
+            return False
+        call = stmt.value
+        if getattr(call.func, "attr", None) != "skip" or not call.args:
+            return False
+        return "has no api" in ast.unparse(call.args[0]).lower()
+
+    found = []
+    for path in sorted((root / "tests").rglob("*.py")):
+        if "selftest" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.If)
+                and failed_request(node.test)
+                and any(no_api_skip(s) for s in node.body)
+            ):
+                found.append(f"{path.relative_to(root)}:{node.lineno}")
+    assert not found, f"'not offered' decided by a failed request: {found}"

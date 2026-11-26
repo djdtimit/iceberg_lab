@@ -1,8 +1,7 @@
 """Test results: collects every test result for the references and the dashboard.
 
-Registered by ``tests/conftest.py``. After each run it writes (``reports/`` for Lakekeeper,
-``reports/<catalog>/`` for the others, ``reports/<catalog>-nohelp/`` for the run without lab
-help; ``REPORT_DIR=<dir>`` sends a targeted run elsewhere):
+Registered by ``tests/conftest.py``. After each run it writes to ``REPORT_DIR`` (below: the
+run scripts write the references' directories, a plain pytest ``reports/adhoc/<catalog>/``):
 
 * ``results.json``         - one record per test: file, test, parameters, status, detail, run
 * ``comparison_rows.json`` - one row per test for the dashboard (theme, area, capability,
@@ -51,19 +50,20 @@ import pytest
 from iceberg_lab.lab import manifest
 
 _CATALOG = os.getenv("CATALOG", "lakekeeper")
-#: reports/ for the reference catalog (Lakekeeper), reports/<catalog>/ for the others.
-#: REPORT_DIR=<dir> sends a targeted run's report elsewhere, so it cannot touch the full run's.
-REPORT_DIR = (
-    Path(os.environ["REPORT_DIR"])
-    if os.getenv("REPORT_DIR")
-    else Path(__file__).resolve().parents[3]
-    / "reports"
-    / ("" if _CATALOG == "lakekeeper" else _CATALOG)
-)
-if os.getenv("LAB_NO_HELP") == "1" and not os.getenv("REPORT_DIR"):
-    # Run without help (iceberg_lab.config.WITH_HELP false): its own report, never the
-    # comparison - reports/<catalog>-nohelp/ for every catalog (Lakekeeper's own is reports/).
-    REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / f"{_CATALOG}-nohelp"
+_REPORTS = Path(__file__).resolve().parents[3] / "reports"
+#: reports/ for Lakekeeper, reports/<catalog>/ for the others, reports/<catalog>-nohelp/ for a
+#: run without help (iceberg_lab.config.WITH_HELP false; never the comparison). These are the
+#: directories scripts/export_reference.py turns into the references, so only the run scripts
+#: write there: they set LAB_RUN_ID (run_all.sh, rerun.sh with the full run's id). A plain
+#: pytest goes to reports/adhoc/<catalog>/ - before, it merged into the reference unnoticed.
+#: REPORT_DIR=<dir> sends a run anywhere.
+_NAME = f"{_CATALOG}-nohelp" if os.getenv("LAB_NO_HELP") == "1" else _CATALOG
+if os.getenv("REPORT_DIR"):
+    REPORT_DIR = Path(os.environ["REPORT_DIR"])
+elif not os.getenv("LAB_RUN_ID"):
+    REPORT_DIR = _REPORTS / "adhoc" / _NAME
+else:
+    REPORT_DIR = _REPORTS / ("" if _NAME == "lakekeeper" else _NAME)
 ENGINE_ORDER = ["pyiceberg", "duckdb", "polars", "daft", "spark", "trino", "pg_lake", "flink"]
 SYMBOL = {"pass": "✅", "gap": "❌", "new": "⚠️", "fixed": "🔧", "na": "—", "blocked": "·"}
 

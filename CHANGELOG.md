@@ -58,6 +58,18 @@ What changed in the lab and what each run found, by date. Current findings by to
   Its first run showed how far the self-tests had reached: the catalog's own tests had about 68
   offered cases too many on every catalog, and reliability of the reference catalog's own tests
   drops from 84 % to 76 % without them.
+- **More ways into the figures closed.** A search for further spots found three:
+  - A plain `pytest` wrote into Lakekeeper's report directory, and the next export took its rows
+    into the reference (322 self-test rows of another run, harmless this time). Only the run
+    scripts (`LAB_RUN_ID`) write the references' directories now; a plain pytest goes to
+    `reports/adhoc/<catalog>/`. The export names rows of another run (`SHIFT`).
+  - Creating a view in `test_rest_conformance.py` booked every failure as "not offered", a
+    500 too - a crash left the denominator. Only "no such route" counts now, and a self-test
+    refuses `if not r.ok: pytest.skip("... has no API ...")`.
+  - Flink's MERGE try counted any error naming "merge", "parse" or "validation" as "not
+    offered" (Flink repeats the statement in its errors, and a missing table is a validation
+    error too). Only the planner's `NullPointerException: rowType`, the parse error at `MERGE`
+    and an explicit "not supported" count now.
 - **No more `comparison.md`.** The Markdown report each run wrote is gone (about 400 lines
   of `reporting.py`, barely tested). The dashboard shows the same tables over all catalogs, and
   `docs/findings.md` keeps what stands out. `results.json` and `comparison_rows.json` stay:

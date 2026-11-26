@@ -228,6 +228,30 @@ def still_exists(test: str) -> bool:
     return path.exists() and bool(re.search(pattern, path.read_text(), re.MULTILINE))
 
 
+def foreign_runs(rows: list[dict], run: str | None) -> list[str]:
+    """Warnings for rows that come from another run than the reference's full run.
+
+    Reruns merge with the full run's id (rerun.sh), so another id means results of a run
+    that was never meant as the reference - a plain pytest before reports/adhoc/ existed, or
+    a run with another configuration.
+
+    Args:
+        rows: The comparison rows.
+        run: The full run's id (None: no manifest, nothing to compare).
+
+    Returns:
+        One ``SHIFT`` line per other run, empty if none.
+    """
+    if not run:
+        return []
+    other = Counter(r.get("run", "") for r in rows if r.get("run", "") not in (run, ""))
+    return [
+        f"SHIFT {n} rows from run {rid}, not from the full run {run} - re-run them with "
+        "scripts/rerun.sh, or start a full run"
+        for rid, n in sorted(other.items())
+    ]
+
+
 def main(report_dir: Path) -> None:
     """Export ``comparison_rows.json`` and ``manifest.json`` of a report directory.
 
@@ -262,9 +286,10 @@ def main(report_dir: Path) -> None:
     flaky = json.loads(history.read_text()) if history.exists() else None
     observed = report_dir / "rest_observed.json"
     rest = json.loads(observed.read_text()) if observed.exists() else None
-    path = export(
-        rows, name_of(report_dir), main_manifest(report_dir, rows), flaky=flaky, rest=rest
-    )
+    manifest = main_manifest(report_dir, rows)
+    for line in foreign_runs(rows, manifest["run"] if manifest else None):
+        print(line, file=sys.stderr)
+    path = export(rows, name_of(report_dir), manifest, flaky=flaky, rest=rest)
     print(f"{path.relative_to(ROOT)}: {len(rows)} tests - `git diff results/` shows the changes")
 
 

@@ -294,11 +294,16 @@ def _flink_merge_refused(engine_pool, ctx) -> None:
         )
     except Exception as e:
         first = str(e).strip().splitlines()[0][:160] if str(e).strip() else type(e).__name__
-        # Flink 2.3 parses MERGE INTO but its planner fails validating it ("SQL validation
-        # failed", NullPointerException: rowType in FlinkCalciteSqlValidator.validateJoin) -
-        # refused before any job runs, like the earlier parse error.
+        # Flink 2.3 parses MERGE INTO but its planner fails validating it (NullPointerException:
+        # rowType in FlinkCalciteSqlValidator.validateJoin) - refused before any job runs, like
+        # the earlier parse error at MERGE. Only these count as "not offered": Flink repeats the
+        # statement in most errors, so a pattern like "merge" or "validation failed" (also a
+        # missing table) would turn any failure into "not offered".
         if re.search(
-            r"(?i)merge|parse|encountered|not support|unsupported|validation|rowType", str(e)
+            r'NullPointerException: rowType|Encountered "MERGE"|MERGE (INTO )?(statements? )?'
+            r"(is|are) not supported",
+            str(e),
+            re.IGNORECASE,
         ):
             pytest.skip(f"flink has no API for MERGE (refused: {first})")
         raise
