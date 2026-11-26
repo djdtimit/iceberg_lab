@@ -5,6 +5,8 @@
     uv run python scripts/gap_register.py confirm    after full runs: move ``seen_at`` forward
                                                      for every cause a reference reproduced
     uv run python scripts/gap_register.py outdated   causes last seen with another version
+    uv run python scripts/gap_register.py draft <id> facts for an upstream bug report of a cause
+                                                     (iceberg_lab.lab.bug_drafts), to stdout
 
 ``confirm`` reads ``results/<name>.jsonl`` and the versions of ``results/<name>.manifest.json``
 (the run that produced it): a cause whose reason a reference reports as a known gap was seen
@@ -81,6 +83,11 @@ if __name__ == "__main__":
         "confirm": confirm,
         "outdated": outdated,
     }
+    if len(sys.argv) == 3 and sys.argv[1] == "draft":
+        from iceberg_lab.lab.bug_drafts import draft
+
+        print(draft(sys.argv[2]))
+        sys.exit(0)
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         sys.exit(__doc__)
     commands[sys.argv[1]]()

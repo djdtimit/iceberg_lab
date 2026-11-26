@@ -533,9 +533,6 @@ def test_blocked_case_is_charged_to_its_cause(detail, writer, engine, expected):
     Checks:
         * ``blocked_by`` names the engine the reason starts with, the catalog for reasons
           without an engine, else the row's writer, else the engine itself;
-        * ``counted_status`` makes a case blocked by someone else "foreign" (not counted for the
-          engine) and keeps one blocked by the engine's own step "blocked" - for a test without
-          an engine the catalog is its own subject.
 
     Args:
         detail: Skip reason.
@@ -545,20 +542,7 @@ def test_blocked_case_is_charged_to_its_cause(detail, writer, engine, expected):
     """
     row = {"status": "blocked", "detail": detail, "writer": writer, "engine": engine}
     assert reporting.blocked_by(row) == expected
-    own = engine or "catalog"  # a test without an engine is about the catalog
-    assert reporting.counted_status(row) == ("blocked" if expected == own else "foreign")
     assert reporting.blocked_by({**row, "status": "gap"}) == ""
-
-
-def test_foreign_blocked_cases_leave_the_engines_coverage():
-    """Coverage of an engine must not drop because another engine could not write.
-
-    Checks:
-        * a case blocked by another engine is in no denominator of the engine;
-        * a case blocked by the engine's own step still counts against its coverage.
-    """
-    k = reporting._counts(["pass", "pass", "foreign", "foreign", "blocked"])
-    assert (k["works"], k["all"], k["foreign"]) == (2, 3, 2)
 
 
 def _producer(results, content_ok, error):
@@ -835,3 +819,167 @@ def test_notebook_fronted_profile_takes_a_layers_expectation():
     cell = _cell(LIMIT, out, {"expect_rustfs": "Schema not found"})
     with pytest.raises(AssertionError, match="forbidden"):
         test_notebooks.check_cell(0, cell, layers)
+
+
+def test_profile_name_is_not_compared_with_a_layer():
+    """No code asks ``PROFILE.name`` for a catalog that can sit behind (or be) Gravitino.
+
+    ``PROFILE.name == "unity"`` is false on ``gravitino_unity``: such checks silently skipped
+    130 gap cases, the RustFS namespace cleanup and Unity's storage protection there. The
+    profile says what is meant: ``PROFILE.server`` for the server's own API (admin, signing,
+    identities), ``"unity" in PROFILE.layers`` for a catalog's behaviour.
+
+    Checks:
+        * no comparison (``==``, ``!=``, ``in``, ``not in``) of ``PROFILE.name`` with a string
+          (or a tuple, list or set of strings) naming a fronted backend or Gravitino, in
+          ``src/``, ``scripts/`` and ``tests/`` (self-tests aside).
+    """
+    import ast
+    import pathlib
+
+    from iceberg_lab.config import PROFILES
+
+    layered = {p.fronts for p in PROFILES.values() if p.fronts}
+    layered |= {p.server for p in PROFILES.values() if p.fronts}
+    root = pathlib.Path(__file__).resolve().parents[2]
+
+    def is_name(node: ast.AST) -> bool:
+        """Whether a node is ``PROFILE.name``.
+
+        Args:
+            node: The expression.
+
+        Returns:
+            True for ``PROFILE.name``.
+        """
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "name"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "PROFILE"
+        )
+
+    def names(node: ast.AST) -> set[str]:
+        """The string constants of an expression (a constant or a tuple/list/set of them).
+
+        Args:
+            node: The expression.
+
+        Returns:
+            The strings.
+        """
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return {node.value}
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return {s for e in node.elts for s in names(e)}
+        return set()
+
+    problems = []
+    files = [*root.glob("src/**/*.py"), *root.glob("scripts/**/*.py"), *root.glob("tests/**/*.py")]
+    for path in sorted(files):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith("tests/selftest/"):
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = [node.left, *node.comparators]
+            if any(is_name(s) for s in sides):
+                hit = set().union(*(names(s) for s in sides)) & layered
+                if hit:
+                    problems.append(f"{rel}:{node.lineno}: PROFILE.name vs {sorted(hit)}")
+    assert not problems, (
+        "use PROFILE.server (the server's API) or PROFILE.layers (a catalog's behaviour):\n"
+        + "\n".join(problems)
+    )
+
+
+def test_teardown_error_is_listed_apart_from_new_failures(monkeypatch, tmp_path):
+    """A teardown error after the test ran is a cleanup error, not a NEW failure.
+
+    results.json keeps the test's own outcome then; the overview counted it as NEW, so a
+    namespace RustFS could not drop showed up as a new failure of whichever test came last.
+
+    Checks:
+        * a failed call stays under NEW;
+        * a teardown error of a passed test is listed under "cleanup errors", not under NEW;
+        * the same goes into the JSON overview (``LAB_SUMMARY``) the run scripts read.
+
+    Args:
+        monkeypatch: pytest fixture to empty the gap bookkeeping and keep the history file.
+        tmp_path: pytest's temporary directory (the JSON overview).
+    """
+    monkeypatch.setenv("LAB_SUMMARY", str(tmp_path / "s.json"))
+    monkeypatch.setattr(gaps, "_KNOWN_GAP_HITS", [])
+    monkeypatch.setattr(gaps, "_FIXED_GAPS", [])
+    monkeypatch.setattr(gaps, "_FLAKY_NOT_SEEN", [])
+    monkeypatch.setattr(gaps, "_update_flaky_history", list)
+    lines: list[str] = []
+    tr = types.SimpleNamespace(
+        stats={
+            "failed": [types.SimpleNamespace(nodeid="t.py::test_call", when="call")],
+            "error": [types.SimpleNamespace(nodeid="t.py::test_last", when="teardown")],
+        },
+        section=lambda *a, **k: None,
+        write_line=lines.append,
+    )
+    gaps.write_summary(tr)
+    text = "\n".join(lines)
+    new, _, rest = text.partition("known gaps reproduced")
+    assert "NEW / unexpected failures: 1" in new and "t.py::test_call" in new
+    assert "t.py::test_last" not in new
+    assert "cleanup errors (teardown, not in the results): 1\n  t.py::test_last" in rest
+    data = json.loads((tmp_path / "s.json").read_text())
+    assert data["new"] == ["t.py::test_call"] and data["cleanup"] == ["t.py::test_last"]
+
+
+def test_merged_rerun_drops_parameters_that_are_gone(monkeypatch):
+    """A rerun of a whole file drops the old records of parameters it no longer collects.
+
+    Checks:
+        * an old id of a fully collected file that was not collected is gone;
+        * collected and deselected ids, other files and files given as single tests stay;
+        * after a collection error nothing counts as gone.
+
+    Args:
+        monkeypatch: pytest fixture to set the session's collection state.
+    """
+    monkeypatch.setattr(reporting, "_collected", {"tests/a.py::t[new]", "tests/a.py::t[skip]"})
+    monkeypatch.setattr(reporting, "_whole_scopes", ["tests/a.py", "tests/d"])
+    monkeypatch.setattr(reporting, "_collect_failed", False)
+    assert reporting._gone("tests/a.py::t[old]")
+    assert reporting._gone("tests/d/x.py::t")
+    assert not reporting._gone("tests/a.py::t[new]")
+    assert not reporting._gone("tests/a.py::t[skip]")
+    assert not reporting._gone("tests/ab.py::t[old]")
+    assert not reporting._gone("tests/b.py::t[old]")
+    monkeypatch.setattr(reporting, "_collect_failed", True)
+    assert not reporting._gone("tests/a.py::t[old]")
+
+
+def test_collection_records_only_whole_paths_as_scopes(monkeypatch, tmp_path):
+    """Files and directories given in full become scopes, relative to the root; single tests not.
+
+    Checks:
+        * ``tests/a.py`` and ``tests/d/`` (from another working directory too) become
+          ``tests/a.py`` and ``tests/d``;
+        * ``tests/b.py::test_x`` adds no scope, a path outside the root neither;
+        * the collected items are recorded.
+
+    Args:
+        monkeypatch: pytest fixture to start from empty collection state.
+        tmp_path: pytest's temporary directory (the fake root).
+    """
+    monkeypatch.setattr(reporting, "_collected", set())
+    monkeypatch.setattr(reporting, "_whole_scopes", [])
+    config = types.SimpleNamespace(
+        rootpath=tmp_path,
+        invocation_params=types.SimpleNamespace(dir=tmp_path / "tests"),
+        args=["a.py", "d/", "b.py::test_x", "/elsewhere/c.py"],
+    )
+    session = types.SimpleNamespace(
+        config=config, items=[types.SimpleNamespace(nodeid="tests/a.py::t[1]")]
+    )
+    reporting.pytest_collection_finish(session)
+    assert reporting._whole_scopes == ["tests/a.py", "tests/d"]
+    assert reporting._collected == {"tests/a.py::t[1]"}

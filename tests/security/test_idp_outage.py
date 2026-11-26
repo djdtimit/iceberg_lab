@@ -84,7 +84,7 @@ def idp():
     """
     b = backend()
     ns = b.setup_namespace()
-    if PROFILE.name == "rustfs":
+    if PROFILE.server == "rustfs":
         url = urlsplit(KC)
         proxy = _proxy(url)
         via = f"http://127.0.0.1:{PORT}"

@@ -110,7 +110,7 @@ KNOWN_GAPS = gap_table(("engine", "task", "fv"), [
     ("pyiceberg", "expire_snapshots", "2", r"expired data file still in storage", "pyiceberg-expire-keeps-files"),
     # Only visible where the catalog deletes files on purge only (Polaris); Lakekeeper's hard
     # delete removes them anyway.
-    *([("pg_lake", "drop_table", "*", r"files left after DROP", "pglake-drop-no-purge")] if PROFILE.name != "lakekeeper" else []),
+    *([("pg_lake", "drop_table", "*", r"files left after DROP", "pglake-drop-no-purge")] if "lakekeeper" not in PROFILE.layers else []),
     # Spark is not affected: with a REST catalog it deletes the files itself (Spark actions).
     *((e, "drop_table", "2" if e == "pyiceberg" else "*", r"files left after DROP, e\.g\. s3://unitylab/lab/__unitystorage/", "unity-delayed-file-cleanup")
       for e in ("pyiceberg", "trino", "flink") if "unity" in PROFILE.layers),
@@ -346,7 +346,7 @@ class SparkMaint(Maint):
     def drop_table(self):
         """Plain ``DROP TABLE`` on Lakekeeper (it deletes the files itself, and Spark's PURGE
         conflicts with that - see test_spark.py); ``DROP TABLE ... PURGE`` elsewhere."""
-        purge = "" if PROFILE.name == "lakekeeper" else " PURGE"
+        purge = "" if PROFILE.server == "lakekeeper" else " PURGE"
         self.q(f"DROP TABLE {self.fq()}{purge}")
 
     def call(self, proc, args):

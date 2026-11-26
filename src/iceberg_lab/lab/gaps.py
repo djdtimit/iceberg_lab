@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import fnmatch
+import json
 import os
 import re
 from pathlib import Path
@@ -342,7 +343,15 @@ def write_summary(terminalreporter) -> None:
     failed = terminalreporter.stats.get("failed", []) + terminalreporter.stats.get("error", [])
     known_ids = {tid for tid, _ in _KNOWN_GAP_HITS}
     fixed_ids = {tid for tid, _ in _FIXED_GAPS}
-    new_errors = [r.nodeid for r in failed if r.nodeid not in known_ids | fixed_ids]
+    unexplained = [r for r in failed if r.nodeid not in known_ids | fixed_ids]
+    # A teardown error after the test itself ran (e.g. a namespace that cannot be dropped) is
+    # not the test's result - results.json keeps the test's own outcome - so it is listed apart.
+    new_errors = list(dict.fromkeys(r.nodeid for r in unexplained if r.when != "teardown"))
+    cleanup = [n for n in dict.fromkeys(r.nodeid for r in unexplained) if n not in new_errors]
+    # A test the dashboard cannot place would be compared like a base test: a lab error.
+    from iceberg_lab.lab import reporting
+
+    new_errors += reporting.unclassified()
     tr = terminalreporter
     tr.section("iceberg lab: failure overview")
     tr.write_line(f"known-gap mode: {KNOWN_GAPS_MODE}  (set KNOWN_GAPS=xfail for a green run)")
@@ -357,6 +366,10 @@ def write_summary(terminalreporter) -> None:
     tr.write_line(f"known gaps reproduced: {len(_KNOWN_GAP_HITS)} tests, {len(by_reason)} distinct")
     for reason, n in sorted(by_reason.items(), key=lambda kv: -kv[1]):
         tr.write_line(f"  {n:4d} x {reason}")
+    if cleanup:
+        tr.write_line(f"cleanup errors (teardown, not in the results): {len(cleanup)}")
+        for nodeid in cleanup[:50]:
+            tr.write_line(f"  {nodeid}")
     if _FIXED_GAPS:
         tr.write_line(
             f"FIXED gaps - documented but no longer failing, remove the entries: {len(_FIXED_GAPS)}"
@@ -375,6 +388,30 @@ def write_summary(terminalreporter) -> None:
         )
         for tid, reason, n in stale:
             tr.write_line(f"  {tid}: {reason} (not seen in {n} runs)")
+    _write_summary_file(
+        new=new_errors,
+        cleanup=cleanup,
+        fixed=[tid for tid, _ in _FIXED_GAPS],
+        probably_fixed=[tid for tid, _, _ in stale],
+        known=len(_KNOWN_GAP_HITS),
+    )
+
+
+def _write_summary_file(**sections: object) -> None:
+    """The overview as JSON for the run scripts (``LAB_SUMMARY=<file>``; none without it).
+
+    run_all.sh, run_parallel.sh and rerun.sh read it with scripts/run_summary.py instead of
+    cutting the text overview apart: complete lists (the text shows 50 per section), and a
+    process that died before its summary is noticed (no file).
+
+    Args:
+        **sections: Test ids per section (``new``, ``cleanup``, ``fixed``, ``probably_fixed``)
+            and the number of known gaps.
+    """
+    path = os.getenv("LAB_SUMMARY")
+    if path:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(sections, indent=1) + "\n")
 
 
 def record_passed(test_id: str) -> None:

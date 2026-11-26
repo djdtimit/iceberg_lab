@@ -16,6 +16,7 @@ Runs without catalog or engines. Covered:
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 
@@ -276,6 +277,25 @@ def test_references_hold_the_same_tests():
     union = set().union(*refs.values())
     missing = {name: sorted(union - ids)[:5] for name, ids in refs.items() if union - ids}
     assert not missing, f"tests missing from references (re-run them): {missing}"
+
+
+def test_every_reference_row_has_an_area():
+    """No test of a reference falls through the area rules (``reporting.DIMENSIONS``).
+
+    An unassigned test is compared like a base test: a lab self-test parametrized by engine
+    gave pg_lake on RustFS (everything else not offered there) "1 of 1 works" - 100 % in the
+    dashboard.
+
+    Checks:
+        * no row of ``results/<name>.rows.json.gz`` has the area ``Unassigned``.
+    """
+    unassigned = {
+        p.name: sorted({r["test"].split("::")[0] for r in rows if r["area"] == "Unassigned"})
+        for p in sorted(RESULTS.glob("*.rows.json.gz"))
+        if (rows := json.loads(gzip.decompress(p.read_bytes())))
+    }
+    unassigned = {k: v for k, v in unassigned.items() if v}
+    assert not unassigned, f"tests without an area (reporting.DIMENSIONS): {unassigned}"
 
 
 def test_findings_list_is_generated():

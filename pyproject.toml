@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "minio>=7.2.20",
     "pytest>=8.3",
+    "pytest-cov>=6",
     "pytest-timeout>=2.3",
     "pyyaml>=6.0",  # selftest: checks the run manifest's compose parser
     "ruff>=0.8",

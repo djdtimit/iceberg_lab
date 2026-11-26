@@ -647,10 +647,6 @@ def normalize(case: TypeCase, v):
         if ts.tzinfo is not None:
             ts = ts.tz_convert("UTC").tz_localize(None)
         return ts.isoformat()
-    if isinstance(t, (GeometryType, GeographyType)):
-        if hasattr(v, "getBytes"):  # pyspark.sql.types.Geometry / Geography
-            return bytes(v.getBytes())
-        return bytes(v) if isinstance(v, (bytes, bytearray, memoryview)) else v
     if isinstance(t, UUIDType):
         # Arrow: 16 raw bytes; DuckDB/Trino: uuid.UUID; Spark: str.
         if isinstance(v, (bytes, bytearray)):
@@ -719,9 +715,6 @@ def expected_family(case: TypeCase) -> str:
 
     Returns:
         The canonical family name.
-
-    Raises:
-        ValueError: the type has no family.
 
     Raises:
         ValueError: the type has no family.

@@ -84,7 +84,7 @@ def refused(status: int) -> bool:
     Returns:
         True for 401/403 (and 404 on Lakekeeper, which hides objects).
     """
-    return status in (401, 403) or (PROFILE.name == "lakekeeper" and status == 404)
+    return status in (401, 403) or (PROFILE.server == "lakekeeper" and status == 404)
 
 
 def recorded() -> tuple[str, list[str]]:

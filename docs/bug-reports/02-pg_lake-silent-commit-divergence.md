@@ -85,3 +85,23 @@ Expected: reload and retry the commit (the append does not conflict with the oth
 fail the statement.
 
 Lab test: `tests/storage/test_robustness.py::test_catalog_fault[pg_lake-concurrent_commit]`.
+
+## CREATE TABLE refused by the catalog (reproduced 2026-11-25, pg_lake 3.7.1 on Postgres 19)
+
+The same happens when the catalog refuses the creation itself:
+
+- **Unity Catalog OSS 0.7.0** refuses a `time` column with 400.
+  `CREATE TABLE ns.t (id bigint, v time) USING iceberg WITH (catalog = '<unity server>')`
+  returns without error, and the table exists in Postgres. In the catalog there is no table
+  (`loadTable` 404), so every later INSERT goes nowhere.
+- **Gravitino 1.3.1 in front of Lakekeeper or RustFS** (`lakehouse-iceberg` catalog with
+  `catalog-backend = rest`) refuses the commit that completes a staged creation with HTTP 500
+  ("Cannot assign a new UUID" from Lakekeeper, "cannot reassign table uuid" from RustFS). That is
+  a Gravitino issue, see report 19 and the lab's `gravitino-rest-backend-staged-create`. pg_lake
+  still reports `CREATE TABLE` as successful. Every pg_lake table there exists only in
+  Postgres: 28 lab tests per profile fail later with "table not found" in the catalog.
+
+Expected: `CREATE TABLE` fails with the catalog's error, and no table is left in Postgres.
+
+Lab test: `tests/specific/test_pglake.py::test_create_refused_by_catalog_is_an_error`
+(`CATALOG=unity`, `gravitino_lakekeeper`, `gravitino_rustfs`).

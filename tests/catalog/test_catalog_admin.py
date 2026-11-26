@@ -781,7 +781,7 @@ def fresh_name() -> str:
         The name.
     """
     n = f"adm-{uuid.uuid4().hex[:8]}"
-    return n.replace("-", "_") if PROFILE.name == "unity" else n
+    return n.replace("-", "_") if PROFILE.server == "unity" else n
 
 
 def usable(warehouse: str) -> None:
@@ -1137,7 +1137,7 @@ def test_users():
     """
     uid = (
         f"oidc~admtest{uuid.uuid4().hex[:6]}"
-        if PROFILE.name == "lakekeeper"
+        if PROFILE.server == "lakekeeper"
         else f"admtest{uuid.uuid4().hex[:6]}"
     )
     if PROFILE.server not in USERS:
@@ -1180,7 +1180,7 @@ def test_background_tasks(namespace):
     Args:
         namespace: Fresh namespace of the test session.
     """
-    if PROFILE.name == "lakekeeper":
+    if PROFILE.server == "lakekeeper":
         base = Lakekeeper.base
         wid = {
             w["name"]: w["id"]
@@ -1198,7 +1198,7 @@ def test_background_tasks(namespace):
             requests.get(f"{base}/warehouse/{wid}/task/by-id/{mine[0]['task-id']}", timeout=20)
         ).json()
         assert detail["queue-name"] == "tabular_purge", detail
-    elif PROFILE.name == "rustfs":
+    elif PROFILE.server == "rustfs":
         _, name, _ = _table(namespace)
         url = f"{SETTINGS.catalog_uri}/v1/{PROFILE.warehouse_sts}/namespaces/{namespace}/tables/{name}/maintenance"
         job = ok(

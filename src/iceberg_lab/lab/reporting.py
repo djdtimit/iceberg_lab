@@ -1,18 +1,17 @@
-"""Engine comparison report: collects every test result and writes a side-by-side overview.
+"""Test results: collects every test result for the references and the dashboard.
 
 Registered by ``tests/conftest.py``. After each run it writes (``reports/`` for Lakekeeper,
 ``reports/<catalog>/`` for the others, ``reports/<catalog>-nohelp/`` for the run without lab
 help; ``REPORT_DIR=<dir>`` sends a targeted run elsewhere):
 
 * ``results.json``         - one record per test: file, test, parameters, status, detail, run
-* ``comparison.md``        - per-engine summary, one matrix per test area, severe gaps
 * ``comparison_rows.json`` - one row per test for the dashboard (theme, area, capability,
   severity, run)
 * ``manifest.json``, ``runs.json`` - what each run was produced with (``src/iceberg_lab/lab/manifest.py``):
   results are merged over runs, every record names its run
 
 Areas are grouped into a few themes (``THEMES``). Totals over all cases are dominated by the
-large matrices (the type matrix alone is about a third of all cases), so the report also gives
+large matrices (the type matrix alone is about a third of all cases), so the dashboard also gives
 reliability per theme and the mean over the themes, each theme counting equally.
 
 Status per test (combined over setup/call):
@@ -45,7 +44,6 @@ import fcntl
 import json
 import os
 import re
-from collections import Counter, defaultdict
 from pathlib import Path
 
 import pytest
@@ -82,6 +80,11 @@ _NA_PATTERNS = (
 )
 
 _records: dict[str, dict] = {}
+#: What this session collected (deselected items too) and the paths it collected in full, so a
+#: merged rerun drops the old records of parameters that no longer exist (see _write_reports).
+_collected: set[str] = set()
+_whole_scopes: list[str] = []
+_collect_failed = False
 
 
 # =========================================================================== collection
@@ -107,6 +110,38 @@ def pytest_runtest_makereport(item, call):
             params[k] = getattr(v, "name", v) if not isinstance(v, (str, int, float)) else v
     report.lab_params = params
     report.lab_specific = item.get_closest_marker("specific") is not None
+    excinfo = getattr(call, "excinfo", None)
+    skipped = excinfo is not None and excinfo.errisinstance(pytest.skip.Exception)
+    report.lab_error = original_error(excinfo.value) if excinfo and not skipped else ""
+
+
+#: Exceptions the lab raises around the real error (a known gap, a fixed gap).
+_LAB_ERRORS = ("KnownGapError", "GapFixedError")
+
+
+def original_error(exc: BaseException | None) -> str:
+    """The error as the engine or catalog raised it, before the lab turned it into a gap.
+
+    A known (or fixed) gap is raised *from* the real error; a central rule leaves the error
+    itself in place. The name is module-qualified like pytest prints it
+    (``requests.exceptions.HTTPError: 404 ...``), whitespace collapsed, at most 500 characters.
+
+    Args:
+        exc: The raised exception.
+
+    Returns:
+        ``<type>: <message>``, or "" when the lab raised the gap without an underlying error.
+    """
+    seen: set[int] = set()
+    while exc is not None and type(exc).__name__ in _LAB_ERRORS and id(exc) not in seen:
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    if exc is None or type(exc).__name__ in _LAB_ERRORS:
+        return ""
+    t = type(exc)
+    name = t.__qualname__ if t.__module__ == "builtins" else f"{t.__module__}.{t.__qualname__}"
+    message = " ".join(str(exc).split())
+    return f"{name}: {message}"[:500] if message else name
 
 
 def pytest_runtest_logreport(report):
@@ -144,6 +179,9 @@ def pytest_runtest_logreport(report):
         from iceberg_lab.lab.gap_register import cause_of_reason
 
         rec["cause"] = (cause_of_reason(detail) or "") if status in ("gap", "fixed") else ""
+        # The raw error (bug reports, scripts/gap_register.py draft): only where a test failed.
+        failed = status in ("gap", "fixed", "new")
+        rec["error"] = getattr(report, "lab_error", "") if failed else ""
 
 
 def _classify(report) -> tuple[str | None, str]:
@@ -188,9 +226,10 @@ def _classify(report) -> tuple[str | None, str]:
 
 
 def _marked(text: str, error: str, marker: str) -> str | None:
-    """The reason after ``marker``: from the raised ``error`` line if there is one, else (central
-    rules put it in front of the report) the first real one. Tracebacks also show expect_gap's
-    source, whose docstring and raise lines contain the marker with placeholders.
+    """The reason after ``marker``: from the raised ``error`` line if there is one, else from the
+    report's first line (a central rule puts ``[known gap] <reason>`` in front of the report -
+    conftest). Elsewhere the marker is only quoted (expect_gap's source with placeholders, an
+    assertion diff of a self-test comparing report texts) and books nothing.
 
     Args:
         text: Long report text.
@@ -203,12 +242,8 @@ def _marked(text: str, error: str, marker: str) -> str | None:
     raised = re.findall(rf"{error}: {marker}([^\n]+)", text)
     if raised:
         return raised[-1].strip()
-    found = [
-        m.strip()
-        for m in re.findall(rf"{marker}([^\n]+)", text)
-        if not m.startswith("<reason>") and "{reason}" not in m
-    ]
-    return found[0] if found else None
+    front = re.match(rf"{marker}([^\n]+)", text.lstrip())
+    return front.group(1).strip() if front else None
 
 
 # =========================================================================== output
@@ -234,8 +269,64 @@ def report_lock():
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def pytest_collectreport(report):
+    """Note a collection error: then nothing is known to be gone.
+
+    Args:
+        report: The collect report.
+    """
+    global _collect_failed
+    if report.failed:
+        _collect_failed = True
+
+
+def pytest_deselected(items):
+    """Deselected items (``-k``, ``-m``, ``--deselect``) still exist.
+
+    Args:
+        items: The deselected items.
+    """
+    _collected.update(i.nodeid for i in items)
+
+
+def pytest_collection_finish(session):
+    """Record the collected test ids and the paths given in full (files, directories).
+
+    Args:
+        session: The pytest session.
+    """
+    _collected.update(i.nodeid for i in session.items)
+    root = Path(session.config.rootpath)
+    here = Path(session.config.invocation_params.dir)
+    for arg in session.config.args:
+        if "::" in arg:
+            continue  # single tests: their siblings were not collected
+        path = (here / arg).resolve()
+        try:
+            _whole_scopes.append(path.relative_to(root).as_posix())
+        except ValueError:
+            continue
+
+
+def _gone(nodeid: str) -> bool:
+    """Whether an old record's test lies in a path collected in full but was not collected.
+
+    A rerun of a whole file whose parameters changed would otherwise keep the old ids in
+    the report (and in the reference) until the next full run.
+
+    Args:
+        nodeid: Test id of the old record.
+
+    Returns:
+        True if the test no longer exists.
+    """
+    if _collect_failed or nodeid in _collected:
+        return False
+    return any(nodeid.startswith((f"{s}::", f"{s}/")) or s == "." for s in _whole_scopes)
+
+
 def pytest_sessionfinish(session):
-    """Write results.json and comparison.md (only if anything ran).
+    """Write results.json and comparison_rows.json (only if anything ran).
 
     Args:
         session: The pytest session.
@@ -263,15 +354,10 @@ def _write_reports(records: list[dict]) -> None:
     if os.getenv("REPORT_MERGE", "1") != "0" and (REPORT_DIR / "results.json").exists():
         old = json.loads((REPORT_DIR / "results.json").read_text())
         mine = {r["nodeid"] for r in records}
-        records = [r for r in old if r["nodeid"] not in mine] + records
+        records = [r for r in old if r["nodeid"] not in mine and not _gone(r["nodeid"])] + records
     (REPORT_DIR / "results.json").write_text(
         json.dumps(records, indent=1, ensure_ascii=False, default=str)
     )
-    md = render_markdown(records)
-    perf = REPORT_DIR / "performance.md"  # written by test_performance.py, if it ran
-    if perf.exists() and any(r["file"] == "test_performance" for r in records):
-        md += "\n\n" + perf.read_text().replace("# Leistung", "## Leistung", 1)
-    (REPORT_DIR / "comparison.md").write_text(md)
     (REPORT_DIR / "comparison_rows.json").write_text(
         json.dumps(flat_rows(records), indent=0, ensure_ascii=False, default=str)
     )
@@ -379,19 +465,26 @@ def blocked_by(row: dict) -> str:
     return row.get("writer") or row.get("engine") or "catalog"
 
 
-def counted_status(row: dict) -> str:
-    """The status a case counts with for its engine: ``"foreign"`` for a case blocked by
-    another engine or the catalog (counted at the cause, not here), else the status.
+def unclassified() -> list[str]:
+    """Tests of this session the dashboard could not place: no area, or an area without theme.
 
-    Args:
-        row: A row of :func:`flat_rows`.
+    ``flat_rows`` keeps such a test visible as "Unassigned" / "Other" - and compared like a base
+    test, which can turn "nothing offered" into "1 of 1 works". The run overview lists them as
+    NEW (gaps.write_summary), so the run fails instead of the numbers.
 
     Returns:
-        The status.
+        One ``"<test id>: <what is missing>"`` per test.
     """
-    by = blocked_by(row)
-    # A test without an engine is about the catalog: blocked by the catalog is its own step.
-    return "foreign" if by and by != (row.get("engine") or "catalog") else row["status"]
+    out = []
+    for r in _records.values():
+        if r["status"] is None:
+            continue
+        area = next((name for name, pred in DIMENSIONS if pred(r)), None)
+        if area is None:
+            out.append(f"{r['nodeid']}: no area (reporting.DIMENSIONS)")
+        elif theme_of(area) == "Other":
+            out.append(f"{r['nodeid']}: area {area!r} has no theme (reporting.THEMES)")
+    return out
 
 
 def flat_rows(records: list[dict]) -> list[dict]:
@@ -405,7 +498,8 @@ def flat_rows(records: list[dict]) -> list[dict]:
     """
     rows = []
     for r in records:
-        # Unassigned tests stay visible (and compared) instead of silently dropping out.
+        # Unassigned tests stay visible instead of silently dropping out; the run lists them
+        # as NEW (unclassified).
         area = next((name for name, pred in DIMENSIONS if pred(r)), "Unassigned")
         p = r["params"]
         row = {
@@ -416,6 +510,7 @@ def flat_rows(records: list[dict]) -> list[dict]:
             "status": r["status"],
             "detail": r["detail"],
             "cause": r.get("cause", ""),
+            "error": r.get("error", ""),
             "severity": severity(r) or "",
             "writer": (
                 p.get("engine")
@@ -563,7 +658,9 @@ DIMENSIONS = [
     # Features of ONE catalog (marker "specific"; Lakekeeper demo notebooks): not compared.
     (
         "Catalog-specific",
-        lambda r: r.get("specific") and r["file"] == "test_catalog_features",
+        lambda r: (
+            r.get("specific") and r["file"] in ("test_catalog_features", "test_gravitino_fronting")
+        ),
     ),
     # The example notebooks run on every catalog, but they are demos, not capability tests.
     ("Demo notebooks", lambda r: r["file"] == "test_notebooks"),
@@ -591,14 +688,7 @@ DIMENSIONS = [
     (
         "Lab self-test",
         lambda r: (
-            r["file"]
-            in (
-                "test_feature_inventory",
-                "test_engine_inventory",
-                "test_lab_selftest",
-                "test_lab_adapters",
-                "test_na_claims",
-            )
+            r["nodeid"].startswith("tests/selftest/")
             or r["test"].endswith(
                 (
                     "_define_only_known_operations",
@@ -715,381 +805,3 @@ def theme_of(area: str) -> str:
     if area in NOT_COMPARED:
         return "Not compared"
     return _THEME_OF.get(area, "Other")
-
-
-def _counts(statuses: list[str]) -> dict:
-    """Counts per status and the derived totals (works, offered, all).
-
-    Args:
-        statuses: Statuses of the cases.
-
-    Returns:
-        The counts.
-    """
-    c = Counter(statuses)
-    works = c["pass"] + c["fixed"]
-    offered = works + c["gap"] + c["new"]
-    return {
-        "works": works,
-        "gap": c["gap"],
-        "new": c["new"],
-        "na": c["na"],
-        "blocked": c["blocked"],
-        # Blocked by another engine or the catalog (counted_status): no statement about this
-        # engine, so not one of its cases - charged to the cause ("blocks N cases").
-        "foreign": c["foreign"],
-        "offered": offered,
-        # Coverage counts the engine's own "not testable" as not working: a case that never
-        # ran is no success.
-        "all": offered + c["na"] + c["blocked"],
-    }
-
-
-def _coverage(statuses: list[str]) -> str:
-    """Coverage cell: works / all cases (new errors marked).
-
-    Args:
-        statuses: Statuses of the cases.
-
-    Returns:
-        The cell text.
-    """
-    k = _counts(statuses)
-    if not k["all"]:
-        return "·"
-    s = f"{k['works']}/{k['all']}"
-    return s + (f" ⚠️{k['new']}" if k["new"] else "")
-
-
-def _reliability(statuses: list[str]) -> str:
-    """Reliability cell: works / offered cases (percent).
-
-    Args:
-        statuses: Statuses of the cases.
-
-    Returns:
-        The cell text.
-    """
-    k = _counts(statuses)
-    return f"{k['works']}/{k['offered']} ({k['works'] / k['offered']:.0%})" if k["offered"] else "—"
-
-
-def _cell(statuses: list[str]) -> str:
-    """One symbol for several results (e.g. one reader over all writers).
-
-    Args:
-        statuses: Statuses of the cases.
-
-    Returns:
-        The symbol.
-    """
-    c = Counter(statuses)
-    applicable = c["pass"] + c["gap"] + c["new"] + c["fixed"]
-    if not applicable:
-        return SYMBOL["na"] if c["na"] else SYMBOL["blocked"]
-    if c["new"]:
-        return SYMBOL["new"]
-    if c["gap"] and (c["pass"] or c["fixed"]):
-        return f"◐ {c['pass'] + c['fixed']}/{applicable}"
-    if c["gap"]:
-        return SYMBOL["gap"]
-    return SYMBOL["fixed"] if c["fixed"] and not c["pass"] else SYMBOL["pass"]
-
-
-def _table(rows: list[str], cols: list[str], cells: dict[tuple[str, str], list[str]]) -> str:
-    """Markdown table of the cells.
-
-    Args:
-        rows: Row labels.
-        cols: Column labels.
-        cells: (row, col) -> statuses.
-
-    Returns:
-        The table.
-    """
-    out = ["| | " + " | ".join(cols) + " |", "|---|" + "---|" * len(cols)]
-    for r in rows:
-        out.append(f"| {r} | " + " | ".join(_cell(cells.get((r, c), [])) for c in cols) + " |")
-    return "\n".join(out)
-
-
-def theme_table(
-    per_area: dict[str, dict[str, list[str]]], engines: list[str], totals: dict[str, list[str]]
-) -> list[str]:
-    """Reliability per theme and engine, plus the mean over the themes (each theme counts
-    equally) and the share of the largest area in all cases - the reason for that mean.
-
-    Args:
-        per_area: Area -> engine -> statuses (compared areas only).
-        engines: Engine columns.
-        totals: Engine -> statuses over all compared areas.
-
-    Returns:
-        The Markdown lines.
-    """
-    if not engines:
-        return []
-    by_theme: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    for area, by_engine in per_area.items():
-        for e, statuses in by_engine.items():
-            by_theme[theme_of(area)][e] += statuses
-    themes = [t for t in (*THEMES, "Other") if t in by_theme]
-    hdr = "| Theme | " + " | ".join(engines) + " |"
-    lines = [
-        "",
-        "### Reliability per theme (works / offered cases)",
-        "",
-        (
-            "Each theme groups several areas (`THEMES`). The mean gives every theme the same "
-            "weight; the total above gives every case the same weight and is therefore "
-            "dominated by the largest matrices."
-        ),
-        "",
-        hdr,
-        "|---|" + "---|" * len(engines),
-    ]
-    means = {}
-    for t in themes:
-        lines.append(f"| {t} | " + " | ".join(_reliability(by_theme[t][e]) for e in engines) + " |")
-    for e in engines:
-        shares = [
-            k["works"] / k["offered"] for t in themes if (k := _counts(by_theme[t][e]))["offered"]
-        ]
-        means[e] = f"**{sum(shares) / len(shares):.0%}**" if shares else "—"
-    lines.append("| **mean over themes** | " + " | ".join(means[e] for e in engines) + " |")
-    n_all = sum(len(v) for v in totals.values())
-    if n_all:
-        biggest = max(per_area, key=lambda a: sum(len(v) for v in per_area[a].values()))
-        n_big = sum(len(v) for v in per_area[biggest].values())
-        lines += ["", f"Largest area: {biggest} with {n_big / n_all:.0%} of all compared cases."]
-    return lines
-
-
-def render_markdown(records: list[dict]) -> str:
-    """The comparison report (overview, matrices, severe gaps, gap lists, news).
-
-    Args:
-        records: All result records.
-
-    Returns:
-        The Markdown text.
-    """
-    engines = [e for e in ENGINE_ORDER if any(_engine(r) == e for r in records)]
-    lines = [
-        "# Engine comparison",
-        "",
-        "Generated by `src/iceberg_lab/lab/reporting.py` during the last test run.",
-        "",
-        (
-            "Legend: ✅ works · ❌ known gap · ◐ partly (works/applicable) · "
-            "⚠️ new failure · 🔧 gap fixed · — not applicable (no API/no type) · "
-            "· not tested (engine not running / prerequisite failed)"
-        ),
-        "",
-        "## Overview",
-        "",
-        (
-            "Every engine runs the same test cases in every area. **Coverage** = works / "
-            "all cases (capabilities that are not offered count as cases too). **Reliability** = "
-            "works / offered cases. Cases that are not testable because the engine's own step "
-            "failed count as not working for coverage; cases blocked by another engine (it could "
-            "not write the table) or by the catalog count at the cause, not here - see "
-            "'blocks cases of others' below. Reading back an engine's own results counts nowhere, nor do "
-            "tests of special features of one engine or catalog (engine-/catalog-specific) - only "
-            "the base tests, which are the same for all (docs/test-architecture.md)."
-        ),
-        "",
-    ]
-    hdr = "| Area | " + " | ".join(engines) + " |"
-    sep = "|---|" + "---|" * len(engines)
-    per_area = {}
-    totals = defaultdict(list)
-    blocks = Counter()  # engine (or "catalog") -> cases of OTHER engines it blocked
-    rows_of = dict(zip((r["nodeid"] for r in records), flat_rows(records), strict=True))
-    for name, pred in DIMENSIONS:
-        if name in NOT_COMPARED:
-            continue
-        by_engine = defaultdict(list)
-        for r in records:
-            if pred(r) and _engine(r) in engines and r["status"] != "self":
-                st = counted_status(rows_of[r["nodeid"]])
-                by_engine[_engine(r)].append(st)
-                totals[_engine(r)].append(st)
-                if st == "foreign":
-                    blocks[rows_of[r["nodeid"]]["blocked_by"]] += 1
-        per_area[name] = by_engine
-    lines += ["### Coverage (works / all cases)", "", hdr, sep]
-    for name, by_engine in per_area.items():
-        lines.append(f"| {name} | " + " | ".join(_coverage(by_engine[e]) for e in engines) + " |")
-    lines.append(
-        "| **total** | " + " | ".join(f"**{_coverage(totals[e])}**" for e in engines) + " |"
-    )
-    lines += ["", "### Reliability (works / offered cases)", "", hdr, sep]
-    for name, by_engine in per_area.items():
-        lines.append(
-            f"| {name} | " + " | ".join(_reliability(by_engine[e]) for e in engines) + " |"
-        )
-    lines.append(
-        "| **total** | " + " | ".join(f"**{_reliability(totals[e])}**" for e in engines) + " |"
-    )
-    lines += theme_table(per_area, engines, totals)
-    lines += ["", "### Breakdown, total", "", "| | " + " | ".join(engines) + " |", sep]
-    for key, label in (
-        ("works", "works"),
-        ("gap", "documented gap"),
-        ("severe", "of which severe (result, data, security)"),
-        ("new", "new failure"),
-        ("na", "not offered"),
-        ("blocked", "not testable (own step failed)"),
-        ("foreign", "not testable (blocked by another engine / the catalog; not counted here)"),
-        ("blocks", "blocks cases of other engines (its write or step failed)"),
-    ):
-        if key == "severe":
-            n = {e: sum(1 for r in records if _engine(r) == e and severity(r)) for e in engines}
-            lines.append(f"| {label} | " + " | ".join(str(n[e]) for e in engines) + " |")
-            continue
-        if key == "blocks":
-            lines.append(f"| {label} | " + " | ".join(str(blocks[e]) for e in engines) + " |")
-            continue
-        lines.append(
-            f"| {label} | " + " | ".join(str(_counts(totals[e])[key]) for e in engines) + " |"
-        )
-    lines += [
-        "",
-        (
-            "Every engine writes the starting data of its tests itself; if it cannot (e.g. v3 "
-            "with PyIceberg/Polars/Daft), the test counts as failed - no substitute engine."
-        ),
-        "",
-    ]
-    if blocks["catalog"]:
-        lines += [f"Blocked by the catalog itself (no engine to blame): {blocks['catalog']}.", ""]
-
-    # ---- detail matrices
-    def section(title, pred, row_of, col_of=_engine, rows_sort=None):
-        """Append a matrix section (rows x engine columns) for the matching records.
-
-        Args:
-            title: Section title.
-            pred: Record filter.
-            row_of: Record -> row label.
-            col_of: Record -> column label.
-            rows_sort: Sort key of the rows (None: alphabetical).
-        """
-        cells, rows = defaultdict(list), []
-        for r in records:
-            if not pred(r):
-                continue
-            row, col = row_of(r), col_of(r)
-            if row is None or col is None:
-                continue
-            cells[(row, col)].append(r["status"])
-            if row not in rows:
-                rows.append(row)
-        if not rows:
-            return
-        if rows_sort:
-            rows.sort(key=rows_sort)
-        cols = [e for e in engines if any(k[1] == e for k in cells)]
-        lines.extend([f"## {title}", "", _table(rows, cols, cells), ""])
-
-    p = lambda r, k: r["params"].get(k)
-    section(
-        "Operations (engine executes)",
-        lambda r: r["test"] == "test_operation",
-        lambda r: f"{p(r, 'op')} v{p(r, 'fv')}",
-    )
-    section(
-        "Reading other engines' results (column = reader, over all writing engines)",
-        lambda r: r["test"] == "test_operation_cross_read",
-        lambda r: f"{p(r, 'op')} v{p(r, 'fv')}",
-        col_of=lambda r: p(r, "reader"),
-    )
-    section(
-        "Files an engine writes are readable by others (column = writer)",
-        lambda r: r["test"] == "test_operation_cross_read",
-        lambda r: f"{p(r, 'op')} v{p(r, 'fv')}",
-        col_of=lambda r: p(r, "engine"),
-    )
-    section(
-        "Write types",
-        lambda r: r["file"] == "test_types" and r["test"] == "test_write",
-        lambda r: f"{getattr(p(r, 'case'), 'name', p(r, 'case'))} v{p(r, 'fv')}",
-        col_of=lambda r: p(r, "writer"),
-    )
-    section(
-        "Read types (over all writing engines)",
-        lambda r: r["file"] == "test_types" and r["test"] == "test_read",
-        lambda r: f"{getattr(p(r, 'case'), 'name', p(r, 'case'))} v{p(r, 'fv')}",
-        col_of=lambda r: p(r, "reader"),
-    )
-    section(
-        "Type fidelity (reported type matches the Iceberg type)",
-        lambda r: r["test"] == "test_reader_type",
-        lambda r: f"{getattr(p(r, 'case'), 'name', p(r, 'case'))} v{p(r, 'fv')}",
-        col_of=lambda r: p(r, "reader"),
-    )
-    section(
-        "Access modes (catalog credentials only)",
-        lambda r: (
-            r["file"] == "test_access_delegation" and r["test"] in ("test_read", "test_write")
-        ),
-        lambda r: f"{r['test'].removeprefix('test_')} {p(r, 'warehouse')}",
-    )
-    section(
-        "Interop (row = writer, column = reader)",
-        lambda r: r["file"] == "test_interop",
-        lambda r: p(r, "writer"),
-        col_of=lambda r: p(r, "reader"),
-        rows_sort=lambda x: ENGINE_ORDER.index(x) if x in ENGINE_ORDER else 99,
-    )
-    section(
-        "v3 features",
-        lambda r: r["file"] == "test_v3_features",
-        lambda r: (
-            r["test"].removeprefix("test_")
-            + (f" (written by {p(r, 'writer')})" if p(r, "writer") and p(r, "reader") else "")
-        ),
-        col_of=lambda r: p(r, "reader") or p(r, "writer") or None,
-    )
-
-    # ---- severe gaps first: defects, not missing features
-    severe = defaultdict(lambda: defaultdict(list))
-    for r in records:
-        if severity(r):
-            severe[severity(r)][r["detail"]].append(_engine(r) or "-")
-    if severe:
-        lines += [
-            "## Severe gaps (wrong result, data loss, security)",
-            "",
-            (
-                "Documented gaps that are no missing feature but change data or results or "
-                "open access wider than intended (classified in the gap reason, "
-                "`conftest.SEVERITIES`)."
-            ),
-            "",
-        ]
-        for label in sorted(severe):
-            lines.append(f"**{label}**")
-            for reason, engines_hit in sorted(severe[label].items()):
-                hit = ", ".join(sorted(set(engines_hit)))
-                lines.append(f"- {reason} ({len(engines_hit)}×; {hit})")
-            lines.append("")
-
-    # ---- gap list per engine
-    lines += ["## Known gaps per engine", ""]
-    by_engine = defaultdict(Counter)
-    for r in records:
-        if r["status"] == "gap" and _engine(r):
-            by_engine[_engine(r)][r["detail"]] += 1
-    for e in engines:
-        if by_engine[e]:
-            lines.append(f"**{e}**")
-            lines += [f"- {reason} ({n}×)" for reason, n in by_engine[e].most_common()]
-            lines.append("")
-    news = [r for r in records if r["status"] in ("new", "fixed")]
-    if news:
-        lines += ["## New failures and fixed gaps", ""]
-        lines += [f"- {SYMBOL[r['status']]} `{r['nodeid']}`: {r['detail']}" for r in news]
-        lines.append("")
-    return "\n".join(lines)

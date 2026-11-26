@@ -589,15 +589,15 @@ def main(s: Settings = SETTINGS) -> None:
     """
     wait_for(s.s3_endpoint)
     ensure_bucket(s)
-    if PROFILE.name == "rustfs":
+    if PROFILE.server == "rustfs":
         ensure_rustfs_table_bucket(s)
-    elif PROFILE.name == "unity":
+    elif PROFILE.server == "unity":
         wait_for(f"{s.catalog_base}/api/2.1/unity-catalog/catalogs")
         ensure_unity(s)
-    elif PROFILE.name == "polaris":
+    elif PROFILE.server == "polaris":
         wait_for(f"{s.catalog_base}/api/catalog/v1/config")
         ensure_polaris(s)
-    elif PROFILE.name == "reference":
+    elif PROFILE.server == "reference":
         # The fixture writes below its CATALOG_WAREHOUSE (s3://reference/wh): only the bucket.
         ensure_bucket(replace(s, s3_bucket=PROFILE.location.split("/")[2]))
         wait_for(f"{s.catalog_base}/v1/config")

@@ -139,7 +139,7 @@ def fault_setup():
     Yields:
         ``(proxy, warehouse, catalog IPs)``.
     """
-    if PROFILE.name not in ("lakekeeper", "polaris"):
+    if PROFILE.server not in ("lakekeeper", "polaris"):
         reason = {
             "rustfs": "the catalog is the storage itself (catalog faults: test_robustness.py)",
             "unity": "Unity reaches RustFS only through the gateway for the AWS host names",
@@ -149,7 +149,7 @@ def fault_setup():
         pytest.skip(f"not testable on {PROFILE.name}: {reason}")
     proxy = StorageProxy(port=PROXY_PORT)
     try:
-        if PROFILE.name == "lakekeeper":
+        if PROFILE.server == "lakekeeper":
             warehouse, sources = _lakekeeper_warehouse(), {socket.gethostbyname("lakekeeper")}
         else:  # only Polaris itself uses the proxy (endpointInternal)
             warehouse, sources = _polaris_catalog(), None

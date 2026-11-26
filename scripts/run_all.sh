@@ -21,7 +21,7 @@ if [ "${LAB_NO_HELP:-0}" = 1 ]; then
   echo "run without help on $catalog: tests of $helped"
 fi
 mkdir -p "$out/logs"
-rm -f "$out/results.json" "$out/rest_observed.json" "$out"/logs/*.log   # logs of earlier runs (and of renamed tests) would mix into the summary
+rm -f "$out/results.json" "$out/rest_observed.json" "$out"/logs/*.log "$out"/logs/*.summary.json   # earlier runs (and renamed tests) would mix into the summary
 export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
 # One run id for all pytest processes of this run: every result row names it, and
 # <out>/runs.json records what the run was produced with (src/iceberg_lab/lab/manifest.py).
@@ -39,14 +39,14 @@ long_pids=()
 for f in $LONG_FILES; do
   name=$(basename "$f" .py)
   echo "$name: started beside the others"
-  uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1 &
+  LAB_SUMMARY="$out/logs/$name.summary.json" uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1 &
   long_pids+=($!)
 done
 for f in $(find tests -name 'test_*.py' | sort); do
   case " $LONG_FILES " in *" $f "*) continue ;; esac
   name=$(basename "$f" .py)
   printf '%-32s ' "$name"
-  uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1
+  LAB_SUMMARY="$out/logs/$name.summary.json" uv run pytest "$f" -p no:cacheprovider --tb=line -q "$@" > "$out/logs/$name.log" 2>&1
   summary "$out/logs/$name.log"
 done
 for i in "${!long_pids[@]}"; do
@@ -58,18 +58,13 @@ for f in $LONG_FILES; do
   summary "$out/logs/$name.log"
 done
 echo
-echo "NEW / unexpected failures:"
-for log in "$out"/logs/*.log; do
-  awk '/NEW \/ unexpected failures/{on=1; next} /known gaps reproduced|FIXED gaps|intermittent gaps/{on=0} on && /^  tests\//' "$log"
-done
-echo "FIXED gaps (remove the entries):"
-for log in "$out"/logs/*.log; do
-  awk '/FIXED gaps/{on=1; next} /intermittent gaps|short test summary/{on=0} on && /^  tests\//' "$log"
-done
-echo "PROBABLY FIXED intermittent gaps (not seen in 5+ runs in a row - check, remove):"
-for log in "$out"/logs/*.log; do
-  awk '/PROBABLY FIXED intermittent/{on=1; next} /short test summary/{on=0} on && /^  tests\//' "$log"
-done
+# Every pytest process wrote its overview as JSON (gaps.write_summary, LAB_SUMMARY): complete
+# lists, and a process that died before its overview counts as NEW.
+uv run python scripts/run_summary.py "$out/logs"
+rc=$?
 echo
 # Versioned reference (results/): one line per test, so `git diff results/` shows what changed.
 uv run python scripts/export_reference.py "$out" || echo "reference export failed"
+# Jumps in the figures against the committed reference: a lab error shows here, whatever it is.
+uv run python scripts/reference_shifts.py "$(basename "$(realpath "$out")" | sed 's/^reports$/lakekeeper/')"
+exit $rc  # 1: a NEW failure (run_parallel.sh marks the lane)

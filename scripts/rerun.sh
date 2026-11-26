@@ -17,8 +17,9 @@
 #                                             history, so "occurred k of n times" is visible and
 #                                             a gap gone for good is listed as FIXED?
 # Without help: LAB_NO_HELP=1 CATALOGS=rustfs scripts/rerun.sh ... (report reports/rustfs-nohelp).
-# Ends with the NEW / FIXED / FIXED? lines per catalog; exit code 1 if any catalog has a NEW
-# failure. FIXED?: an intermittent gap not seen in gaps.FLAKY_FIXED_AFTER runs in a row.
+# Ends with the NEW / FIXED / FIXED? / CLEANUP (teardown error) lines per catalog; exit code 1
+# if any catalog has a NEW failure. FIXED?: an intermittent gap not seen in gaps.FLAKY_FIXED_AFTER runs in a row.
+# SHIFT lines (scripts/reference_shifts.py): figures that jumped against the committed reference.
 set -uo pipefail
 # Everything runs inside main(): bash reads a script while it runs it, so editing this file
 # during a long rerun would otherwise break the rest of it. A function is read in full first.
@@ -66,15 +67,16 @@ print("\n".join(sorted(i for i in ids if os.path.exists(i.split("::")[0]))))' "r
     [ "$repeat" -gt 1 ] && echo "--- run $i of $repeat"
     # The register self-tests read results/, which the export below has not updated yet - they
     # run after it (step 3); here they would only report the old references.
-    CATALOG=$c LAB_RUN_ID=${run[$c]} uv run pytest "${tests[@]}" -p no:cacheprovider --tb=line -q \
+    rm -f "$out/logs/rerun.summary.json"
+    CATALOG=$c LAB_RUN_ID=${run[$c]} LAB_SUMMARY="$out/logs/rerun.summary.json" \
+      uv run pytest "${tests[@]}" -p no:cacheprovider --tb=line -q \
       --deselect tests/selftest/test_gap_register.py > "$out/logs/rerun.log" 2>&1
     grep -E "[0-9]+ (passed|failed|skipped|errors?)( |,|$)" "$out/logs/rerun.log" | tail -1
-    if awk '/NEW \/ unexpected failures/{on=1; next} /known gaps reproduced|FIXED gaps|intermittent gaps|PROBABLY FIXED/{on=0} on && /^  tests\//' "$out/logs/rerun.log" | sed 's/^/NEW /' | grep .; then
-      new=1
-    fi
-    awk '/^FIXED gaps/{on=1; next} /intermittent gaps|PROBABLY FIXED|short test summary/{on=0} on && /^  tests\//' "$out/logs/rerun.log" | sed 's/^/FIXED /'
+    # The overview as JSON (gaps.write_summary): exit 1 on NEW, or when pytest died before it.
+    uv run python scripts/run_summary.py --prefixed --kinds new,fixed,cleanup \
+      "$out/logs/rerun.summary.json" || new=1
   done
-  awk '/PROBABLY FIXED/{on=1; next} /short test summary/{on=0} on && /^  tests\//' "$out/logs/rerun.log" | sed 's/^/FIXED? /'
+  uv run python scripts/run_summary.py --prefixed --kinds probably_fixed "$out/logs/rerun.summary.json"
 done
 
 export_all() { for c in $catalogs; do uv run python scripts/export_reference.py "$(dir "$c")" | tail -1; done; }
@@ -93,6 +95,8 @@ export_all
 uv run python scripts/gap_register.py findings
 uv run python scripts/rest_conformance_doc.py
 uv run python scripts/engine_inventory_doc.py
+# Jumps in the figures against the committed references (a warning to look at, not an error).
+uv run python scripts/reference_shifts.py $(for c in $catalogs; do d=$(dir "$c"); [ "$d" = reports ] && echo lakekeeper || basename "$d"; done)
 exit $new
 }
 main "$@"

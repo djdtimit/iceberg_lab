@@ -37,6 +37,7 @@
   .ev .b-good { background: color-mix(in srgb, var(--color-ok) 16%, transparent); }
   .ev .b-mid { background: color-mix(in srgb, var(--color-warn) 18%, transparent); }
   .ev .b-bad { background: color-mix(in srgb, var(--color-bad) 18%, transparent); }
+  .ev .b-thin { background: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, currentColor 8%, transparent) 4px 6px); }
   .ev .b-none { color: var(--color-fg-muted); }
   .ev .help-col { color: var(--color-fg-muted); font-style: italic; }
   .ev .legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-sm); }
@@ -92,7 +93,7 @@
     <h2>Engines × catalogs</h2>
     <p class="note">Reliability per engine and catalog (top), scope (below). Click a cell to select the catalog and the engine. The italic column shows RustFS without the lab's workaround for four engines: shown, never counted.</p>
     <div class="scroll"><table class="heat" data-draw="engine-heat" data-source="engine_catalog"></table></div>
-    <div class="legend"><span><span class="sw b-good"></span>≥ 95 %</span><span><span class="sw b-mid"></span>80–95 %</span><span><span class="sw b-bad"></span>&lt; 80 %</span><span>· nothing offered</span></div>
+    <div class="legend"><span><span class="sw b-good"></span>≥ 95 %</span><span><span class="sw b-mid"></span>80–95 %</span><span><span class="sw b-bad"></span>&lt; 80 %</span><span><span class="sw b-thin"></span>n/m: under 5 % of the planned cases offered, too few for a percentage</span><span>· nothing offered</span></div>
   </section>
 
   <section id="themes" class="card">
@@ -212,6 +213,9 @@
     pct: (v) => (v == null ? '·' : d3.format('.0%')(v)),
     int: d3.format(','),
     band: (v) => (v == null ? 'b-none' : v >= 0.95 ? 'b-good' : v >= 0.8 ? 'b-mid' : 'b-bad'),
+    // Too few offered cases for a percentage: "1 of 1 works" is 100 % of almost nothing (an engine
+    // that cannot connect to a catalog, or a test that slipped into the comparison by mistake).
+    thin: (t) => !!t && t.offered > 0 && t.offered < 0.05 * t.planned,
     // A blocked case belongs to the step that failed before it (blocked_by, src/iceberg_lab/lab/reporting.py):
     // blocked by another engine or by the catalog it is "foreign" and in no denominator of the row's
     // engine. A test without an engine is about the catalog, so the catalog is its own step.
@@ -593,11 +597,12 @@
   // ---------- heatmaps
   function heatCell(tr, r, source, where, selected, onClick) {
     const td = tr.insertCell();
-    td.className = `h ${EV.band(r ? r.reliability : null)}${selected ? ' sel' : ''}`;
+    const thin = EV.thin(r);
+    td.className = `h ${thin ? 'b-thin' : EV.band(r ? r.reliability : null)}${selected ? ' sel' : ''}`;
     if (!r || !r.all) { td.textContent = '·'; return td; }
-    td.append(mark(el('span', 'v', EV.pct(r.reliability)), source, 'reliability', where));
+    td.append(mark(el('span', 'v', thin ? `${EV.int(r.works)}/${EV.int(r.offered)}` : EV.pct(r.reliability)), source, 'reliability', where));
     td.append(mark(el('span', 's', `${EV.int(r.works)}/${EV.int(r.all)}`), source, 'works', where));
-    td.title = `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not run (own step failed before), ${r.foreign} blocked by another engine or the catalog (not counted here)`;
+    td.title = (thin ? `Only ${r.offered} of ${r.planned} planned cases offered - too few for a percentage. ` : '') + `${r.works} work, ${r.gaps} gaps, ${r.news} new, ${r.na} not offered, ${r.blocked} not run (own step failed before), ${r.foreign} blocked by another engine or the catalog (not counted here)`;
     if (onClick) td.addEventListener('click', onClick);
     return td;
   }

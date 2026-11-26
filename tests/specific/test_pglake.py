@@ -200,7 +200,7 @@ def test_create_refused_by_catalog_is_an_error(pg, namespace):
             "pglake-ignores-refused-create",
             r"pg_lake reported success, but the table is not in the catalog",
         )
-        if PROFILE.name == "unity"
+        if "unity" in PROFILE.layers
         else None
     )
     with expect(gap):
@@ -208,7 +208,7 @@ def test_create_refused_by_catalog_is_an_error(pg, namespace):
             pg.execute(f"""CREATE TABLE "{namespace}"."{table}" (id bigint, v time)
                            USING iceberg WITH (catalog = '{pg.server}')""")
         except psycopg.Error:
-            if PROFILE.name == "unity":
+            if "unity" in PROFILE.layers:
                 return  # the catalog refuses TIME, and pg_lake says so: correct
             raise
         pg.owned.add((namespace, table))

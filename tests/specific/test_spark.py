@@ -62,7 +62,7 @@ def test_drop_table_purge(spark, namespace, table_name, warehouse):
             "lakekeeper-signer-refuses-purge",
             r"Table does not exist or user does not have permission to view it at location",
         )
-    elif PROFILE.name == "lakekeeper":
+    elif PROFILE.server == "lakekeeper":
         # Lakekeeper deletes the files itself; Spark's PURGE can then miss one.
         gap = expect_cause("lakekeeper-hard-delete-race", r"NoSuchKeyException")
     else:

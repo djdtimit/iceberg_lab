@@ -40,8 +40,8 @@ from conftest import (
 )
 
 #: Lakekeeper: a dedicated short-lived warehouse; elsewhere the main one (1 h keys).
-WH = "demo-sts-short" if PROFILE.name == "lakekeeper" else WAREHOUSE_STS
-TRINO_CATALOG = "lk_sts_short" if PROFILE.name == "lakekeeper" else f"{PROFILE.trino_prefix}_sts"
+WH = "demo-sts-short" if PROFILE.server == "lakekeeper" else WAREHOUSE_STS
+TRINO_CATALOG = "lk_sts_short" if PROFILE.server == "lakekeeper" else f"{PROFILE.trino_prefix}_sts"
 VALIDITY = 900
 # Polaris and Unity vend 1 h keys: the shared fixture waits ~62 min (global timeout: 30 min).
 pytestmark = [pytest.mark.slow, pytest.mark.long, pytest.mark.timeout(5400)]
@@ -76,7 +76,7 @@ KNOWN_GAPS = gap_table(
 
 def ensure_warehouse():
     """Create the short-lived-keys warehouse (Lakekeeper only)."""
-    if PROFILE.name != "lakekeeper":
+    if PROFILE.server != "lakekeeper":
         return  # the main warehouse
     s = SETTINGS
     have = requests.get(f"{s.lakekeeper_url}/management/v1/warehouse", timeout=10).json()[

@@ -569,7 +569,7 @@ def test_remote_signing(rest, table):
         rest: Raw Iceberg REST client of the catalog under test (``tests/lab/rest_client.py``).
         table: ``(namespace, name, pyiceberg table)`` - a fresh table with ids 1..3.
     """
-    if PROFILE.name == "polaris":
+    if PROFILE.server == "polaris":
         # Polaris 1.9 has the Iceberg signing endpoint in its API (not advertised in /config).
         ns, name, t = table
         uri = f"{SETTINGS.s3_endpoint}/{t.metadata_location.removeprefix('s3://')}"
@@ -1559,7 +1559,7 @@ def test_external_table_sync(namespace):
     offered_by(
         "polaris", "rustfs", what="adopting tables from external metadata (notifications/sync)"
     )
-    if PROFILE.name == "polaris":
+    if PROFILE.server == "polaris":
         _sync_polaris()
     else:
         _sync_rustfs(namespace)

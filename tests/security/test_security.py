@@ -631,7 +631,7 @@ def test_identity_provider_policy_applies_on_rustfs():
           list/create namespace, S3 listing);
         * an identity naming an unknown policy gets 403 everywhere - no rights at all.
     """
-    if PROFILE.name != "rustfs":
+    if PROFILE.server != "rustfs":
         pytest.skip(
             f"catalog {PROFILE.name} has no API for identity-provider STS (AssumeRoleWithWebIdentity)"
         )
@@ -749,7 +749,7 @@ def test_bad_sigv4_is_refused(target, case):
         case: The bad input (token, signature, location escape, error, escalation - see the
             module's case lists).
     """
-    if PROFILE.name != "rustfs":
+    if PROFILE.server != "rustfs":
         pytest.skip(f"catalog {PROFILE.name} has no API for SigV4 request signing (bearer tokens)")
     url = (
         f"{RUSTFS}/iceberg/v1/config?warehouse=labtables"
@@ -1278,7 +1278,7 @@ def _raw_cleanup(parent: str) -> None:
     import http.client
     from urllib.parse import quote
 
-    if PROFILE.name == "lakekeeper":  # Lakekeeper extension: recursive drop
+    if PROFILE.server == "lakekeeper":  # Lakekeeper extension: recursive drop
         url = f"{_base()}/namespaces/{parent}"
         requests.delete(
             url,
@@ -1288,7 +1288,7 @@ def _raw_cleanup(parent: str) -> None:
             timeout=30,
         )
         return
-    if PROFILE.name != "polaris":
+    if PROFILE.server != "polaris":
         return
 
     def call(method, path):
@@ -1464,7 +1464,7 @@ def test_name_is_refused_or_safe(label, kind, name_parent, request):
     # Unity and RustFS: one namespace level. Under the parent where nesting exists, so a name the
     # catalog accepts but cannot address afterwards (the REST fixture) stays out of the top level
     # - there it broke every later top-level listing (DuckDB: "empty namespace name").
-    nested = PROFILE.name in ("lakekeeper", "polaris", "reference")  # test_namespace[*-nested]
+    nested = PROFILE.server in ("lakekeeper", "polaris", "reference")  # test_namespace[*-nested]
     ident = (parent, name) if kind == "table" or nested else (f"{name}_{uuid.uuid4().hex[:3]}",)
     if PROFILE.fronts:
         # Through Gravitino a name it cannot address may still reach the backend - and while
@@ -1522,7 +1522,7 @@ def az():
     try:
         b.drop_namespace(ns)
     except Exception as exc:  # RustFS: a rename leaves a hidden entry (known gap)
-        if PROFILE.name != "rustfs":
+        if "rustfs" not in PROFILE.layers:
             raise
         import warnings
 
@@ -1632,7 +1632,7 @@ def test_cannot_grant_oneself_rights(az):
         except Exception:  # noqa: BLE001 - refused, as it must be
             read = False
     finally:
-        if PROFILE.name == "rustfs":  # never leave alice escalated: put her lab policy back
+        if PROFILE.server == "rustfs":  # never leave alice escalated: put her lab policy back
             b._apply()
     status = getattr(answer, "status_code", "no error")
     with _gap("self_grant"):
@@ -1706,7 +1706,7 @@ def test_reader_cannot_change_the_catalog(case, az):
             r"(?i)401|403|forbidden|not authori[sz]ed|permission|access[ _]?denied|not allowed",
             refusal,
         )
-        or PROFILE.name == "lakekeeper"
+        or PROFILE.server == "lakekeeper"
     ), refusal
 
 

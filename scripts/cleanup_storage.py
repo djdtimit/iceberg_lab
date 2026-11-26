@@ -33,7 +33,7 @@ import boto3
 import requests
 from pyiceberg.exceptions import NamespaceNotEmptyError, RESTError
 
-from iceberg_lab.config import PROFILE, SETTINGS, WAREHOUSES, catalog_headers
+from iceberg_lab.config import PROFILE, PROFILES, SETTINGS, WAREHOUSES, catalog_headers
 from iceberg_lab.engines import pyiceberg_catalog
 
 #: Namespaces the tests create (test_<8 hex>; test_sts_expiry: exp_<6 hex>; permission tests: az_/priv_/inv_/idp_<6 hex>;
@@ -67,26 +67,31 @@ def roots() -> list[tuple[str, str]]:
     Returns:
         The roots.
     """
-    if PROFILE.name == "lakekeeper":
+    if PROFILE.server == "lakekeeper":
         return [(SETTINGS.s3_bucket, f"{w}/") for w in WAREHOUSES]
     bucket, prefix = split(PROFILE.location)
     return [(bucket, prefix.rstrip("/") + "/" if prefix else "")]
 
 
 def foreign_prefixes() -> list[str]:
-    """Unity: managed storage of other UC catalogs (authz instance) under the same root.
+    """Unity (also behind Gravitino): managed storage of other UC catalogs (authz instance) under
+    the same root.
 
     Returns:
         The prefixes to leave alone.
     """
-    if PROFILE.name != "unity":
+    if "unity" not in PROFILE.layers:
         return []
-    base = SETTINGS.catalog_uri.split("/api/")[0] if "/api/" in SETTINGS.catalog_uri else None
-    base = base or "http://unitycatalog:8080"
+    if PROFILE.fronts:  # Gravitino in front of Unity: same storage root, ask Unity itself
+        unity = PROFILES["unity"]
+        base, catalog = unity.base_url, unity.warehouse_sts
+        headers = {"Authorization": f"Bearer {unity.token}"}
+    else:
+        base = SETTINGS.catalog_uri.split("/api/")[0] if "/api/" in SETTINGS.catalog_uri else None
+        base, catalog = base or "http://unitycatalog:8080", PROFILE.warehouse_sts
+        headers = catalog_headers()
     r = requests.get(
-        f"{base}/api/2.1/unity-catalog/catalogs/{PROFILE.warehouse_sts}",
-        headers=catalog_headers(),
-        timeout=10,
+        f"{base}/api/2.1/unity-catalog/catalogs/{catalog}", headers=headers, timeout=10
     )
     r.raise_for_status()
     own = r.json()["id"]
@@ -184,6 +189,42 @@ def live_objects(cat, ns: tuple[str, ...], prefixes: set[str], files: set[str]) 
             files.add(stat.statistics_path)
 
 
+def decide(
+    bucket: str,
+    key: str,
+    modified: dt.datetime,
+    live_files: set[tuple[str, str]],
+    live_prefixes: list[tuple[str, str]],
+    foreign: list[str],
+    cutoff: dt.datetime,
+) -> str:
+    """What happens to one object of a storage root.
+
+    Kept: the managed storage of another Unity catalog (``foreign``, own catalog excepted), a
+    file a live table references, anything below a live table's or view's location. Then
+    objects modified after ``cutoff`` are left alone; everything else is an orphan.
+
+    Args:
+        bucket: The object's bucket.
+        key: The object's key.
+        modified: Its last modification.
+        live_files: ``(bucket, key)`` of every referenced file.
+        live_prefixes: ``(bucket, prefix)`` of every live table and view location.
+        foreign: :func:`foreign_prefixes` (empty, or own catalog's prefix and the managed root).
+        cutoff: Objects modified after it are young.
+
+    Returns:
+        ``keep``, ``young`` or ``orphan`` (deleted with --apply).
+    """
+    if foreign and key.startswith(foreign[1]) and not key.startswith(foreign[0]):
+        return "keep"
+    if (bucket, key) in live_files or any(
+        b == bucket and key.startswith(p) for b, p in live_prefixes
+    ):
+        return "keep"
+    return "young" if modified > cutoff else "orphan"
+
+
 def main() -> int:
     """Drop leftover test namespaces, then delete unreferenced objects below the catalog's roots (dry run by default).
 
@@ -265,15 +306,12 @@ def main() -> int:
         for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=root):
             for o in page.get("Contents", []):
                 key = o["Key"]
-                if (
-                    foreign
-                    and key.startswith(foreign[1])
-                    and not key.startswith(foreign[0])
-                    or (bucket, key) in live_files
-                    or any(b == bucket and key.startswith(p) for b, p in live_prefixes)
-                ):
+                verdict = decide(
+                    bucket, key, o["LastModified"], live_files, live_prefixes, foreign, cutoff
+                )
+                if verdict == "keep":
                     keep += 1
-                elif o["LastModified"] > cutoff:
+                elif verdict == "young":
                     young += 1
                 else:
                     orphans.append(key)

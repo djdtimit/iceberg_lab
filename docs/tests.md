@@ -1,17 +1,29 @@
-# Tests and the comparison report
+# Tests and the engine comparison
 
 Back to the [README](../README.md).
 
 ## Engine comparison
 
-Every test run writes `reports/comparison.md` (Lakekeeper; other catalogs in
-`reports/<catalog>/`) (overview "works / applicable" per engine and area, plus matrices for
-operations, cross-reads, types, type fidelity, access, interop, v3) and `reports/results.json` (raw
-data, one entry per test). **Coverage** = works / all cases of the engine (not offered and its
-own "not testable" count as not working), **reliability** = works / offered cases. Only the base
-tests are compared; "engine-specific", "catalog-specific" and "lab self-test" are reported
-separately. Every test belongs explicitly to one area (`src/iceberg_lab/lab/reporting.py`), and every area
-to one of eight themes (`THEMES`); without an area it shows up as "unassigned" and is counted.
+Every test run writes `reports/results.json` (raw data, one entry per test) and
+`reports/comparison_rows.json` (one row per test with theme, area, capability, severity and
+run; Lakekeeper in `reports/`, other catalogs in `reports/<catalog>/`).
+`scripts/export_reference.py` turns them into the references in `results/`, and the dashboard
+shows them (overview "works / applicable" per engine and area, matrices, causes).
+**Coverage** = works / all cases of the engine (not offered and its own "not testable" count as
+not working), **reliability** = works / offered cases. Only the base tests are compared;
+"engine-specific", "catalog-specific" and "lab self-test" are reported separately. Every test
+belongs explicitly to one area (`src/iceberg_lab/lab/reporting.py`), and every area to one of
+eight themes (`THEMES`); without an area it shows up as "unassigned" and is counted.
+
+Three guards keep a lab error from distorting the figures unnoticed:
+
+- a test the area rules (`DIMENSIONS`, `THEMES`) cannot place is a NEW failure of the run
+  (`reporting.unclassified`), not an "Unassigned" row compared like a base test;
+- the dashboard shows `works/offered` instead of a percentage when fewer than 5 % of the planned
+  cases were offered ("1 of 1 works" is not 100 %);
+- `scripts/reference_shifts.py` (end of `run_all.sh` and `rerun.sh`) prints a `SHIFT` line per
+  engine whose reliability moved by more than 5 points, or whose offered cases changed by more
+  than 10 %, against the committed reference - a warning to look at before the commit.
 
 Further figures, because a plain total over all cases misleads:
 
@@ -117,7 +129,14 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 | `test_gap_register.py` | lab self-test (offline): the gap register loads and is canonical, every cause is used, no test bypasses it; `Gap` rows refuse unknown causes and too generic regexes; every cause was last seen with the current version; every gap in `results/` names a cause and all references hold the same cases; `docs/findings.md` is current |
 | `test_catalog_claims.py` | lab self-test (offline): no test decides "catalog X has no API" from a list of its own - every catalog list (`offered_by`, admin adapters, `USERS`/`BACKENDS`/`SERVICES`/`UIS`) holds every catalog whose API describes the capability; other skips by catalog name are listed with a reason |
 | `test_lab_infrastructure.py` | lab self-test (offline): each catalog's Trino proxy catalog names its fault proxy's port, the ports never collide (parallel runs), cloud profiles exist only when configured and run only their listed files and engines, every file of the smoke run exists |
-| `test_lab_selftest.py`, `test_lab_adapters.py` | lab self-tests: the gap mechanism hides nothing (wrong error message, a rule outside its engine, a notebook limit without expectation); the token adapter and STS adapter for Unity open and close nothing by themselves |
+| `test_lab_selftest.py`, `test_lab_adapters.py` | lab self-tests: the gap mechanism hides nothing (wrong error message, a rule outside its engine, a notebook limit without expectation); the token adapter and STS adapter for Unity open and close nothing by themselves; no code compares `PROFILE.name` with a catalog that can sit behind Gravitino (`PROFILE.server` / `PROFILE.layers` instead); a teardown error is listed as a cleanup error, not as NEW; a merged rerun drops parameters that are gone |
+| `test_reporting.py`, `test_export_reference.py` | lab self-tests (offline): the status a test gets (pass, gap, fixed, new, na, self, blocked - a quoted `[known gap]` inside an assertion is new), and the export into `results/` (current reasons, no `self` rows, run history replaced per run) |
+| `test_datatypes.py` | lab self-test (offline): each engine client's form of a value normalizes to the canonical value, real differences (lost nanoseconds, sign of zero, NULL vs empty) stay; engine type names map to the Iceberg type family |
+| `test_cleanup_storage.py` | lab self-test (offline): what the storage cleanup before a full run keeps (referenced files, live locations, young objects, Unity's other catalogs - also behind Gravitino) and what it deletes |
+| `test_cloud_profiles.py` | lab self-test (offline): cloud catalog profiles from `LAB_<NAME>_*` - defaults per catalog, a half-configured catalog is refused, the client secret never goes to a token endpoint on another host |
+| `test_reference_shifts.py` | lab self-test (offline): the jump warning against the committed reference counts like the dashboard and reports a changed engine (the pg_lake-on-RustFS case), a missing and a new one |
+| `test_run_summary.py` | lab self-test (offline): the JSON overview the run scripts read lists every entry (not only 50), and a pytest process without its overview counts as NEW |
+| `test_bug_drafts.py` | lab self-test (offline): `scripts/gap_register.py draft` pairs each raw error from the run logs with its own test, lists where a cause shows and how the same tests end elsewhere; the bug report overview, the drafts and the register's links agree |
 | `test_scan_planning.py` | capability tests: server-side scan planning / row and column security |
 | `test_pyiceberg.py`, `test_duckdb.py`, `test_spark.py`, `test_dataframes.py`, `test_flink.py` | engine-specific (not in the comparison): only what no base matrix covers – PyIceberg partition pruning and upsert after a rename, DuckDB three-part schema name, Spark PURGE on Lakekeeper, Polars lazy API, Flink join across two warehouses |
 | `test_pglake.py` | pg_lake (engine-specific): extension, attaching foreign tables read-only and following their commits, joins with heap tables, silent success on INSERT and on a refused CREATE |
@@ -127,7 +146,7 @@ Test folders: `tests/lab` (shared modules, no tests), `tests/engines` (engine ma
 
 ```mermaid
 flowchart LR
-  RA["scripts/run_all.sh<br/>run_parallel.sh · smoke.sh"] --> REP["reports/#lt;catalog#gt;/<br/>results.json · comparison.md<br/>manifest · logs/"]
+  RA["scripts/run_all.sh<br/>run_parallel.sh · smoke.sh"] --> REP["reports/#lt;catalog#gt;/<br/>results.json · comparison_rows.json<br/>manifest · logs/"]
   RR["scripts/rerun.sh<br/>(merged into the full run)"] --> REP
   REP --> EX["export_reference.py"]
   EX --> RES["results/#lt;catalog#gt;.jsonl<br/>.rows.json.gz · .manifest.json<br/>.flaky.json · .rest.json<br/>history/runs.jsonl"]

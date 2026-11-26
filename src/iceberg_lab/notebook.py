@@ -58,14 +58,14 @@ def catalog_limit(what: str):
 def describe_catalog() -> None:
     """How the catalog under test is set up (each catalog has its own management API)."""
     base = SETTINGS.catalog_base.rstrip("/")
-    if PROFILE.name == "lakekeeper":
+    if PROFILE.server == "lakekeeper":
         for w in requests.get(f"{base}/management/v1/warehouse", timeout=10).json()["warehouses"]:
             p = w["storage-profile"]
             print(
                 f"Warehouse {w['name']:15} bucket={p['bucket']} prefix={p['key-prefix']} "
                 f"sts-enabled={p['sts-enabled']}"
             )
-    elif PROFILE.name == "polaris":
+    elif PROFILE.server == "polaris":
         c = requests.get(
             f"{base}/api/management/v1/catalogs/{WAREHOUSE_STS}",
             headers=catalog_headers(SETTINGS),
@@ -76,7 +76,7 @@ def describe_catalog() -> None:
             f"Catalog {c['name']} ({c['type']}): storage {s['storageType']} "
             f"{s.get('allowedLocations')}  properties {c.get('properties')}"
         )
-    elif PROFILE.name == "rustfs":
+    elif PROFILE.server == "rustfs":
         b = requests.get(
             f"{SETTINGS.catalog_uri}/v1/buckets/{WAREHOUSE_STS}", auth=catalog_auth(), timeout=10
         ).json()
@@ -84,7 +84,7 @@ def describe_catalog() -> None:
             f"Table bucket {b['table-bucket']}: enabled={b['enabled']} "
             f"location={b['warehouse-location']} catalog-uri={b['catalog-uri']}"
         )
-    elif PROFILE.name == "unity":
+    elif PROFILE.server == "unity":
         api = f"{base}/api/2.1/unity-catalog"
         c = requests.get(
             f"{api}/catalogs/{WAREHOUSE_STS}", headers=catalog_headers(SETTINGS), timeout=10
@@ -97,7 +97,7 @@ def describe_catalog() -> None:
             print(
                 f"External location {loc['name']}: {loc['url']} (credential {loc['credential_name']})"
             )
-    elif PROFILE.name == "reference":
+    elif PROFILE.server == "reference":
         c = requests.get(f"{SETTINGS.catalog_uri}/v1/config", timeout=10).json()
         print(
             f"Iceberg REST fixture: no management API; /v1/config defaults={c.get('defaults')} "

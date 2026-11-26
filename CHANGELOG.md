@@ -2,6 +2,91 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-25 (3): lab self-checks, bug report facts, coverage
+
+- **`PROFILE.name` is no longer compared with a catalog that can sit behind Gravitino.** A new
+  self-test finds such comparisons in `src/`, `scripts/` and `tests/`. Each of the 31 places now
+  says what it means:
+  - 26 ask the server's own API through `PROFILE.server` (admin, signing, identities,
+    bootstrap). This is unchanged for every profile.
+  - 5 ask a catalog's behaviour through `PROFILE.layers`. Reruns on seven profiles gave the
+    same results.
+- **Storage cleanup in front of Unity fixed.** Before each full run, `scripts/cleanup_storage.py`
+  keeps the managed storage of Unity's other catalogs. In front of Unity through Gravitino it did
+  not, because it asked `PROFILE.name == "unity"` and then the wrong server. The cleanup before
+  the `gravitino_unity` run on 2026-11-25 deleted 9743 objects. A check of both Unity instances
+  found every live table intact; the deleted objects were leftovers.
+- **Teardown errors are no longer NEW.** A teardown error after the test itself ran (for
+  example a namespace RustFS cannot drop) is now listed under "cleanup errors" in the overview,
+  `run_all.sh`, `run_parallel.sh` and `rerun.sh` (`CLEANUP`). Before, the overview counted it as
+  NEW, while `results.json` kept the test's own outcome.
+- **A merged rerun drops parameters that are gone.** When a whole file or directory is rerun, old
+  records of test ids it no longer collects leave the report. Before, they stayed until the next
+  full run and broke `test_references_hold_the_same_tests`.
+- **A quoted `[known gap]` is no longer a gap.** `reporting._marked` takes a reason only from the
+  raised `KnownGapError` or from the front of the report (central rules). A self-test whose
+  assertion diff contained the marker had been recorded as a gap without a cause. A check of all
+  run logs found no other case.
+- **The raw error is recorded.** Every failed test (gap, fixed, new) keeps the error as the
+  engine or catalog raised it, before the lab turned it into a gap text (`error` in
+  `results.json`, `comparison_rows.json` and `results/<name>.rows.json.gz`). The line
+  references `results/<name>.jsonl` stay without it, because the messages hold random names
+  and `git diff results/` would show every gap as changed.
+- **The run scripts read a JSON overview.** Every pytest process writes its overview to
+  `LAB_SUMMARY` (`gaps.write_summary`). `scripts/run_summary.py` replaces the awk lines of
+  `run_all.sh`, `run_parallel.sh` and `rerun.sh`. This fixes two silent problems:
+  - the text overview lists 50 entries per section, and the "... and N more" line was dropped;
+  - a pytest process that died before its overview looked like a clean file. It now counts as
+    NEW, with its log.
+
+  `run_all.sh` exits 1 on NEW, and `run_parallel.sh` takes that exit code.
+- **Every test has an area again.** The lab self-tests were recognised by a list of file
+  names: eleven newer self-test files and `tests/catalog/test_gravitino_fronting.py` were
+  "Unassigned" and compared like base tests. A self-test parametrized by engine gave pg_lake on
+  RustFS (everything else not offered there) "1 of 1 works", shown as 100 % in the dashboard.
+  Self-tests are now everything under `tests/selftest/`, the fronting tests are
+  catalog-specific, and a self-test fails on any reference row without an area.
+- **Guards against distorted figures.** That error changed the numbers without failing anything.
+  Three checks now catch that kind of error, whatever its cause:
+  - a test without an area or theme is a NEW failure of the run (`reporting.unclassified`);
+  - the dashboard shows `works/offered`, hatched, instead of a percentage when fewer than 5 % of
+    the planned cases were offered;
+  - `scripts/reference_shifts.py` compares every exported reference with its committed state and
+    prints a `SHIFT` line per engine whose reliability moved by more than 5 points or whose
+    offered cases changed by more than 10 % (`run_all.sh`, `rerun.sh`, `run_parallel.sh`).
+
+  Its first run showed how far the self-tests had reached: the catalog's own tests had about 68
+  offered cases too many on every catalog, and reliability of the reference catalog's own tests
+  drops from 84 % to 76 % without them.
+- **No more `comparison.md`.** The Markdown report each run wrote is gone (about 400 lines
+  of `reporting.py`, barely tested). The dashboard shows the same tables over all catalogs, and
+  `docs/findings.md` keeps what stands out. `results.json` and `comparison_rows.json` stay:
+  the references and the dashboard are built from them.
+- **Facts for bug reports.** `scripts/gap_register.py draft <cause id>` lists, for one cause, the
+  register entry, where the lab sees it, how the same tests end on the other references, the raw
+  errors from the run logs (before the lab's text replaced them) and the lab command.
+  New drafts:
+  - [18](docs/bug-reports/18-gravitino-rest-backend-passes-backend-credentials.md): Gravitino
+    gives a SELECT-only user the backend's write keys. Tested 2026-11-25 with a credential
+    provider on the catalog (also a new catalog): Gravitino still returns Lakekeeper's own key.
+  - [19](docs/bug-reports/19-gravitino-rest-backend-client-errors-as-500.md): the backend's
+    client errors come back as HTTP 500.
+  - [02](docs/bug-reports/02-pg_lake-silent-commit-divergence.md) gains the refused CREATE TABLE.
+
+  `draft` takes the recorded errors first and the run logs only for older runs. A self-test keeps
+  the overview `docs/bug-reports/README.md`, the drafts and the register's `bug_report` links in
+  step. The overview is checked, not generated, because it also keeps withdrawn and fixed
+  reports.
+- **New self-tests:** `test_reporting.py`, `test_export_reference.py`, `test_datatypes.py`,
+  `test_cleanup_storage.py`, `test_bug_drafts.py`, `test_run_summary.py`,
+  `test_cloud_profiles.py` and `test_reference_shifts.py`. Mutations of the code under test (a
+  reversed log pairing, the old Unity check, `-0.0` treated as `0.0`) make them fail.
+  `datatypes.normalize` loses an unreachable geometry branch.
+- **Coverage:** `pytest-cov` is a dev dependency. Branch coverage of the self-tests: 32 % -> 38 %
+  of the lab code; `datatypes` 14 % -> 80 %, `export_reference` 0 % -> 39 %, `cleanup_storage`
+  0 % -> 26 % (the rest is S3 and catalog I/O). See
+  [test-architecture](docs/test-architecture.md) for running it.
+
 ## Lab changes 2026-11-25 (2): Gravitino in front of the other catalogs, web UI login
 
 - **Four new catalog profiles `gravitino_lakekeeper`, `gravitino_polaris`, `gravitino_unity`,

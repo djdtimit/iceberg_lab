@@ -143,7 +143,7 @@ flowchart LR
 | Document | Content |
 |---|---|
 | [docs/setup.md](docs/setup.md) | pg_lake, Flink, authentication per catalog, the other catalogs, services, pinned versions, access modes |
-| [docs/tests.md](docs/tests.md) | the comparison report, layout, every test file, how to read a result, lab adjustments that affect results |
+| [docs/tests.md](docs/tests.md) | the engine comparison, layout, every test file, how to read a result, lab adjustments that affect results |
 | [docs/findings.md](docs/findings.md) | gaps and bugs found, by catalog and engine |
 | [docs/test-architecture.md](docs/test-architecture.md) | base tests vs. special features, themes, what is still open, feature inventory |
 | [docs/bug-reports/](docs/bug-reports/) | drafts of bug reports (not filed) |

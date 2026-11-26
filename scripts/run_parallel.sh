@@ -48,7 +48,7 @@ main() {
   for p in "${pids[@]}"; do wait "$p" || rc=1; done
   for l in "${!lane_specs[@]}"; do
     echo "=== lane $l"
-    grep -E "^##### |^NEW / unexpected|^FIXED gaps|^PROBABLY FIXED|^  tests/" "reports/parallel/lane$l.log"
+    grep -E "^##### |^NEW / unexpected|^FIXED gaps|^PROBABLY FIXED|^Cleanup errors|^SHIFT|^  (tests|reports)/" "reports/parallel/lane$l.log"
   done
   return $rc
 }
@@ -60,10 +60,9 @@ run_lane() {  # run_lane <lane> <spec>...: the lane's catalogs one after the oth
     local catalog=${spec%%:*} nohelp=0
     [[ $spec == *:nohelp ]] && nohelp=1
     echo "##### $spec start $(date -u +%FT%TZ)"
-    CATALOG=$catalog LAB_NO_HELP=$nohelp scripts/run_all.sh | tee "reports/parallel/$catalog$([ $nohelp = 1 ] && echo -nohelp).log"
-    # run_all.sh prints the NEW lines under "NEW / unexpected failures:"
-    if awk '/^NEW \/ unexpected failures:/{on=1; next} /^FIXED gaps/{on=0} on && /^  tests\//{f=1} END{exit !f}' \
-        "reports/parallel/$catalog$([ $nohelp = 1 ] && echo -nohelp).log"; then
+    # run_all.sh exits 1 on a NEW failure (or a pytest process without its overview).
+    if ! CATALOG=$catalog LAB_NO_HELP=$nohelp scripts/run_all.sh \
+        | tee "reports/parallel/$catalog$([ $nohelp = 1 ] && echo -nohelp).log"; then
       rc=1
     fi
     echo "##### $spec done $(date -u +%FT%TZ)"

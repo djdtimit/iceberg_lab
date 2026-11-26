@@ -10777,6 +10777,12 @@
 {"test": "tests/security/test_ui.py::test_ui_data_needs_login", "status": "pass", "detail": ""}
 {"test": "tests/security/test_ui.py::test_ui_login_reaches_the_data", "status": "blocked", "detail": "catalog rustfs's UI logs in with the catalog's own credentials (test_ui_data_needs_login), not through an identity provider"}
 {"test": "tests/security/test_ui.py::test_ui_works_in_the_host_browser", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_affected_and_elsewhere_split_the_references", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_bug_report_overview_matches_the_files_and_the_register", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_draft_names_cause_tests_and_reproduction", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_log_errors_pair_each_failure_with_its_test", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_log_errors_skip_a_log_that_does_not_pair", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_bug_drafts.py::test_recorded_errors_win_over_the_logs", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_every_missing_capability_is_checked_or_proven", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[branch_and_tag]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_capability_registry.py::test_exemptions_belong_to_known_capabilities[computing partition statistics]", "status": "pass", "detail": ""}
@@ -10804,6 +10810,88 @@
 {"test": "tests/selftest/test_catalog_claims.py::test_no_catalog_skips_outside_the_inventory", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_catalog_claims.py::test_offered_by_names_every_describing_catalog", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_catalog_claims.py::test_the_finder_finds_a_hard_coded_catalog_skip", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_decide_keeps_what_is_in_use", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_decide_protects_other_unity_catalogs", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_foreign_prefixes_ask_unity_itself[gravitino_unity]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_foreign_prefixes_ask_unity_itself[unity]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_foreign_prefixes_empty_without_unity", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cleanup_storage.py::test_split_and_roots", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_credential_profile_takes_the_catalogs_defaults", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_incomplete_or_foreign_settings_are_refused[extra0-WAREHOUSE]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_incomplete_or_foreign_settings_are_refused[extra1-TOKEN or]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_incomplete_or_foreign_settings_are_refused[extra2-TOKEN_URL must be on dbc.example.com]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_scope_template_needs_the_role", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_token_profile", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_cloud_profiles.py::test_unset_uri_is_no_profile", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[binary]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[boolean]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[date]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[decimal_10_2]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[decimal_38_10]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[double]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[double_inf]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[double_nan]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[double_neg_zero]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[fixed_4]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[float]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[float_nan]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[geography]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[geometry]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[int]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[list_int]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[list_of_struct]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[long]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[map_string_int]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[string]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[struct]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[time]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[timestamp]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[timestamp_ns]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[timestamptz]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[timestamptz_ns]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[unknown]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[uuid]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_canonical_value_normalizes_to_itself[variant]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[binary-value5]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[decimal_10_2-12345678.90]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[double_nan-NaN]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[double_neg_zero--0.0]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[list_int-value7]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[map_string_int-value10]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[map_string_int-value8]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[map_string_int-value9]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[struct-value11]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[timestamp_ns-2026-11-13 13:45:30.123456789]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[timestamp_ns-value1]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[timestamptz_ns-2026-11-13 13:45:30.123456789 UTC]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[uuid-6f1c2a7e-3b4d-4e5f-9a8b-1c2d3e4f5a6b]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_client_representations_match[uuid-o\\x1c*~;MN_\\x9a\\x8b\\x1c->OZk]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_geometry_wkb_and_wkt_compare_equal", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[decimal_10_2-wrong4]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[double_nan-0.0]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[double_neg_zero-0.0]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[list_int-wrong3]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[struct-wrong6]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[timestamp_ns-wrong0]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_real_differences_stay[uuid-wrong5]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_same_family_accepts_hidden_decimal_parameters_only", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_timestamptz_in_any_zone_is_the_same_instant", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[daft-Decimal-decimal(?)]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[duckdb-GEOMETRY('OGC:CRS84')-geometry]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[duckdb-HUGEINT-other:hugeint]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[flink-BINARY(16) NOT NULL-fixed(16)]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[flink-TIMESTAMP_LTZ(9)-timestamptz_ns]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[pg_lake-integer[]-list]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[polars-Datetime(time_unit='ns', time_zone=None)-timestamp_ns]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[polars-Datetime(time_unit='us', time_zone='UTC')-timestamptz]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[pyiceberg-decimal128(10, 2)-decimal(10,2)]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[spark-timestamp-timestamptz]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[spark-timestamp_ntz-timestamp]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[trino-SphericalGeography-geography]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[trino-row(a integer, b varchar)-struct]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[trino-timestamp(6) with time zone-timestamptz]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[trino-timestamp(9)-timestamp_ns]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_datatypes.py::test_type_family[trino-unknown-unknown]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_classification_names_only_lab_engines", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_engine_inventory_is_recorded[daft]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_engine_inventory_is_recorded[duckdb]", "status": "pass", "detail": ""}
@@ -10821,6 +10909,11 @@
 {"test": "tests/selftest/test_engine_inventory.py::test_every_inventory_entry_is_used_or_classified[pyiceberg]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_every_inventory_entry_is_used_or_classified[spark]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_engine_inventory.py::test_every_inventory_entry_is_used_or_classified[trino]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_export_writes_sorted_lines_without_self", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_history_counts_and_replaces_its_run", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_name_of_report_directories", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_still_exists_follows_the_function", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_export_reference.py::test_with_causes_sets_the_current_reason", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_advertised_endpoints_are_recorded", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[background_tasks]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_feature_inventory.py::test_base_capability_has_a_base_test[catalog_deactivate]", "status": "pass", "detail": ""}
@@ -10923,6 +11016,7 @@
 {"test": "tests/selftest/test_gap_register.py::test_cause_validation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_causes_seen_with_current_versions", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_every_cause_is_used", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_gap_register.py::test_every_reference_row_has_an_area", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_findings_list_is_generated", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_gap_refuses_unknown_cause_and_bad_regex", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_layer_rows_are_inherited_through_gravitino", "status": "pass", "detail": ""}
@@ -10990,6 +11084,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_central_rule_requires_its_traceback_frames", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_central_rules_are_classified", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_central_rules_are_specific", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_collection_records_only_whole_paths_as_scopes", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_every_central_rule_names_engines_or_files", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_every_compared_area_has_a_theme", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_every_function_documents_its_arguments_and_result", "status": "pass", "detail": ""}
@@ -11001,18 +11096,19 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_other_error_comes_through_unchanged", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_expect_gap_without_reason_changes_nothing", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_flaky_history_drops_gaps_a_passing_test_no_longer_declares", "status": "pass", "detail": ""}
-{"test": "tests/selftest/test_lab_selftest.py::test_foreign_blocked_cases_leave_the_engines_coverage", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_after_correct_content_still_feeds_the_reads", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_with_severity_is_accepted_and_classified", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_with_wrong_content_blocks_the_reads", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_gap_without_pattern_is_refused", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_manifest_reads_every_compose_image", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_merged_rerun_drops_parameters_that_are_gone", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_cell_without_checks_is_not_counted", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expect_must_match", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_expectation_of_another_catalog_does_not_count", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_fronted_profile_takes_a_layers_expectation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_with_expectation_passes", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_notebook_limit_without_expectation_fails", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_profile_name_is_not_compared_with_a_layer", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_read_after_failed_producer_is_blocked", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_read_without_producer_in_session_is_not_a_result", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_report_marks_severe_gaps", "status": "pass", "detail": ""}
@@ -11022,6 +11118,7 @@
 {"test": "tests/selftest/test_lab_selftest.py::test_report_takes_the_raised_gap_reason_not_the_docstring", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_severe_sounding_gap_without_severity_is_refused", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_skipped_producer_feeds_no_reads", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_lab_selftest.py::test_teardown_error_is_listed_apart_from_new_failures", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_too_generic_gap_pattern_is_refused[500]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_too_generic_gap_pattern_is_refused[Connection]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_lab_selftest.py::test_too_generic_gap_pattern_is_refused[assert]", "status": "pass", "detail": ""}
@@ -11052,6 +11149,24 @@
 {"test": "tests/selftest/test_na_claims.py::test_engine_has_no_sql_type[trino-geography]", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_na_claims.py::test_pg_lake_creates_only_v2", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
 {"test": "tests/selftest/test_na_claims.py::test_pg_lake_has_no_sigv4", "status": "na", "detail": "pg_lake has no API for SigV4 catalog authentication (rest_auth_type: default, oauth2, horizon, none)"}
+{"test": "tests/selftest/test_reference_shifts.py::test_appeared_and_disappeared", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reference_shifts.py::test_counts_like_the_dashboard", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reference_shifts.py::test_the_pg_lake_case_is_reported", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_central_rule_label_in_front_is_a_gap", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_fixed_gap_and_new_failure", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_intermittent_gap_that_did_not_occur_stays_a_gap", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_known_gap_text_inside_an_assertion_is_new", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_original_error_is_the_one_below_the_lab", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_pass_and_phases", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_raised_known_gap_takes_the_last_raised_reason", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_skip_reasons[Spark failed before: cannot reach the table-blocked]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_skip_reasons[[producer not run in this session]-None]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_skip_reasons[catalog unity has no API for remote signing-na]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_skip_reasons[own result is verified in the producing test-self]", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_reporting.py::test_xfail_mode_is_a_gap", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_run_summary.py::test_all_entries_and_crashes_count", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_run_summary.py::test_clean_run_and_prefixed_kinds", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_run_summary.py::test_missing_summary_file_is_new", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_dataframes.py::test_polars_lazy_groupby", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_duckdb.py::test_three_part_schema_name_creates_the_right_namespace", "status": "pass", "detail": ""}
 {"test": "tests/specific/test_flink.py::test_join_across_warehouses", "status": "na", "detail": "catalog rustfs has no API for remote signing"}

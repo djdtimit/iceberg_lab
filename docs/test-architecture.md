@@ -203,6 +203,22 @@ planning, object storage and credential reach.
 - **Special features**: one list per catalog and per engine, separate from the comparison.
 - Every cell links to its test IDs as evidence.
 
+**Coverage of the lab code** (`pytest-cov`, dev dependency) is a measurement, not a target. It
+measures only the lab's Python code: the engines and catalogs run in their own processes. Two uses:
+
+```
+# what the offline self-tests reach (seconds)
+uv run pytest tests/selftest --cov=src/iceberg_lab --cov=tests/lab --cov=scripts --cov-branch
+# branches a profile never runs (e.g. a check that misses Gravitino-fronted profiles)
+CATALOG=gravitino_unity REPORT_DIR=reports/smoke/cov uv run pytest tests/catalog \
+    --cov=src/iceberg_lab --cov=tests/lab --cov-branch --cov-report=term-missing
+```
+
+Write unit tests for pure logic whose mistakes stay silent: statuses, the export, value
+comparison, what the storage cleanup deletes. Code that talks to live services (`engines.py`,
+`bootstrap.py`, `authz_backends.py`) runs thousands of times in every full run, so a test with
+mocks would test the mock. Use `REPORT_DIR` so a measured run does not touch the full run's report.
+
 ## 5. Open
 
 - Missing infrastructure: partition pruning (an engine-neutral measurement of the files read, e.g.
