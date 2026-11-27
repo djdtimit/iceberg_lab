@@ -31,6 +31,11 @@ if [ "${CLEANUP:-1}" = 1 ]; then
   uv run python scripts/cleanup_storage.py --apply || echo "cleanup failed - continuing with the leftovers"
   echo
 fi
+# This run is in progress (removed on exit): another run's cleanup on the same catalog - e.g.
+# gravitino_<catalog>, which sees this catalog's namespaces - leaves them alone.
+marker="$out/.running.$$"
+echo "$catalog" > "$marker"
+trap 'rm -f "$marker"' EXIT
 LONG_FILES="tests/security/test_sts_expiry.py"
 summary() {  # pytest's summary line (a native library may print after it, e.g. nanobind leak warnings)
   grep -E "[0-9]+ (passed|failed|skipped|errors?)( |,|$)" "$1" | tail -1 | grep . || tail -1 "$1"

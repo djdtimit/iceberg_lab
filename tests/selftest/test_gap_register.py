@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from iceberg_lab.lab import gap_register as gr
-from iceberg_lab.lab import gaps
+from iceberg_lab.lab import gaps, reporting
 
 #: Needs no catalog or engine: runs without the lab (``uv run pytest -m offline``).
 pytestmark = pytest.mark.offline
@@ -296,6 +296,35 @@ def test_every_reference_row_has_an_area():
     }
     unassigned = {k: v for k, v in unassigned.items() if v}
     assert not unassigned, f"tests without an area (reporting.DIMENSIONS): {unassigned}"
+
+
+def test_every_engine_case_names_its_engine():
+    """A compared case whose test id names an engine is charged to an engine.
+
+    Without one it counts at the catalog's own tests: the write cases of
+    test_access_delegation and test_idp_outage did, on every catalog.
+
+    Checks:
+        * no compared row of ``results/<name>.rows.json.gz`` with an engine among its id's
+          parameters has an empty ``engine``.
+    """
+    engines = set(reporting.ENGINE_ORDER)
+    missing = {
+        p.name: sorted(
+            {
+                r["test"].split("[")[0]
+                for r in rows
+                if r["theme"] != "Not compared"
+                and not r["engine"]
+                and "[" in r["test"]
+                and engines & set(r["test"].split("[", 1)[1].rstrip("]").split("-"))
+            }
+        )
+        for p in sorted(RESULTS.glob("*.rows.json.gz"))
+        if (rows := json.loads(gzip.decompress(p.read_bytes())))
+    }
+    missing = {k: v for k, v in missing.items() if v}
+    assert not missing, f"engine cases without an engine (reporting._engine): {missing}"
 
 
 def test_findings_list_is_generated():

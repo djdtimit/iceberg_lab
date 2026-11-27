@@ -20,7 +20,9 @@ eight themes (`THEMES`); without an area it shows up as "unassigned" and is coun
 Guards that keep a lab error from distorting the figures unnoticed:
 
 - a test the area rules (`DIMENSIONS`, `THEMES`) cannot place is a NEW failure of the run
-  (`reporting.unclassified`), not an "Unassigned" row compared like a base test;
+  (`reporting.unclassified`), not an "Unassigned" row compared like a base test; so is a
+  compared case whose parameters name an engine but that is charged to none (it would count
+  at the catalog's own tests);
 - the dashboard shows `works/offered` instead of a percentage when fewer than 5 % of the planned
   cases were offered ("1 of 1 works" is not 100 %);
 - "not offered" needs evidence: a self-test refuses a `has no API` skip decided by a failed
@@ -29,7 +31,10 @@ Guards that keep a lab error from distorting the figures unnoticed:
 - the export prints a `SHIFT` line for rows of another run than the reference's full run;
 - `scripts/reference_shifts.py` (end of `run_all.sh` and `rerun.sh`) prints a `SHIFT` line per
   engine whose reliability moved by more than 5 points, or whose offered cases changed by more
-  than 10 %, against the committed reference - a warning to look at before the commit.
+  than 10 %, against the committed reference - a warning to look at before the commit;
+- a rerun keeps the full run's versions in its manifest and records its own under `reruns`;
+- a full run's cleanup does nothing while another run works on the same catalog (Gravitino in
+  front of a catalog sees its namespaces; `run_parallel.sh` keeps both in one lane).
 
 Further figures, because a plain total over all cases misleads:
 
@@ -46,6 +51,8 @@ Further figures, because a plain total over all cases misleads:
 - **Planned / ran**: every compared case, and those that actually ran (works, gap, new).
 - **Run manifest**: every row names its run; `manifest.json` / `runs.json` record git commit,
   package versions, DuckDB extension versions and image digests (`src/iceberg_lab/lab/manifest.py`).
+  A rerun (`scripts/rerun.sh`) merges its rows into the full run, but keeps its own versions in
+  the run's `reruns`; the dashboard names the versions where they differ.
 
 "Not offered" is never just claimed: tests ask `require(engine, capability, engine_pool)`
 (`src/iceberg_lab/lab/capabilities.py`). The registry `OFFERED` lists who offers a capability;

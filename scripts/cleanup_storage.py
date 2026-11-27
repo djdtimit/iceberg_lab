@@ -15,6 +15,8 @@ Safety rules - nothing that is still in use is deleted:
 - only the roots of this catalog are swept; Unity's second (authz) instance shares the
   bucket path, so the managed storage of every other Unity catalog id is excluded;
 - if listing the catalog fails anywhere, phase 2 is skipped (no delete without a full view);
+- nothing at all while another run works on the same catalog (``concurrent_runs``: Gravitino
+  in front of a catalog sees that catalog's namespaces);
 - a cloud catalog (``PROFILE.remote``) gets phase 1 only.
 
 Usage (dev container): ``CATALOG=polaris uv run python scripts/cleanup_storage.py [--apply]``
@@ -25,8 +27,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import re
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 import boto3
@@ -46,6 +50,57 @@ TEST_NS = re.compile(
     r"|feat_[0-9a-f]{8}(_r)?"
     r"|probe|pyns|statprobe|rbprobe|txprobe|neutral_probe)$"
 )
+
+
+#: Where the run scripts mark a run in progress: ``<report dir>/.running.<pid>`` holding the
+#: catalog (scripts/run_all.sh after its cleanup, scripts/rerun.sh).
+REPORTS = Path(__file__).resolve().parents[1] / "reports"
+
+
+def storage_of(catalog: str) -> str:
+    """The lab catalog whose namespaces and storage a profile works on.
+
+    Gravitino in front of a catalog lists and drops that catalog's own namespaces.
+
+    Args:
+        catalog: Profile name.
+
+    Returns:
+        The backend for a fronted profile, else the profile itself.
+    """
+    p = PROFILES.get(catalog)
+    return (p.fronts or p.name) if p else catalog
+
+
+def concurrent_runs(reports: Path = REPORTS) -> list[str]:
+    """Other lab runs in progress on the same catalog storage as this profile.
+
+    Phase 1 drops every test namespace whatever its age - a run of ``gravitino_lakekeeper``
+    starting beside one of ``lakekeeper`` would drop the namespaces that run is working in.
+
+    Args:
+        reports: The reports directory with the run markers.
+
+    Returns:
+        ``"<catalog> (pid <n>, <report dir>)"`` per live run on the same storage.
+    """
+    mine = storage_of(PROFILE.name)
+    found = []
+    for marker in sorted(reports.glob("**/.running.*")):
+        try:
+            pid = int(marker.name.rsplit(".", 1)[1])
+            os.kill(pid, 0)
+        except (ValueError, ProcessLookupError):
+            continue  # not a marker, or its run has ended without removing it
+        except PermissionError:
+            pass  # alive, another user's process
+        try:
+            catalog = marker.read_text().strip()
+        except OSError:
+            continue
+        if storage_of(catalog) == mine:
+            found.append(f"{catalog} (pid {pid}, {marker.parent})")
+    return found
 
 
 def split(uri: str) -> tuple[str, str]:
@@ -249,6 +304,10 @@ def main() -> int:
 
     mode = "" if args.apply else " (dry run)"
     log(f"cleanup {PROFILE.name}{mode}")
+    busy = concurrent_runs()
+    if busy:
+        log(f"  skipped - a run on the same catalog is in progress: {', '.join(busy)}")
+        return 0
 
     # Phase 1: leftover test namespaces
     cats = {}

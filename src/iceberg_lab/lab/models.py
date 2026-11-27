@@ -2,7 +2,7 @@
 
 * :class:`ResultRow` - one line of a reference in ``results/<name>.jsonl``
 * :class:`RunManifest` - ``manifest.json`` of a run (``lab/manifest.py``), also exported as
-  ``results/<name>.manifest.json``
+  ``results/<name>.manifest.json``; its reruns as :class:`Rerun`
 * :data:`Classification` - ``docs/api/engine-classified.toml``
 
 The known-gap register has its own models (``lab/gap_register.py``).
@@ -41,8 +41,26 @@ class GitState(BaseModel):
     dirty: bool
 
 
+class Rerun(BaseModel):
+    """A rerun merged into a full run (``scripts/rerun.sh``): what ITS rows were produced with."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    started: str
+    finished: str
+    git: GitState
+    packages: dict[str, str]
+    duckdb_extensions: dict[str, str]
+    images_declared: dict[str, str]
+    images_running: dict[str, str]
+
+
 class RunManifest(BaseModel):
-    """What a run's results were produced with (best effort: missing tools leave fields empty)."""
+    """What a run's results were produced with (best effort: missing tools leave fields empty).
+
+    The fields describe the full run; reruns merged into it under its id keep their own
+    versions in ``reruns`` - one rerun on a newer engine must not re-date the whole run.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +74,7 @@ class RunManifest(BaseModel):
     duckdb_extensions: dict[str, str]
     images_declared: dict[str, str]
     images_running: dict[str, str]
+    reruns: list[Rerun] = []
 
 
 #: ``engine -> {API name: "ignored: <reason>" | "untested: <what>"}``.

@@ -5,7 +5,7 @@
  "tests/engines/test_concurrency.py::test_concurrent_appends[duckdb-v3] :: DuckDB gives up a conflicting commit after 5 attempts (4 retries, as many as Iceberg Java's and PyIceberg's default) - with 4 or more writers committing at once all 5 can conflict (409)": 3,
  "tests/engines/test_maintenance.py::test_maintenance[pg_lake-expire_snapshots-v2] :: pg_lake VACUUM expiry is unreliable: the old snapshot stays, or it is removed but its data file stays in storage": 0,
  "tests/engines/test_maintenance.py::test_maintenance_cross_write[pg_lake-expire_snapshots-v2-pg_lake] :: pg_lake 3.7: after VACUUM expired snapshots, its own next INSERT into the table fails - the same manifest path is put into lake_engine.deletion_queue twice": 0,
- "tests/security/test_access_delegation.py::test_remote_signing_is_reliable_under_repeated_commits :: PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)": 0,
+ "tests/security/test_access_delegation.py::test_remote_signing_is_reliable_under_repeated_commits :: PyIceberg race: re-registering the remote signer on a shared s3fs client leaves a window in which requests go out unsigned (RustFS: anonymous -> 403)": 1,
  "tests/security/test_authz.py::test_engine_write_denied_with_select_grant[trino] :: Trino reports a refused write (read-only keys) only as 'Error committing write to Parquet file' - the S3 AccessDenied is not shown": 0,
  "tests/specific/test_spark.py::test_drop_table_purge[sts] :: Spark PURGE races with Lakekeeper's hard delete (intermittent NoSuchKeyException)": 2
 }

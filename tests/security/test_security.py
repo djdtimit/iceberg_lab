@@ -146,7 +146,8 @@ KNOWN_GAPS = gap_table(("catalog", "case"), [
     *(("gravitino_lakekeeper", f"name_{k}_long", r"refused name 'x{300}(_\w{3})?' was created anyway", "gravitino-rest-backend-long-name-left")
       for k in ("table", "namespace")),
     ("gravitino_polaris", "name_namespace_long", r"refused name 'x{300}(_\w{3})?' was created anyway", "gravitino-rest-backend-long-name-left"),
-    ("gravitino_unity", "register_outside", r"ServerError\('NotFoundException: Not Found'\)", "gravitino-rest-backend-advertises-unsupported"),
+    *(("gravitino_unity", c, r"ServerError\('NotFoundException: Not Found'\)", "gravitino-rest-backend-advertises-unsupported")
+      for c in ("register_metadata", "register_outside")),
     ("gravitino_unity", "view_keys", r"406 Client Error: Not Acceptable for url: \S+/namespaces/\w+/views", "gravitino-rest-backend-advertises-unsupported"),
     *(("reference", f"name_{n}", r"accepted name .{1,80} cannot be loaded again: (BadRequestError|HTTPError|NoSuchNamespaceError)", "reference-names-unaddressable")
       for n in ("namespace_traversal", "table_slash", "namespace_slash", "table_backslash", "namespace_backslash", "namespace_newline", "table_percent", "namespace_percent")),
@@ -785,6 +786,13 @@ ESCAPE_CAPABILITY = {c: "iceberg_tables" for c in ESCAPES} | {
     "register_metadata": "iceberg_register",
     "register_outside": "iceberg_register",
 }
+#: What a refusal of a location escape names (observed on every lab catalog): the location
+#: (taken, overlapping, not allowed, outside the metadata directory), the table A's metadata
+#: belongs to, Unity's managed storage, or the refused ``write.data.path`` property.
+ESCAPE_REFUSED = re.compile(
+    r"(?i)location|allowed|metadata directory|belongs to another|managed storage prefix"
+    r"|write\.data\.path"
+)
 SCHEMA = pa.schema([("id", pa.int64()), ("secret", pa.string())])
 
 
@@ -913,8 +921,9 @@ def test_location_cannot_reach_another_table(case, victim):
     write.data.path into A.
 
     Checks:
-        * the catalog refuses (the refusal names the location / allowed locations / metadata
-          directory),
+        * the catalog refuses, and the refusal names its reason (``ESCAPE_REFUSED``: location,
+          allowed locations, metadata directory, ...) - a server fault or timeout is no
+          refusal,
         * or, if accepted, the new table's issued keys do NOT reach A's data file.
         Catalogs without the API for the case: not offered.
 
@@ -959,10 +968,13 @@ def test_location_cannot_reach_another_table(case, victim):
         if PROFILE.server in inv.offered_by(inv.CAPABILITIES[ESCAPE_CAPABILITY[case]]):
             raise
         pytest.skip(f"catalog {PROFILE.name} has no API for this ({exc})")
-    except Exception as exc:  # noqa: BLE001 - refused: that is the expected outcome
-        if case == "register_outside":  # refused for the location, not for a broken file
-            with _gap(case):
-                assert re.search(r"(?i)location|allowed|metadata directory", str(exc)), exc
+    except Exception as exc:  # noqa: BLE001 - refused: checked below that it is a refusal
+        print(f"refused {case}: {type(exc).__module__}.{type(exc).__name__}: {exc}")
+        # Refused for the location - not a server fault, a timeout or a client bug, which
+        # would otherwise count as "safe". The status is not checked: Gravitino answers its
+        # backend's refusals with 500 but keeps their reason.
+        with _gap(case):
+            assert ESCAPE_REFUSED.search(str(exc)), exc
         return
     b = cat.load_table(name)
     reach = _keys_reach(b, a_file)

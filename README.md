@@ -121,7 +121,8 @@ flowchart LR
    uv run pytest -k duckdb            # one engine
    uv run pytest tests/engines/test_types.py  # type matrix (~10–15 min with all engines)
    CATALOG=polaris scripts/run_all.sh # full run on one catalog (cleans up first, ~1–2 h)
-   scripts/run_parallel.sh            # full runs of all catalogs, 2 at a time (PARALLEL=n)
+   scripts/run_parallel.sh            # full runs of all catalogs, 2 at a time (PARALLEL=n;
+                                      # a catalog and Gravitino in front of it share a lane)
    CATALOG=unity scripts/smoke.sh     # quick cross-section (~10 min), own report reports/smoke/
    scripts/rerun.sh tests/x.py        # rerun tests on all catalogs, merged into their full runs
    scripts/rerun.sh --flaky 5         # every intermittent gap 5 times (FIXED? when gone)

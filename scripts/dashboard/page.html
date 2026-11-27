@@ -164,7 +164,7 @@
     </details>
     <details class="more" id="runs">
       <summary>Runs behind these numbers</summary>
-      <p class="note">Results are merged over runs: a targeted rerun replaces single tests. Every row names the run that produced it; the manifest says with which versions.</p>
+      <p class="note">Results are merged over runs: a targeted rerun replaces single tests. Every row names the run that produced it; the manifest says with which versions, and which other versions its reruns used.</p>
       <div class="scroll"><table data-draw="runs" data-source="run_info runs"></table></div>
     </details>
     <details class="more" id="defs">
@@ -204,7 +204,7 @@
     isHelp: (c) => String(c).endsWith('_nohelp'),
     // Catalog columns in display order: each catalog, followed by its run without help.
     order: (cols) => EV.catalogs.flatMap((c) => [c, `${c}_nohelp`]).filter((c) => cols.includes(c)),
-    // Compared rows: the six catalogs (not the runs without help), no special features or demos.
+    // Compared rows: the catalogs (not the runs without help), no special features or demos.
     compared: (r) => !EV.isHelp(r.catalog) && r.theme !== 'Not compared',
     inColumns: (r) => r.theme !== 'Not compared',
     cat: () => dash.params().catalog || 'lakekeeper',
@@ -877,7 +877,7 @@
       }
       const m = (runs.status === 'ok' && runs.data ? runs.data : []).find((x) => x.catalog === r.catalog && (!r.newest || x.run === r.newest));
       const td = tr.insertCell(); td.className = 'wrap';
-      td.textContent = m ? [m.commit && `commit ${m.commit}${m.dirty ? ' (with local changes)' : ''}`, m.packages, m.images].filter(Boolean).join(' · ') : '–';
+      td.textContent = m ? [m.commit && `commit ${m.commit}${m.dirty ? ' (with local changes)' : ''}`, m.packages, m.images, m.reruns].filter(Boolean).join(' · ') : '–';
       for (const s of tr.querySelectorAll('[data-source]')) s.dataset.row = String(i);
     });
   });

@@ -484,6 +484,12 @@ def unclassified() -> list[str]:
             out.append(f"{r['nodeid']}: no area (reporting.DIMENSIONS)")
         elif theme_of(area) == "Other":
             out.append(f"{r['nodeid']}: area {area!r} has no theme (reporting.THEMES)")
+        elif theme_of(area) != "Not compared" and not _engine(r):
+            # An engine's case without its engine counts at the catalog's tests: the
+            # write cases of test_access_delegation did, for every engine.
+            named = sorted({v for v in r["params"].values() if v in ENGINE_ORDER})
+            if named:
+                out.append(f"{r['nodeid']}: involves {named} but has no engine (reporting._engine)")
     return out
 
 
@@ -544,12 +550,11 @@ def _engine(rec) -> str | None:
     if rec["test"] == CROSS_WRITE_TEST:
         return p["writer"]  # about the engine that writes after the other one's maintenance
     for key in ("reader", "engine", "writer", "creator"):
-        if key in p and rec["test"] not in ("test_write",):
-            if rec["test"] in CROSS_READ_TESTS and key == "reader":
-                return p["reader"]
+        if key in p:
             return p[key]
-    if "writer" in p:
-        return p["writer"]
+    # "client": an engine in test_idp_outage, a user elsewhere (lab self-tests).
+    if p.get("client") in ENGINE_ORDER:
+        return p["client"]
     f = rec["file"].removeprefix("test_")
     if f in ("spark", "trino", "duckdb", "pyiceberg", "pglake", "flink"):
         return {"pglake": "pg_lake"}.get(f, f)

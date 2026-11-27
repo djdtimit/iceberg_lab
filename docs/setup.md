@@ -274,7 +274,8 @@ version; the manifest records the installed extension versions), Polars `2.2.0`,
 Keycloak `26.8.2`, OpenFGA `v1.23.0`, Envoy `v1.40.2`,
 Postgres `17.12` (catalog databases) and `19.0` with pg_lake `3.7.1` (built from source; the
 extension itself reports version `3.6`, which is the number the findings use). What a run actually
-ran with is recorded in its manifest (`reports/.../manifest.json`, `results/<catalog>.manifest.json`).
+ran with is recorded in its manifest (`reports/.../manifest.json`, `results/<catalog>.manifest.json`;
+reruns merged into a run under `reruns`, with their own versions).
 Deliberately not the latest:
 
 | Component | Lab | Latest | Reason |

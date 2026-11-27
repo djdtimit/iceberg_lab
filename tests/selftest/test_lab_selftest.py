@@ -801,6 +801,76 @@ def test_manifest_reads_every_compose_image():
     assert declared_images() == expected
 
 
+def test_rerun_keeps_the_full_runs_versions(tmp_path, monkeypatch):
+    """A rerun under the full run's id records its versions apart (``manifest.write``).
+
+    Reruns once overwrote the full run's manifest: a reference made with Polars 2.1.0 and
+    pg_lake 3.7.0 said 2.2.0 and 3.7.1 after a few reruns.
+
+    Checks:
+        * a second process of the full run (no ``LAB_RERUN``) keeps the earliest start;
+        * a rerun leaves the full run's versions and adds itself to ``reruns``;
+        * a second rerun with the same versions only extends that entry, one with other
+          versions adds an entry;
+        * the result is a valid :class:`~iceberg_lab.lab.models.RunManifest`.
+
+    Args:
+        tmp_path: pytest fixture: the report directory.
+        monkeypatch: pytest fixture to fake the run id, the rerun flag and :func:`build`.
+    """
+    from iceberg_lab.lab import manifest
+    from iceberg_lab.lab.models import RunManifest
+
+    def fake(started, finished, polars):
+        """A manifest of one pytest process.
+
+        Args:
+            started: Its start.
+            finished: Its end.
+            polars: Its Polars version.
+
+        Returns:
+            A function standing in for ``manifest.build``.
+        """
+        return lambda catalog, with_help: {
+            "run": "R", "started": started, "finished": finished, "catalog": catalog,
+            "with_help": with_help, "git": {"commit": f"c-{polars}", "dirty": False},
+            "packages": {"polars": polars}, "duckdb_extensions": {}, "images_declared": {},
+            "images_running": {}, "reruns": [],
+        }  # fmt: skip
+
+    def runs():
+        """The full run's manifest in ``runs.json``.
+
+        Returns:
+            The manifest.
+        """
+        return json.loads((tmp_path / "runs.json").read_text())["R"]
+
+    monkeypatch.setattr(manifest, "RUN_ID", "R")
+    monkeypatch.delenv("LAB_RERUN", raising=False)
+    monkeypatch.setattr(manifest, "build", fake("t2", "t3", "2.1.0"))
+    manifest.write(tmp_path, "polaris", True)
+    monkeypatch.setattr(manifest, "build", fake("t1", "t4", "2.1.0"))
+    manifest.write(tmp_path, "polaris", True)
+    assert (runs()["started"], runs()["finished"], runs()["reruns"]) == ("t1", "t4", [])
+
+    monkeypatch.setenv("LAB_RERUN", "1")
+    monkeypatch.setattr(manifest, "build", fake("t5", "t6", "2.2.0"))
+    manifest.write(tmp_path, "polaris", True)
+    monkeypatch.setattr(manifest, "build", fake("t7", "t8", "2.2.0"))
+    manifest.write(tmp_path, "polaris", True)
+    full = runs()
+    assert (full["packages"], full["finished"]) == ({"polars": "2.1.0"}, "t4")
+    assert [(r["started"], r["finished"], r["packages"]) for r in full["reruns"]] == [
+        ("t5", "t8", {"polars": "2.2.0"})
+    ]
+    monkeypatch.setattr(manifest, "build", fake("t9", "t10", "2.3.0"))
+    manifest.write(tmp_path, "polaris", True)
+    assert [r["packages"]["polars"] for r in runs()["reruns"]] == ["2.2.0", "2.3.0"]
+    RunManifest.model_validate(runs())
+
+
 def test_notebook_fronted_profile_takes_a_layers_expectation():
     """Gravitino in front of a catalog: the limit of either layer (Gravitino, the backend) is
     expected; its own key would win, an unrelated catalog's key does not count.

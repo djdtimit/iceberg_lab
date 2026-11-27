@@ -10,7 +10,8 @@
                          nowhere: lab self-tests and cross-reads of an engine's own result.
                          Encoded per column (:func:`compact`); the page's loader decodes it.
     runs.json            one row per recorded run (reports/.../runs.json): catalog, run id,
-                         start, end, git commit, versions of engines and images
+                         start, end, git commit, versions of engines and images, and the
+                         versions its reruns used where they differ
     inventar.json        one row per capability of tests/lab/feature_inventory.py: title, kind and
                          ✓ / ◐ / – per catalog, plus the note
     verlauf.json         one row per catalog and run (results/history/runs.jsonl): status counts, the
@@ -167,6 +168,32 @@ def results() -> list[dict]:
     return rows
 
 
+def rerun_note(m: dict) -> str:
+    """What the reruns merged into a run changed: how many, and the versions that differ from
+    the full run's (src/iceberg_lab/lab/manifest.py ``reruns``).
+
+    Args:
+        m: A run manifest.
+
+    Returns:
+        E.g. ``"3 reruns; polars 2.2.0, pg-lake ...:3.7.1-pg19"``, or "".
+    """
+    reruns = m.get("reruns") or []
+    if not reruns:
+        return ""
+    other: dict[str, str] = {}
+    for r in reruns:
+        for field in ("packages", "images_declared"):
+            for k, v in r.get(field, {}).items():
+                # changed versions only (a service added later ran in no compared row)
+                if m.get(field, {}).get(k) not in (None, v):
+                    other[k] = v  # the latest rerun's version wins
+    count = f"{len(reruns)} rerun{'s' if len(reruns) > 1 else ''}"
+    if not other:
+        return f"{count}, same versions"
+    return f"{count}; some rows with " + ", ".join(f"{k} {v}" for k, v in sorted(other.items()))
+
+
 def runs() -> list[dict]:
     """One row per recorded run of every report directory (src/iceberg_lab/lab/manifest.py).
 
@@ -190,6 +217,7 @@ def runs() -> list[dict]:
                         "dirty": m.get("git", {}).get("dirty", False),
                         "packages": ", ".join(f"{k} {v}" for k, v in m.get("packages", {}).items()),
                         "images": ", ".join(sorted(set(m.get("images_declared", {}).values()))),
+                        "reruns": rerun_note(m),
                     }
                 )
     return sorted(out, key=lambda r: (r["catalog"], r["run"]), reverse=True)

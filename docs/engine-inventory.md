@@ -26,7 +26,7 @@ Per cell: passed / checked (checked = passed + known gap + new failure);
 
 | Area | pyiceberg | duckdb | polars | daft | spark | trino | pg_lake | flink |
 |---|---|---|---|---|---|---|---|---|
-| Access modes | 8/8 | 7/8 | 7/8 | 7/8 | 8/8 | 7/7 | — | 8/8 |
+| Access modes | 16/16 | 13/16 | 15/16 | 14/16 | 15/16 | 13/14 | — | 16/16 |
 | Interop (one writes, all read) | 67/79 | 67/79 | 67/79 | 67/79 | 67/79 | 67/79 | 53/72 | 67/79 |
 | Write types | 228/510 | 422/480 | 200/510 | 228/510 | 406/460 | 428/510 | 44/198 | 404/500 |
 | Read types | 2196/2360 | 2308/2360 | 2298/2360 | 2240/2360 | 2214/2360 | 2308/2360 | 1864/2204 | 2240/2360 |
@@ -67,6 +67,7 @@ Per cell: passed / checked (checked = passed + known gap + new failure);
 | Branch isolation | 20/20 | 20/20 | 20/20 | 20/20 | 20/20 | 20/20 | 8/9 | 20/20 |
 | Re-create with an open session | 20/20 | 20/20 | 20/20 | 20/20 | 0/20 | 20/20 | 8/9 | 0/20 |
 | Files per specification | 40/80 | 90/96 | 40/80 | 40/80 | 72/96 | 72/96 | 10/31 | 54/78 |
+| Token endpoint outage | 25/27 | — | — | — | 25/27 | — | — | — |
 | Connection without help | 9/10 | 7/10 | 9/10 | 9/10 | 8/10 | 9/10 | 2/9 | 10/10 |
 | Credentials: reach and signing | — | 1/1 | 1/1 | 1/1 | — | — | — | — |
 | Maintenance | 6/40 | 22/80 | — | — | 106/120 | 102/120 | 5/45 | 12/120 |

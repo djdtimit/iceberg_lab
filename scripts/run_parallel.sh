@@ -16,17 +16,19 @@ main() {
   local specs=("$@")
   [ ${#specs[@]} -eq 0 ] && specs=(lakekeeper polaris unity rustfs rustfs:nohelp reference gravitino gravitino_lakekeeper gravitino_polaris gravitino_unity gravitino_rustfs)
   local lanes=${PARALLEL:-2}
-  # One lane per group; a catalog and its run without help stay together.
-  local -a groups=()
+  # One lane per group. A group is one catalog's storage: the catalog, its run without help
+  # and Gravitino in front of it (gravitino_<catalog> sees the catalog's namespaces, and each
+  # run's cleanup drops every test namespace it sees) - they never run at the same time.
+  local -a groups=() keys=()
   local s
   for s in "${specs[@]}"; do
-    if [[ $s == *:nohelp ]] && [ ${#groups[@]} -gt 0 ]; then
-      local i found=0
-      for i in "${!groups[@]}"; do
-        if [[ " ${groups[$i]} " == *" ${s%%:*} "* ]]; then groups[$i]+=" $s"; found=1; fi
-      done
-      [ $found = 1 ] && continue
-    fi
+    local key=${s%%:*} i found=0
+    [[ $key == gravitino_* ]] && key=${key#gravitino_}
+    for i in "${!keys[@]}"; do
+      if [ "${keys[$i]}" = "$key" ]; then groups[$i]+=" $s"; found=1; fi
+    done
+    [ $found = 1 ] && continue
+    keys+=("$key")
     groups+=("$s")
   done
   mkdir -p reports/parallel

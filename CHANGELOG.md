@@ -2,6 +2,39 @@
 
 What changed in the lab and what each run found, by date. Current findings by topic: [docs/findings.md](docs/findings.md); the test design: [docs/test-architecture.md](docs/test-architecture.md).
 
+## Lab changes 2026-11-26: a review of the whole lab
+
+A search of the lab for every kind of error found four:
+
+- **Cases without their engine.** `reporting._engine` skipped every parameter of a test named
+  `test_write`. The write cases of `tests/security/test_access_delegation.py` (16 per catalog,
+  parameter `engine`) and the six cases of `test_idp_outage.py` (parameter `client`) went to no
+  engine and were counted as the catalog's own tests. The engines' write results over signing and
+  STS were missing from the comparison, gaps included. Fixed, and rerun on all ten profiles.
+  A compared case whose parameters name an engine but that goes to none is now a NEW failure of
+  the run, and a self-test checks the references for it.
+- **Reruns overwrote the run's versions.** `scripts/rerun.sh` merges its rows under the full run's
+  id, and its manifest replaced the full run's: commit, packages and images. The references of
+  Lakekeeper, Polaris, RustFS, Unity and the REST fixture ran with Polars 2.1.0 and pg_lake 3.7.0
+  but said 2.2.0 and 3.7.1 after the reruns of 2026-11-25. A rerun (`LAB_RERUN=1`) now adds its
+  versions to the run's `reruns`, and the dashboard names the versions some rows ran with. The
+  manifests were rebuilt from their committed history: each run's oldest state, every later state
+  with other versions as a rerun (its start is not known any more).
+- **A security test passed on any error.** `test_location_cannot_reach_another_table` checked the
+  refusal's reason only for `register_outside`. In the other six cases any exception counted as
+  "refused", a server fault or a timeout too. Every refusal must now name its reason (the location,
+  the table the metadata belongs to, Unity's managed storage, `write.data.path`), whatever the
+  status: Gravitino answers its backend's refusals with 500 but keeps their reason. On every
+  catalog the refusals did so; Gravitino in front of Unity answers registering a table with
+  "Not Found", now a gap of `register_metadata` too (as of `register_outside` already).
+- **One run's cleanup could empty another run's namespaces.** The cleanup before a full run drops
+  every test namespace, whatever its age. Gravitino in front of a catalog sees that catalog's
+  namespaces, and `run_parallel.sh` kept the two apart only by the order of its list (with
+  `PARALLEL=4`, Lakekeeper and Gravitino→Lakekeeper ran at the same time). The lanes now group a
+  catalog, its run without help and Gravitino in front of it. `run_all.sh` and `rerun.sh` mark a
+  run in progress (`reports/<catalog>/.running.<pid>`), and the cleanup skips while another live
+  run works on the same catalog.
+
 ## Lab changes 2026-11-25 (3): lab self-checks, bug report facts, coverage
 
 - **`PROFILE.name` is no longer compared with a catalog that can sit behind Gravitino.** A new

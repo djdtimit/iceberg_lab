@@ -10712,7 +10712,7 @@
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[create_inside]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[create_parent]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[create_same]", "status": "pass", "detail": ""}
-{"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[register_metadata]", "status": "pass", "detail": ""}
+{"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[register_metadata]", "status": "gap", "detail": "Through a REST backend, Gravitino advertises its own Iceberg REST endpoints in /v1/config, whatever the backend offers: calls the backend does not have fail late - registering a table in front of Unity (404 'Not Found', a ServerError for PyIceberg), creating a view in front of Unity (406, 'Server does not support endpoint'), renaming a view in front of RustFS - where the backend alone is not offered them", "cause": "gravitino-rest-backend-advertises-unsupported"}
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[register_outside]", "status": "gap", "detail": "Through a REST backend, Gravitino advertises its own Iceberg REST endpoints in /v1/config, whatever the backend offers: calls the backend does not have fail late - registering a table in front of Unity (404 'Not Found', a ServerError for PyIceberg), creating a view in front of Unity (406, 'Server does not support endpoint'), renaming a view in front of RustFS - where the backend alone is not offered them", "cause": "gravitino-rest-backend-advertises-unsupported"}
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[set_location]", "status": "pass", "detail": ""}
 {"test": "tests/security/test_security.py::test_location_cannot_reach_another_table[write_data_path]", "status": "pass", "detail": ""}
@@ -11017,6 +11017,7 @@
 {"test": "tests/selftest/test_gap_register.py::test_cause_validation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_causes_seen_with_current_versions", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_every_cause_is_used", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_gap_register.py::test_every_engine_case_names_its_engine", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_every_reference_row_has_an_area", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_findings_list_is_generated", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_gap_refuses_unknown_cause_and_bad_regex", "status": "pass", "detail": ""}

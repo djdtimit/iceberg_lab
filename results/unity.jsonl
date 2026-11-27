@@ -11017,6 +11017,7 @@
 {"test": "tests/selftest/test_gap_register.py::test_cause_validation", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_causes_seen_with_current_versions", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_every_cause_is_used", "status": "pass", "detail": ""}
+{"test": "tests/selftest/test_gap_register.py::test_every_engine_case_names_its_engine", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_every_reference_row_has_an_area", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_findings_list_is_generated", "status": "pass", "detail": ""}
 {"test": "tests/selftest/test_gap_register.py::test_gap_refuses_unknown_cause_and_bad_regex", "status": "pass", "detail": ""}

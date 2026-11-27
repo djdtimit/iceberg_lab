@@ -42,7 +42,9 @@ if [ "$1" = --flaky ]; then
   set -- FLAKY
 fi
 catalogs="${CATALOGS:-lakekeeper polaris unity rustfs reference gravitino gravitino_lakekeeper gravitino_polaris gravitino_unity gravitino_rustfs}"
-export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230
+# LAB_RERUN=1: the full run's manifest keeps its versions, this rerun's go to its "reruns"
+# (src/iceberg_lab/lab/manifest.py).
+export REQUIRE_ENGINES="${REQUIRE_ENGINES:-all}" REPORT_MERGE=1 COLUMNS=230 LAB_RERUN=1
 suffix=""; [ "${LAB_NO_HELP:-0}" = 1 ] && suffix="-nohelp"
 dir() { if [ "$1$suffix" = lakekeeper ]; then echo reports; else echo "reports/$1$suffix"; fi; }
 
@@ -50,6 +52,10 @@ declare -A run
 for c in $catalogs; do
   run[$c]=$(uv run python scripts/export_reference.py --run-id "$(dir "$c")") || exit 2
 done
+# In progress on these catalogs (removed on exit): a full run's cleanup of the same catalog
+# leaves their namespaces alone (scripts/cleanup_storage.py).
+for c in $catalogs; do echo "$c" > "$(dir "$c")/.running.$$"; done
+trap 'for c in $catalogs; do rm -f "$(dir "$c")/.running.$$"; done' EXIT
 
 new=0
 for c in $catalogs; do

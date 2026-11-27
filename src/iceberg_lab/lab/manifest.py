@@ -8,7 +8,9 @@ runs; the manifest of each run says with which versions they came about:
 * ``runs.json``     - every run whose manifest was recorded here, by run id
 
 ``scripts/run_all.sh`` exports ``LAB_RUN_ID`` so the pytest processes of one full run (one per
-test file) share one id; a single pytest run gets its start time as id.
+test file) share one id; a single pytest run gets its start time as id. ``scripts/rerun.sh``
+runs under the full run's id with ``LAB_RERUN=1``: its versions are added to the full run's
+``reruns`` and never replace the full run's own.
 
 Contents: run id, start and end, catalog, whether lab helps were on, git commit (and whether the
 work tree had changes), versions of the Python engines and clients, the images the compose file
@@ -173,11 +175,40 @@ def build(catalog: str, with_help: bool) -> dict:
     ).model_dump()
 
 
+#: What a rerun records of itself (:class:`~iceberg_lab.lab.models.Rerun`), besides its times.
+RERUN_FIELDS = ("git", "packages", "duckdb_extensions", "images_declared", "images_running")
+
+
+def merge_rerun(full: dict, m: dict) -> dict:
+    """The full run's manifest with a rerun added to its ``reruns``.
+
+    Its own fields stay as they are: the rows of the full run were produced with them. A
+    rerun with the same versions as the one before only extends that one's end.
+
+    Args:
+        full: The full run's manifest (from ``runs.json``).
+        m: The rerun's manifest (:func:`build`).
+
+    Returns:
+        The new manifest of the full run.
+    """
+    entry = {"started": m["started"], "finished": m["finished"]} | {k: m[k] for k in RERUN_FIELDS}
+    reruns = [dict(r) for r in full.get("reruns", [])]
+    if reruns and all(reruns[-1][k] == entry[k] for k in RERUN_FIELDS):
+        reruns[-1]["finished"] = entry["finished"]
+    else:
+        reruns.append(entry)
+    return {**full, "reruns": reruns}
+
+
 def write(report_dir: Path, catalog: str, with_help: bool) -> dict:
     """Write ``manifest.json`` and merge this run into ``runs.json``.
 
     The pytest processes of one full run share the run id: each keeps the earliest start and
-    the latest end.
+    the latest end. A rerun (``LAB_RERUN=1``, scripts/rerun.sh) merges its rows under the full
+    run's id too, but its versions go to the full run's ``reruns`` (:func:`merge_rerun`) - it
+    once overwrote them, and a reference made with Polars 2.1.0 and pg_lake 3.7.0 said 2.2.0
+    and 3.7.1 after a few reruns.
 
     Args:
         report_dir: The report directory.
@@ -185,14 +216,19 @@ def write(report_dir: Path, catalog: str, with_help: bool) -> dict:
         with_help: Whether the lab's helps were on.
 
     Returns:
-        The manifest written.
+        The manifest written to ``manifest.json`` (this process's own).
     """
     m = build(catalog, with_help)
     runs_path = report_dir / "runs.json"
     runs = json.loads(runs_path.read_text()) if runs_path.exists() else {}
-    if RUN_ID in runs:
-        m["started"] = min(m["started"], runs[RUN_ID].get("started", m["started"]))
-    runs[RUN_ID] = m
+    full = runs.get(RUN_ID)
+    if full and os.getenv("LAB_RERUN") == "1":
+        runs[RUN_ID] = merge_rerun(full, m)
+    else:
+        if full:
+            m["started"] = min(m["started"], full.get("started", m["started"]))
+            m["reruns"] = full.get("reruns", [])
+        runs[RUN_ID] = m
     runs_path.write_text(json.dumps(runs, indent=1, sort_keys=True))
     (report_dir / "manifest.json").write_text(json.dumps(m, indent=1, sort_keys=True))
     return m

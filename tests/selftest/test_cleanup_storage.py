@@ -167,3 +167,49 @@ def test_foreign_prefixes_empty_without_unity(cs, monkeypatch):
     for name in ("lakekeeper", "gravitino_polaris"):
         monkeypatch.setattr(cs, "PROFILE", PROFILES[name])
         assert cs.foreign_prefixes() == []
+
+
+def test_cleanup_leaves_a_running_catalog_alone(cs, monkeypatch, tmp_path):
+    """No cleanup while another run works on the same catalog's namespaces.
+
+    Phase 1 drops every test namespace whatever its age; Gravitino in front of a catalog sees
+    that catalog's namespaces, so ``gravitino_lakekeeper``'s cleanup would drop those of a
+    ``lakekeeper`` run beside it.
+
+    Checks:
+        * a live run of the fronted profile, or of the catalog itself, is found - for the
+          catalog and for Gravitino in front of it;
+        * a run of another catalog, a marker whose process has ended and other files are not.
+
+    Args:
+        cs: The cleanup script as a module.
+        monkeypatch: pytest fixture to set the profile under cleanup.
+        tmp_path: pytest fixture: the reports directory.
+    """
+    import os
+
+    def mark(directory, catalog, pid):
+        """Leave a run marker.
+
+        Args:
+            directory: Report directory below ``tmp_path``.
+            catalog: The run's catalog.
+            pid: The run's process id.
+        """
+        (tmp_path / directory).mkdir(exist_ok=True)
+        (tmp_path / directory / f".running.{pid}").write_text(f"{catalog}\n")
+
+    alive, ended = os.getpid(), 99_999_999
+    mark("gravitino_lakekeeper", "gravitino_lakekeeper", alive)
+    mark("polaris", "polaris", alive)
+    mark("unity", "unity", ended)
+    (tmp_path / "unity" / ".running.notes").write_text("unity")
+    monkeypatch.setattr(cs, "PROFILE", PROFILES["lakekeeper"])
+    assert cs.concurrent_runs(tmp_path) == [
+        f"gravitino_lakekeeper (pid {alive}, {tmp_path / 'gravitino_lakekeeper'})"
+    ]
+    monkeypatch.setattr(cs, "PROFILE", PROFILES["gravitino_polaris"])
+    assert cs.concurrent_runs(tmp_path) == [f"polaris (pid {alive}, {tmp_path / 'polaris'})"]
+    for name in ("unity", "gravitino_unity", "gravitino", "rustfs"):
+        monkeypatch.setattr(cs, "PROFILE", PROFILES[name])
+        assert cs.concurrent_runs(tmp_path) == [], name

@@ -9,9 +9,9 @@
   "json": "v2.0.1",
   "parquet": "v2.0.1"
  },
- "finished": "2026-11-26T02:14:02Z",
+ "finished": "2026-11-25T15:33:56Z",
  "git": {
-  "commit": "7fa5cc8d47e297cf076616ee715be0146765fc49",
+  "commit": "bd23aad15bc5f475bee9a215ccc21aa6bcd2c65c",
   "dirty": true
  },
  "images_declared": {
@@ -57,6 +57,188 @@
   "pyspark": "4.1.4",
   "trino": "0.340.0"
  },
+ "reruns": [
+  {
+   "duckdb_extensions": {
+    "avro": "4176191c96",
+    "core_functions": "v2.0.1",
+    "httpfs": "f71cfdb4bf",
+    "iceberg": "f979b5b28a",
+    "icu": "v2.0.1",
+    "json": "v2.0.1",
+    "parquet": "v2.0.1"
+   },
+   "finished": "2026-11-26T01:40:15Z",
+   "git": {
+    "commit": "ffa24e2c43eaf773a66f479d60bf7f1615cec6df",
+    "dirty": true
+   },
+   "images_declared": {
+    "db": "postgres:17",
+    "db-authz": "postgres:17",
+    "flink": "iceberg-lab/flink:2.3.0-iceberg1.12.0-hadoop3.5.0",
+    "gravitino": "apache/gravitino:1.3.1",
+    "gravitino-db-init": "postgres:17",
+    "keycloak": "quay.io/keycloak/keycloak:26.8.2",
+    "keycloak-browser": "python:3.13-alpine",
+    "lakekeeper": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "openfga": "openfga/openfga:v1.23.0",
+    "openfga-db-init": "postgres:17",
+    "openfga-migrate": "openfga/openfga:v1.23.0",
+    "pg-lake": "iceberg-lab/pg-lake:3.7.1-pg19",
+    "polaris": "apache/polaris:1.9.0",
+    "polaris-console": "iceberg-lab/polaris-console:823dddd5fa81",
+    "reference": "apache/iceberg-rest-fixture@sha256:009f9f6897cc1e8fd6e8133c401c7a3e7c333c71293a621d06a71570ae989c29",
+    "rustfs": "rustfs/rustfs:1.0.6",
+    "trino": "trinodb/trino:484",
+    "unity-certs": "eclipse-temurin:17-jdk-noble",
+    "unity-gateway": "envoyproxy/envoy:v1.40.2",
+    "unity-sts-shim": "python:3.13-alpine",
+    "unity-token-shim": "python:3.13-alpine",
+    "unity-ui": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unity-ui-main": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unitycatalog": "unitycatalog/unitycatalog:v0.7.0",
+    "unitycatalog-authz": "unitycatalog/unitycatalog:v0.7.0"
+   },
+   "images_running": {},
+   "packages": {
+    "boto3": "1.43.117",
+    "daft": "0.7.26",
+    "duckdb": "2.0.1",
+    "polars": "2.2.0",
+    "psycopg": "3.3.9",
+    "pyarrow": "25.0.1",
+    "pyiceberg": "0.12.0",
+    "pyiceberg-core": "0.10.1",
+    "pyspark": "4.1.4",
+    "trino": "0.340.0"
+   },
+   "started": ""
+  },
+  {
+   "duckdb_extensions": {
+    "avro": "4176191c96",
+    "core_functions": "v2.0.1",
+    "httpfs": "f71cfdb4bf",
+    "iceberg": "f979b5b28a",
+    "icu": "v2.0.1",
+    "json": "v2.0.1",
+    "parquet": "v2.0.1"
+   },
+   "finished": "2026-11-26T02:14:02Z",
+   "git": {
+    "commit": "7fa5cc8d47e297cf076616ee715be0146765fc49",
+    "dirty": true
+   },
+   "images_declared": {
+    "db": "postgres:17",
+    "db-authz": "postgres:17",
+    "flink": "iceberg-lab/flink:2.3.0-iceberg1.12.0-hadoop3.5.0",
+    "gravitino": "apache/gravitino:1.3.1",
+    "gravitino-db-init": "postgres:17",
+    "keycloak": "quay.io/keycloak/keycloak:26.8.2",
+    "keycloak-browser": "python:3.13-alpine",
+    "lakekeeper": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "openfga": "openfga/openfga:v1.23.0",
+    "openfga-db-init": "postgres:17",
+    "openfga-migrate": "openfga/openfga:v1.23.0",
+    "pg-lake": "iceberg-lab/pg-lake:3.7.1-pg19",
+    "polaris": "apache/polaris:1.9.0",
+    "polaris-console": "iceberg-lab/polaris-console:823dddd5fa81",
+    "reference": "apache/iceberg-rest-fixture@sha256:009f9f6897cc1e8fd6e8133c401c7a3e7c333c71293a621d06a71570ae989c29",
+    "rustfs": "rustfs/rustfs:1.0.6",
+    "trino": "trinodb/trino:484",
+    "unity-certs": "eclipse-temurin:17-jdk-noble",
+    "unity-gateway": "envoyproxy/envoy:v1.40.2",
+    "unity-sts-shim": "python:3.13-alpine",
+    "unity-token-shim": "python:3.13-alpine",
+    "unity-ui": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unity-ui-main": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unitycatalog": "unitycatalog/unitycatalog:v0.7.0",
+    "unitycatalog-authz": "unitycatalog/unitycatalog:v0.7.0"
+   },
+   "images_running": {},
+   "packages": {
+    "boto3": "1.43.117",
+    "daft": "0.7.26",
+    "duckdb": "2.0.1",
+    "polars": "2.2.0",
+    "psycopg": "3.3.9",
+    "pyarrow": "25.0.1",
+    "pyiceberg": "0.12.0",
+    "pyiceberg-core": "0.10.1",
+    "pyspark": "4.1.4",
+    "trino": "0.340.0"
+   },
+   "started": ""
+  },
+  {
+   "duckdb_extensions": {
+    "avro": "4176191c96",
+    "core_functions": "v2.0.1",
+    "httpfs": "f71cfdb4bf",
+    "iceberg": "f979b5b28a",
+    "icu": "v2.0.1",
+    "json": "v2.0.1",
+    "parquet": "v2.0.1"
+   },
+   "finished": "2026-11-26T07:20:16Z",
+   "git": {
+    "commit": "11cf1e76b723e0a49056d6bb246a08807a5e500a",
+    "dirty": true
+   },
+   "images_declared": {
+    "db": "postgres:17",
+    "db-authz": "postgres:17",
+    "flink": "iceberg-lab/flink:2.3.0-iceberg1.12.0-hadoop3.5.0",
+    "gravitino": "apache/gravitino:1.3.1",
+    "gravitino-db-init": "postgres:17",
+    "keycloak": "quay.io/keycloak/keycloak:26.8.2",
+    "keycloak-browser": "python:3.13-alpine",
+    "lakekeeper": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-authz-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "lakekeeper-migrate": "quay.io/lakekeeper/catalog:v0.15.1",
+    "openfga": "openfga/openfga:v1.23.0",
+    "openfga-db-init": "postgres:17",
+    "openfga-migrate": "openfga/openfga:v1.23.0",
+    "pg-lake": "iceberg-lab/pg-lake:3.7.1-pg19",
+    "polaris": "apache/polaris:1.9.0",
+    "polaris-console": "iceberg-lab/polaris-console:823dddd5fa81",
+    "reference": "apache/iceberg-rest-fixture@sha256:009f9f6897cc1e8fd6e8133c401c7a3e7c333c71293a621d06a71570ae989c29",
+    "rustfs": "rustfs/rustfs:1.0.6",
+    "trino": "trinodb/trino:484",
+    "unity-certs": "eclipse-temurin:17-jdk-noble",
+    "unity-gateway": "envoyproxy/envoy:v1.40.2",
+    "unity-sts-shim": "python:3.13-alpine",
+    "unity-token-shim": "python:3.13-alpine",
+    "unity-ui": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unity-ui-main": "unitycatalog/unitycatalog-ui@sha256:3a688197b218a4328a7fc0b8f1b65fcd2f9229b0e3999ae12e284304b85d84f1",
+    "unitycatalog": "unitycatalog/unitycatalog:v0.7.0",
+    "unitycatalog-authz": "unitycatalog/unitycatalog:v0.7.0"
+   },
+   "images_running": {},
+   "packages": {
+    "boto3": "1.43.117",
+    "daft": "0.7.26",
+    "duckdb": "2.0.1",
+    "polars": "2.2.0",
+    "psycopg": "3.3.9",
+    "pyarrow": "25.0.1",
+    "pyiceberg": "0.12.0",
+    "pyiceberg-core": "0.10.1",
+    "pyspark": "4.1.4",
+    "trino": "0.340.0"
+   },
+   "started": "2026-11-26T07:12:13Z"
+  }
+ ],
  "run": "2026-11-25T12:31:03Z",
  "started": "2026-11-25T12:32:18Z",
  "with_help": true

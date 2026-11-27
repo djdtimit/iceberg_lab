@@ -253,3 +253,65 @@ def test_unplaced_test_is_listed_as_new(monkeypatch):
     assert reporting.unclassified() == [
         "tests/engines/test_brand_new.py::test_x[pg_lake]: no area (reporting.DIMENSIONS)"
     ]
+
+
+@pytest.mark.parametrize(
+    ("nodeid", "params", "engine"),
+    [
+        # engine-parametrized tests named test_write: the engine is "engine", not "writer"
+        ("tests/security/test_access_delegation.py::test_write[duckdb-sts]",
+         {"engine": "duckdb", "warehouse": "demo-sts"}, "duckdb"),
+        ("tests/engines/test_types.py::test_write[spark-2-int]",
+         {"writer": "spark", "fv": 2, "case": "int"}, "spark"),
+        ("tests/engines/test_types.py::test_read[spark-trino-2-int]",
+         {"writer": "spark", "reader": "trino", "fv": 2, "case": "int"}, "trino"),
+        # "client": an engine in test_idp_outage, a user in the lab self-tests
+        ("tests/security/test_idp_outage.py::test_recovery[spark]", {"client": "spark"}, "spark"),
+        ("tests/selftest/test_lab_adapters.py::test_t[alice]", {"client": "alice"}, None),
+    ],
+)  # fmt: skip
+def test_engine_of_a_record(nodeid, params, engine):
+    """The engine a record is charged to (``reporting._engine``).
+
+    The write cases of test_access_delegation (parameter ``engine``) once had none and
+    counted at the catalog's tests on every catalog.
+
+    Checks:
+        * the reader for read tests, else the engine/writer parameter, ``client`` when it
+          names an engine.
+
+    Args:
+        nodeid: Test id.
+        params: Its parameters.
+        engine: Expected engine (None: none).
+    """
+    path, test = nodeid.split("::")
+    rec = {"file": path.rsplit("/", 1)[-1].removesuffix(".py"), "test": test.split("[")[0],
+           "params": params}  # fmt: skip
+    assert reporting._engine(rec) == engine
+
+
+def test_engine_case_without_engine_is_listed_as_new(monkeypatch):
+    """A compared case that names an engine but is charged to none fails the run.
+
+    Checks:
+        * a record whose parameters name an engine and ``_engine`` finds none -> listed.
+
+    Args:
+        monkeypatch: pytest fixture to set this session's records and the engine lookup.
+    """
+    rec = {
+        "nodeid": "tests/security/test_access_delegation.py::test_write[duckdb-sts]",
+        "file": "test_access_delegation",
+        "test": "test_write",
+        "params": {"engine": "duckdb", "warehouse": "demo-sts"},
+        "specific": False,
+        "status": "pass",
+        "detail": "",
+    }
+    monkeypatch.setattr(reporting, "_records", {rec["nodeid"]: rec})
+    assert reporting.unclassified() == []
+    monkeypatch.setattr(reporting, "_engine", lambda r: None)
+    assert reporting.unclassified() == [
+        f"{rec['nodeid']}: involves ['duckdb'] but has no engine (reporting._engine)"
+    ]
